@@ -8,6 +8,7 @@ using caTTY.Display.Rendering;
 using caTTY.TermSequenceRpc;
 using caTTY.TermSequenceRpc.SocketRpc;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModMenu;
 using StarMap.API;
 
 namespace caTTY.GameMod;
@@ -23,7 +24,7 @@ public class TerminalMod
     private bool _isDisposed;
     private bool _isInitialized;
     private ITerminalEmulator? _terminal;
-    private bool _terminalVisible;
+    private static bool _terminalVisible = false;
     private ISocketRpcServer? _socketRpcServer;
 
 
@@ -31,6 +32,19 @@ public class TerminalMod
     ///     Gets a value indicating whether the mod should be unloaded immediately.
     /// </summary>
     public bool ImmediateUnload => false;
+
+    /// <summary>
+    ///     ModMenu entry to toggle the terminal window.
+    /// </summary>
+    [ModMenuEntry("caTTY Terminal")]
+    public static void DrawSubMenuEntry()
+    {
+        if (ImGui.MenuItem("caTTY Terminal"))
+        {
+            _terminalVisible = !_terminalVisible;
+            Console.WriteLine($"caTTY Terminal Window {(_terminalVisible ? "shown" : "hidden")}");
+        }
+    }
 
     /// <summary>
     ///     Called after the GUI is rendered.
@@ -50,8 +64,14 @@ public class TerminalMod
             // Handle terminal toggle keybind (F12)
             if (ImGui.IsKeyPressed(ImGuiKey.F12))
             {
-                // Console.WriteLine($"DEBUG: GameMod detected F12 press, current _terminalVisible={_terminalVisible}");
-                ToggleTerminal();
+                _terminalVisible = !_terminalVisible;
+                Console.WriteLine($"caTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
+            }
+
+            // Sync controller visibility with global state (handles both ModMenu and F12 toggles)
+            if (_controller != null && _controller.IsVisible != _terminalVisible)
+            {
+                _controller.IsVisible = _terminalVisible;
             }
 
             // Update and render terminal if visible
@@ -251,15 +271,11 @@ public class TerminalMod
             return;
         }
 
-        Console.WriteLine(
-            $"DEBUG: ToggleTerminal called, changing _terminalVisible from {_terminalVisible} to {!_terminalVisible}");
-
         _terminalVisible = !_terminalVisible;
 
         if (_controller != null)
         {
             _controller.IsVisible = _terminalVisible;
-            // Console.WriteLine($"DEBUG: Set controller.IsVisible to {_terminalVisible}");
         }
 
         Console.WriteLine($"caTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
