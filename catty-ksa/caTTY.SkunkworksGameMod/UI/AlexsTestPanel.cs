@@ -27,7 +27,7 @@ public class AlexsTestPanel
 
         if (ImGui.Button("Move Camera to: Hunter"))
         {
-            var vehicles = Universe.CurrentSystem?.Vehicles.GetList() ?? Enumerable.Empty<Vehicle>();
+            var vehicles = Universe.CurrentSystem?.All.UnsafeAsList().OfType<Vehicle>().ToList() ?? new System.Collections.Generic.List<Vehicle>();
             var hunter = vehicles.First(it => it.Id == "Hunter");
             Universe.MoveCameraTo(hunter);
         }

@@ -108,7 +108,7 @@ public static class StandaloneImGui
             RenderPass = renderer!.MainRenderPass,
             Framebuffer = resources.Framebuffer,
             RenderArea = new VkRect2D(renderer.Extent),
-            ClearValues = rstate!.ClearValues.Ptr,
+            ClearValues = rstate!.ClearValues!.Ptr,
             ClearValueCount = 2
         };
 
