@@ -33,7 +33,7 @@ public class ListCraftsAction : ISocketRpcAction
             // TODO: Expand to list all vehicles when KSA API is better understood
             var controlledVehicle = Program.ControlledVehicle;
 
-            var vehicles = Universe.CurrentSystem?.Vehicles.GetList() ?? Enumerable.Empty<Vehicle>();
+            var vehicles = Universe.CurrentSystem?.All.UnsafeAsList().OfType<Vehicle>().ToList() ?? new List<Vehicle>();
 
             foreach (Vehicle vehicle in vehicles)
             {

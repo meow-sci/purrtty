@@ -10,6 +10,7 @@
     <Project Path="caTTY.CustomShellContract/caTTY.CustomShellContract.csproj" />
     <Project Path="caTTY.CustomShells.Tests/caTTY.CustomShells.Tests.csproj" />
     <Project Path="caTTY.GameMod/caTTY.GameMod.csproj" />
+    <Project Path="caTTY.SkunkworksGameMod/caTTY.SkunkworksGameMod.csproj" />
     <Project Path="caTTY.CustomShells/caTTY.CustomShells.csproj" />
     <Project Path="caTTY.Display.Playground/caTTY.Display.Playground.csproj" />
     <Project Path="caTTY.Display.Tests/caTTY.Display.Tests.csproj" />

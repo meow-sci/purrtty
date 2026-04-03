@@ -53,7 +53,7 @@ public class IgniteAction : ISocketRpcAction
             _logger.LogDebug("Attempting to ignite vehicle: {VehicleId}", vehicleId);
 
             // Find vehicle in Universe
-            var vehicles = Universe.CurrentSystem?.Vehicles.GetList() ?? Enumerable.Empty<Vehicle>();
+            var vehicles = Universe.CurrentSystem?.All.UnsafeAsList().OfType<Vehicle>().ToList() ?? new List<Vehicle>();
             var vehicle = vehicles.FirstOrDefault(v => v.Id == vehicleId);
 
             if (vehicle == null)
