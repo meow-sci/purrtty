@@ -143,12 +143,14 @@ public static class StandaloneImGui
         }
 
         (FrameResources resources, CommandBuffer commandBuffer) = frame;
+        
+        var clearValues = rstate!.ClearValues!.Ptr;
         var begin = new VkRenderPassBeginInfo
         {
             RenderPass = renderer!.MainRenderPass,
             Framebuffer = resources.Framebuffer,
             RenderArea = new VkRect2D(renderer.Extent),
-            ClearValues = rstate!.ClearValues!.Ptr,
+            ClearValues = clearValues!,
             ClearValueCount = 2
         };
 
