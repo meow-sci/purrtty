@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>caTTY.CustomShells</RootNamespace>
+    <AssemblyName>caTTY.CustomShells</AssemblyName>
+    <Description>KSA-specific custom shell implementations for caTTY terminal emulator</Description>
+    <PackageId>caTTY.CustomShells</PackageId>
+    <OutputType>Library</OutputType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\caTTY.CustomShellContract\caTTY.CustomShellContract.csproj" />
+    <ProjectReference Include="..\caTTY.Display\caTTY.Display.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KSA game DLLs for Harmony coordination and ConsoleWindow types -->
+    <Reference Include="Brutal.ImGui.Abstractions" Condition="Exists('$(KSAFolder)/Brutal.ImGui.Abstractions.dll')">
+      <HintPath>$(KSAFolder)/Brutal.ImGui.Abstractions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Brutal.ImGui" Condition="Exists('$(KSAFolder)/Brutal.ImGui.dll')">
+      <HintPath>$(KSAFolder)/Brutal.ImGui.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+      <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>caTTY.CustomShells.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>caTTY.GameMod</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

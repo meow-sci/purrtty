@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <AssemblyName>caTTY.Core.Tests</AssemblyName>
+        <RootNamespace>caTTY.Core.Tests</RootNamespace>
+        <Description>Unit and property-based tests for caTTY.Core</Description>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+        <!-- TODO: FIXME: Core should not need a KSA ref, RPC command handlers for KSA game integration need to be moved out -->
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\caTTY.Core\caTTY.Core.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1"/>
+        <PackageReference Include="NUnit" Version="3.14.0"/>
+        <PackageReference Include="NUnit3TestAdapter" Version="4.6.0"/>
+        <PackageReference Include="NUnit.Analyzers" Version="3.10.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="FsCheck.NUnit" Version="2.16.6"/>
+        <PackageReference Include="coverlet.collector" Version="6.0.2">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Folder Include="Unit\"/>
+        <Folder Include="Property\"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Remove="TestResults\ParseTrxResults.cs" />
+        <None Include="TestResults\ParseTrxResults.cs" />
+    </ItemGroup>
+
+    <Target Name="CleanTestDatabaseFiles" AfterTargets="Clean">
+        <Message Importance="low" Text="Deleting *.db files from $(OutputPath)..." />
+        <ItemGroup>
+            <DbFiles Include="$(OutputPath)\**\*.db" />
+        </ItemGroup>
+        <Delete Files="@(DbFiles)" />
+    </Target>
+
+    <!-- TODO: FIXME: Core should not need a KSA ref, RPC command handlers for KSA game integration need to be moved out -->
+    <ItemGroup>
+        <!-- KSA DLL references -->
+        <!-- <Reference Include="Brutal.Core.Common" Condition="Exists('$(KSAFolder)/Brutal.Core.Common.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Common.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.Core.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Core.Numerics.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Numerics.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.ImGui" Condition="Exists('$(KSAFolder)/Brutal.ImGui.dll')">
+            <HintPath>$(KSAFolder)/Brutal.ImGui.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.Glfw" Condition="Exists('$(KSAFolder)/Brutal.Glfw.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Glfw.dll</HintPath>
+            <Private>false</Private>
+        </Reference> -->
+        <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+            <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+            <Private>true</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>

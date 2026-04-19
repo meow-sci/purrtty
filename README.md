@@ -1,25 +1,124 @@
-# Overall Plan
+# caTTY-cs - C# Terminal Emulator for KSA
 
-To embed the `libghostty-vt` WASM library into a web project to provide some headless terminal emulation capabilities (OSC aka operating system command parsing, SGR aka Select Graphic Rendition parsing and Key Encoding).
+A C# terminal emulator implementation for the Kitten Space Agency (KSA) game engine, translated from the TypeScript caTTY implementation.
 
-Additional state and glue code must be implemented in TypeScript in a headless design which to implement the remaining functionality of a terminal emulator that `libghostty-vt` does not provide.  Together these form the "model" of a MVC design.
+## Project Structure
 
-A well demarcated TypeScript implementation must also be implemented for the "controller" aspect of the terminal emulator which is also headless and will glue together the browser DOM elements and user interaction events and shuffle the data in/out of the model and then paint it to the view.
+```
+catty-ksa/
+├── caTTY.Core/              # Headless terminal logic (no dependencies)
+│   ├── Terminal/            # Core terminal emulation
+│   ├── Input/               # Input processing and encoding
+│   ├── Parsing/             # Escape sequence parsers
+│   ├── Types/               # Data structures and enums
+│   └── Utils/               # Utility functions
+├── caTTY.ImGui/             # ImGui display controller
+│   ├── Controllers/         # Terminal controller
+│   ├── Rendering/           # ImGui rendering logic
+│   └── Input/               # ImGui input handling
+├── caTTY.TestApp/           # Standalone console application
+├── caTTY.GameMod/           # Game mod build target (DLL output)
+├── caTTY.Core.Tests/        # Unit and property tests for Core
+│   ├── Unit/                # Unit tests
+│   └── Property/            # Property-based tests (FsCheck)
+└── caTTY.ImGui.Tests/       # Unit and property tests for ImGui
+    ├── Unit/                # Unit tests
+    └── Integration/         # Integration tests
+```
 
-The view will be a simple browser DOM `<pre>` of a fixed width/height characters that the terminal screen state is projected onto using CSS absolute positioning of each character in a discrete `<span>`
+## Build Commands
 
-Custom code must be created to implement the terminal "frontend", which covers, at least, capturing focus and user input,
-sending that input to libghostty-vt for terminal emulation, and then visually displaying a terminal UI in an ImGui window
-using Vulkan.
+### Build the entire solution
+```bash
+dotnet build
+```
 
+### Run tests
+```bash
+dotnet test
+```
 
-# Technology Overview
+### Run the console test application
+```bash
+dotnet run --project caTTY.TestApp
+```
 
-`libghostty-vt` is a library which provides headless terminal emulation capabilities via a C interface.
+### Build the game mod
+```bash
+dotnet build caTTY.GameMod
+```
 
-libghostty-vt has zero dependencies, is cross-platform and exposes it's API as a extern C interface for maximum interoperatbility and portability.
+The game mod DLL will be output to `caTTY.GameMod/dist/` along with the required `mod.toml` file.
 
+## Dependencies
 
-# Reference Code
+- **.NET 10** - Latest LTS version with C# 13 language features
+- **NUnit 3.14.0** - Testing framework
+- **FsCheck.NUnit 2.16.6** - Property-based testing
+- **StarMap.API 0.3.6** - KSA mod API
+- **Lib.Harmony 2.4.2** - Runtime patching for game integration
 
-The libghostty-vt WASM api (from the C API) has its exported functions noted in `WASM_NOTES.md`
+## KSA Game Integration
+
+The `caTTY.ImGui` and `caTTY.GameMod` projects reference KSA game DLLs from the installation directory:
+- `Brutal.Core.Common.dll`
+- `Brutal.Core.Strings.dll`
+- `Brutal.Core.Numerics.dll`
+- `Brutal.ImGui.dll`
+- `KSA.dll`
+
+The default installation path is `C:\Program Files\Kitten Space Agency\`. This can be overridden by setting the `KSAFolder` property in `Directory.Build.props`.
+
+## Project References
+
+- **caTTY.TestApp** → caTTY.Core
+- **caTTY.ImGui** → caTTY.Core
+- **caTTY.GameMod** → caTTY.ImGui → caTTY.Core
+- **caTTY.Core.Tests** → caTTY.Core
+- **caTTY.ImGui.Tests** → caTTY.ImGui
+
+## Configuration
+
+### Directory.Build.props
+Shared build configuration for all projects:
+- Target Framework: net10.0
+- Language Version: C# 13.0
+- Nullable Reference Types: Enabled
+- Treat Warnings as Errors: Enabled
+- XML Documentation: Enabled
+
+### .editorconfig
+C# formatting and style rules for consistent code formatting across the solution.
+
+## Development Workflow
+
+1. **Develop and test core logic**: Work in `caTTY.Core` with tests in `caTTY.Core.Tests/`
+2. **Test standalone**: Run `caTTY.TestApp` for quick console-based testing
+3. **Integrate with ImGui**: Implement display logic in `caTTY.ImGui` with tests in `caTTY.ImGui.Tests/`
+4. **Deploy to game**: Build `caTTY.GameMod` and copy `dist/` contents to KSA mods folder
+
+### Testing Strategy
+
+The solution follows the conventional .NET pattern of per-project test projects:
+
+- **caTTY.Core.Tests**: Tests the headless terminal logic in isolation
+  - Unit tests for core components (parsers, terminal state, etc.)
+  - Property-based tests for correctness properties using FsCheck
+- **caTTY.ImGui.Tests**: Tests the ImGui integration layer
+  - Unit tests for ImGui controllers and rendering
+  - Integration tests for game engine interaction
+
+This approach provides:
+- Clear separation of concerns
+- Focused test scopes
+- Better maintainability as the project grows
+- Standard .NET testing conventions
+
+## Reference Implementation
+
+The `KsaExampleMod/` folder in the repository root provides a complete working example of KSA game mod structure. Refer to it for:
+- Project file configuration with KSA DLL references
+- Mod metadata file structure (`mod.toml`)
+- StarMap attribute-based mod implementation
+- Harmony patching patterns
+- Asset management and build targets
