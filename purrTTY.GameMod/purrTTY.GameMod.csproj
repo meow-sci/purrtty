@@ -19,6 +19,7 @@
     <!-- Copies files for mod deployment -->
     <Target Name="CopyCustomContent" AfterTargets="AfterBuild">
         <MakeDir Directories="$(DistDir)"/>
+
         <Copy SourceFiles="$(TargetDir)mod.toml" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetDir)mod.toml')"/>
         <Copy SourceFiles="$(ProjectDepsFilePath)" DestinationFolder="$(DistDir)" Condition="Exists('$(ProjectDepsFilePath)')"/>
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetPath)')"/>
@@ -34,7 +35,6 @@
         <Copy SourceFiles="$(TargetDir)purrTTY.TermSequenceRpc.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.TermSequenceRpc.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)Tomlyn.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="ModMenu.Attributes.dll" DestinationFolder="$(DistDir)"/>
 
         <!-- Copy Fonts folder to the build dir-->
         <ItemGroup>
@@ -78,13 +78,6 @@
         <PackageReference Include="StarMap.API" Version="0.3.6">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-    </ItemGroup>
-
-    <ItemGroup>
-        <!-- ModMenu reference -->
-        <Reference Include="ModMenu.Attributes">
-            <HintPath>ModMenu.Attributes.dll</HintPath>
-        </Reference>
     </ItemGroup>
 
     <ItemGroup>

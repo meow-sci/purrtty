@@ -8,7 +8,6 @@ using purrTTY.Display.Rendering;
 using purrTTY.TermSequenceRpc;
 using purrTTY.TermSequenceRpc.SocketRpc;
 using Microsoft.Extensions.Logging.Abstractions;
-using ModMenu;
 using StarMap.API;
 
 namespace purrTTY.GameMod;
@@ -24,7 +23,7 @@ public class TerminalMod
     private bool _isDisposed;
     private bool _isInitialized;
     private ITerminalEmulator? _terminal;
-    private static bool _terminalVisible = false;
+    private bool _terminalVisible;
     private ISocketRpcServer? _socketRpcServer;
 
 
@@ -32,19 +31,6 @@ public class TerminalMod
     ///     Gets a value indicating whether the mod should be unloaded immediately.
     /// </summary>
     public bool ImmediateUnload => false;
-
-    /// <summary>
-    ///     ModMenu entry to toggle the terminal window.
-    /// </summary>
-    [ModMenuEntry("purrTTY Terminal")]
-    public static void DrawSubMenuEntry()
-    {
-        if (ImGui.MenuItem("purrTTY Terminal"))
-        {
-            _terminalVisible = !_terminalVisible;
-            Console.WriteLine($"purrTTY Terminal Window {(_terminalVisible ? "shown" : "hidden")}");
-        }
-    }
 
     /// <summary>
     ///     Called after the GUI is rendered.
@@ -64,14 +50,8 @@ public class TerminalMod
             // Handle terminal toggle keybind (F12)
             if (ImGui.IsKeyPressed(ImGuiKey.F12))
             {
-                _terminalVisible = !_terminalVisible;
-                Console.WriteLine($"purrTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
-            }
-
-            // Sync controller visibility with global state (handles both ModMenu and F12 toggles)
-            if (_controller != null && _controller.IsVisible != _terminalVisible)
-            {
-                _controller.IsVisible = _terminalVisible;
+                // Console.WriteLine($"DEBUG: GameMod detected F12 press, current _terminalVisible={_terminalVisible}");
+                ToggleTerminal();
             }
 
             // Update and render terminal if visible
@@ -271,11 +251,15 @@ public class TerminalMod
             return;
         }
 
+        Console.WriteLine(
+            $"DEBUG: ToggleTerminal called, changing _terminalVisible from {_terminalVisible} to {!_terminalVisible}");
+
         _terminalVisible = !_terminalVisible;
 
         if (_controller != null)
         {
             _controller.IsVisible = _terminalVisible;
+            // Console.WriteLine($"DEBUG: Set controller.IsVisible to {_terminalVisible}");
         }
 
         Console.WriteLine($"purrTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
