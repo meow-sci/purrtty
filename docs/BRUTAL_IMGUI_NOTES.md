@@ -70,7 +70,7 @@ public class FontLoader
       if (!string.IsNullOrEmpty(dllDir))
       {
         string fontsDir = Path.Combine(dllDir, "TerminalFonts");
-        Console.WriteLine($"TestCaTTY GameMod: Loading fonts from directory: {fontsDir}");
+        Console.WriteLine($"TestPurrTTY GameMod: Loading fonts from directory: {fontsDir}");
 
         if (Directory.Exists(fontsDir))
         {
@@ -88,7 +88,7 @@ public class FontLoader
               string fontPath = fontFiles[i];
               string fontName = Path.GetFileNameWithoutExtension(fontPath);
 
-              Console.WriteLine($"TestCaTTY GameMod: Loading font: {fontPath}");
+              Console.WriteLine($"TestPurrTTY GameMod: Loading font: {fontPath}");
 
 
               if (File.Exists(fontPath))
@@ -99,20 +99,20 @@ public class FontLoader
                 ImFontPtr font = atlas.AddFontFromFileTTF(fontPathStr, fontSize);
                 _loadedFonts[fontName] = font;
 
-                Console.WriteLine($"TestCaTTY GameMod: Loaded font '{fontName}' from {fontPath}");
+                Console.WriteLine($"TestPurrTTY GameMod: Loaded font '{fontName}' from {fontPath}");
               }
             }
 
-            Console.WriteLine($"TestCaTTY GameMod: Loaded {_loadedFonts.Count} fonts - {string.Join(", ", _loadedFonts.Keys)}");
+            Console.WriteLine($"TestPurrTTY GameMod: Loaded {_loadedFonts.Count} fonts - {string.Join(", ", _loadedFonts.Keys)}");
           }
           else
           {
-            Console.WriteLine("TestCaTTY GameMod: No font files found in Fonts folder");
+            Console.WriteLine("TestPurrTTY GameMod: No font files found in Fonts folder");
           }
         }
         else
         {
-          Console.WriteLine($"TestCaTTY GameMod: Fonts directory not found at: {fontsDir}");
+          Console.WriteLine($"TestPurrTTY GameMod: Fonts directory not found at: {fontsDir}");
         }
       }
 
@@ -120,7 +120,7 @@ public class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TestCaTTY GameMod: Error loading fonts: {ex.Message}");
+      Console.WriteLine($"TestPurrTTY GameMod: Error loading fonts: {ex.Message}");
     }
   }
 }

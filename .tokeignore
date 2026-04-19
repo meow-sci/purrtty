@@ -1,8 +1,8 @@
 .claude/
-caTTY.Core.Tests/
-caTTY.Display.Playground/
-caTTY.Display.Tests/
-caTTY.Display.TestApp/
-caTTY.Display.TestGameMod/
-caTTY.Display.TestGameMod.Display/
+purrTTY.Core.Tests/
+purrTTY.Display.Playground/
+purrTTY.Display.Tests/
+purrTTY.Display.TestApp/
+purrTTY.Display.TestGameMod/
+purrTTY.Display.TestGameMod.Display/
 scripts/

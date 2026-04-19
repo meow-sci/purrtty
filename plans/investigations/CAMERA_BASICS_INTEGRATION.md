@@ -2,11 +2,11 @@
 
 **Feature**: Camera Basics Panel Integration with Existing Systems  
 **Related Components**: 
-- `caTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
-- `caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
-- `caTTY.SkunkworksGameMod/Camera/Animation/CameraAnimationPlayer.cs`
-- `caTTY.SkunkworksGameMod/Rpc/Actions/CameraOrbitRpcAction.cs`
-- `caTTY.SkunkworksGameMod/SkunkworksMod.cs`
+- `purrTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
+- `purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
+- `purrTTY.SkunkworksGameMod/Camera/Animation/CameraAnimationPlayer.cs`
+- `purrTTY.SkunkworksGameMod/Rpc/Actions/CameraOrbitRpcAction.cs`
+- `purrTTY.SkunkworksGameMod/SkunkworksMod.cs`
 
 **Date Created**: 2026-01-25
 
@@ -763,8 +763,8 @@ If state corruption occurs:
 - **[CAMERA_BASICS_TESTING.md](CAMERA_BASICS_TESTING.md)**: Manual testing checklist for Camera Basics UI and functionality
 - **[CAMERA_BEHAVIOR.md](../CAMERA_BEHAVIOR.md)**: Overall camera feature plan and task breakdown
 - **Source Code**:
-  - [KsaCameraService.cs](../../caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs)
-  - [CameraBasicsPanel.cs](../../caTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs)
-  - [CameraAnimationPlayer.cs](../../caTTY.SkunkworksGameMod/Camera/Animation/CameraAnimationPlayer.cs)
-  - [SkunkworksMod.cs](../../caTTY.SkunkworksGameMod/SkunkworksMod.cs)
-  - [CameraOrbitRpcAction.cs](../../caTTY.SkunkworksGameMod/Rpc/Actions/CameraOrbitRpcAction.cs)
+  - [KsaCameraService.cs](../../purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs)
+  - [CameraBasicsPanel.cs](../../purrTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs)
+  - [CameraAnimationPlayer.cs](../../purrTTY.SkunkworksGameMod/Camera/Animation/CameraAnimationPlayer.cs)
+  - [SkunkworksMod.cs](../../purrTTY.SkunkworksGameMod/SkunkworksMod.cs)
+  - [CameraOrbitRpcAction.cs](../../purrTTY.SkunkworksGameMod/Rpc/Actions/CameraOrbitRpcAction.cs)

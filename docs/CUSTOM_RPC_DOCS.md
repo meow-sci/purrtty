@@ -1,6 +1,6 @@
-# caTTY Custom RPC Commands Documentation
+# purrTTY Custom RPC Commands Documentation
 
-Complete reference for OSC JSON RPC commands in caTTY terminal emulator for Kitten Space Agency (KSA).
+Complete reference for OSC JSON RPC commands in purrTTY terminal emulator for Kitten Space Agency (KSA).
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Complete reference for OSC JSON RPC commands in caTTY terminal emulator for Kitt
 
 ### What is OSC JSON RPC?
 
-caTTY implements a custom RPC (Remote Procedure Call) mechanism using **OSC (Operating System Command) sequences** with JSON payloads. This allows you to control the KSA game engine directly from the terminal using simple escape sequences.
+purrTTY implements a custom RPC (Remote Procedure Call) mechanism using **OSC (Operating System Command) sequences** with JSON payloads. This allows you to control the KSA game engine directly from the terminal using simple escape sequences.
 
 ### Why OSC?
 
@@ -52,7 +52,7 @@ Where:
 
 ### Prerequisites
 
-- caTTY terminal must be running inside the KSA game mod
+- purrTTY terminal must be running inside the KSA game mod
 - Terminal must be visible (press F12 in KSA to toggle)
 - Commands execute immediately upon receipt
 
@@ -93,7 +93,7 @@ echo -ne '\e]1010;{"action":"fc_track_prograde"}\a'
 ### Verifying Commands Work
 
 1. **Game Behavior**: Watch for immediate effect in KSA (engine ignition, UI changes, etc.)
-2. **Terminal Logs**: Check caTTY debug logs for "KSA OSC RPC: ... executed" messages
+2. **Terminal Logs**: Check purrTTY debug logs for "KSA OSC RPC: ... executed" messages
 3. **No Error Messages**: If command is unknown, you'll see "Unknown action" warning in logs
 
 ### Common Issues
@@ -633,10 +633,10 @@ Where:
 
 ### OSC Private-Use Range
 
-caTTY uses OSC command **1010** in the private-use range (1000+):
+purrTTY uses OSC command **1010** in the private-use range (1000+):
 - Standard OSC commands: 0-999 (reserved by terminal standards)
 - Private-use range: 1000+ (application-specific)
-- caTTY JSON actions: 1010
+- purrTTY JSON actions: 1010
 
 This range passes through Windows ConPTY without filtering, unlike DCS (Device Control String) sequences which are often blocked.
 
@@ -668,16 +668,16 @@ This means commands never crash the terminal, even if sent at inappropriate time
 ### Logging and Debugging
 
 **Enable debug logging**:
-1. Set logging level to Debug in caTTY configuration
+1. Set logging level to Debug in purrTTY configuration
 2. Commands log: `"KSA OSC RPC: {Description} executed"`
 3. Unknown actions log: `"KSA OSC RPC: Unknown action '{Action}'"`
 
 **Tracing** (for deep debugging):
 ```csharp
-// In caTTY.Core/Tracing/
+// In purrTTY.Core/Tracing/
 TerminalTracer.Enabled = true;
 ```
-This creates SQLite trace database at `%TEMP%\catty_trace.db` with all RPC events.
+This creates SQLite trace database at `%TEMP%\purrTTY_trace.db` with all RPC events.
 
 ### Architecture Overview
 
@@ -732,7 +732,7 @@ To add new custom commands:
 **Symptoms**: Nothing happens in game when command is sent
 
 **Checks**:
-1. Is caTTY terminal open? (Press F12 to toggle)
+1. Is purrTTY terminal open? (Press F12 to toggle)
 2. Is terminal window focused?
 3. Is JSON syntax valid? (Use online JSON validator)
 4. Is action name spelled correctly? (Case-sensitive!)
@@ -864,9 +864,9 @@ Quick reference table of all 53 available commands:
 ## Additional Resources
 
 - **Architecture Documentation**: See [CLAUDE.md](CLAUDE.md) for full system architecture
-- **Source Code**: Browse `caTTY.TermSequenceRpc/KsaOscRpcHandler.cs` for implementation
-- **Test Examples**: See `caTTY.TermSequenceRpc.Tests/Unit/KsaOscRpcHandlerTests.cs` for usage patterns
-- **RPC Infrastructure**: See `caTTY.Core/Rpc/OscRpcHandler.cs` for base implementation
+- **Source Code**: Browse `purrTTY.TermSequenceRpc/KsaOscRpcHandler.cs` for implementation
+- **Test Examples**: See `purrTTY.TermSequenceRpc.Tests/Unit/KsaOscRpcHandlerTests.cs` for usage patterns
+- **RPC Infrastructure**: See `purrTTY.Core/Rpc/OscRpcHandler.cs` for base implementation
 
 ---
 

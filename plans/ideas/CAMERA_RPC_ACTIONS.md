@@ -2,7 +2,7 @@
 
 This is for a set of new camera related RPC actions.
 
-These actions are to be implemented in the caTTY.SkunkworksGameMod project as an initial test area first.
+These actions are to be implemented in the purrTTY.SkunkworksGameMod project as an initial test area first.
 
 
 ## Instructions
@@ -13,7 +13,7 @@ These actions are to be implemented in the caTTY.SkunkworksGameMod project as an
 
 ## Implementation
 
-- In caTTY.SkunkworksGameMod introduce a copy of ISocketRpcAction 
+- In purrTTY.SkunkworksGameMod introduce a copy of ISocketRpcAction 
 - All actions implemented must adhere to the same ISocketRpcAction contract so they can be moved to the real game mod later
 - All actions should be invokable via the test ImGui panel.  A button to execute and other inputs for settings as needed
 

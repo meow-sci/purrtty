@@ -1,29 +1,28 @@
-# caTTY-cs - C# Terminal Emulator for KSA
+# purrTTY-cs - C# Terminal Emulator for KSA
 
-A C# terminal emulator implementation for the Kitten Space Agency (KSA) game engine, translated from the TypeScript caTTY implementation.
+A C# terminal emulator implementation for the Kitten Space Agency (KSA) game engine, translated from the TypeScript purrTTY implementation.
 
 ## Project Structure
 
 ```
-catty-ksa/
-├── caTTY.Core/              # Headless terminal logic (no dependencies)
-│   ├── Terminal/            # Core terminal emulation
-│   ├── Input/               # Input processing and encoding
-│   ├── Parsing/             # Escape sequence parsers
-│   ├── Types/               # Data structures and enums
-│   └── Utils/               # Utility functions
-├── caTTY.ImGui/             # ImGui display controller
-│   ├── Controllers/         # Terminal controller
-│   ├── Rendering/           # ImGui rendering logic
-│   └── Input/               # ImGui input handling
-├── caTTY.TestApp/           # Standalone console application
-├── caTTY.GameMod/           # Game mod build target (DLL output)
-├── caTTY.Core.Tests/        # Unit and property tests for Core
-│   ├── Unit/                # Unit tests
-│   └── Property/            # Property-based tests (FsCheck)
-└── caTTY.ImGui.Tests/       # Unit and property tests for ImGui
-    ├── Unit/                # Unit tests
-    └── Integration/         # Integration tests
+purrTTY.Core/              # Headless terminal logic (no dependencies)
+├── Terminal/            # Core terminal emulation
+├── Input/               # Input processing and encoding
+├── Parsing/             # Escape sequence parsers
+├── Types/               # Data structures and enums
+└── Utils/               # Utility functions
+purrTTY.ImGui/             # ImGui display controller
+├── Controllers/         # Terminal controller
+├── Rendering/           # ImGui rendering logic
+└── Input/               # ImGui input handling
+purrTTY.TestApp/           # Standalone console application
+purrTTY.GameMod/           # Game mod build target (DLL output)
+purrTTY.Core.Tests/        # Unit and property tests for Core
+├── Unit/                # Unit tests
+└── Property/            # Property-based tests (FsCheck)
+purrTTY.ImGui.Tests/       # Unit and property tests for ImGui
+├── Unit/                # Unit tests
+└── Integration/         # Integration tests
 ```
 
 ## Build Commands
@@ -40,15 +39,15 @@ dotnet test
 
 ### Run the console test application
 ```bash
-dotnet run --project caTTY.TestApp
+dotnet run --project purrTTY.TestApp
 ```
 
 ### Build the game mod
 ```bash
-dotnet build caTTY.GameMod
+dotnet build purrTTY.GameMod
 ```
 
-The game mod DLL will be output to `caTTY.GameMod/dist/` along with the required `mod.toml` file.
+The game mod DLL will be output to `purrTTY.GameMod/dist/` along with the required `mod.toml` file.
 
 ## Dependencies
 
@@ -60,7 +59,7 @@ The game mod DLL will be output to `caTTY.GameMod/dist/` along with the required
 
 ## KSA Game Integration
 
-The `caTTY.ImGui` and `caTTY.GameMod` projects reference KSA game DLLs from the installation directory:
+The `purrTTY.ImGui` and `purrTTY.GameMod` projects reference KSA game DLLs from the installation directory:
 - `Brutal.Core.Common.dll`
 - `Brutal.Core.Strings.dll`
 - `Brutal.Core.Numerics.dll`
@@ -71,11 +70,11 @@ The default installation path is `C:\Program Files\Kitten Space Agency\`. This c
 
 ## Project References
 
-- **caTTY.TestApp** → caTTY.Core
-- **caTTY.ImGui** → caTTY.Core
-- **caTTY.GameMod** → caTTY.ImGui → caTTY.Core
-- **caTTY.Core.Tests** → caTTY.Core
-- **caTTY.ImGui.Tests** → caTTY.ImGui
+- **purrTTY.TestApp** → purrTTY.Core
+- **purrTTY.ImGui** → purrTTY.Core
+- **purrTTY.GameMod** → purrTTY.ImGui → purrTTY.Core
+- **purrTTY.Core.Tests** → purrTTY.Core
+- **purrTTY.ImGui.Tests** → purrTTY.ImGui
 
 ## Configuration
 
@@ -92,19 +91,19 @@ C# formatting and style rules for consistent code formatting across the solution
 
 ## Development Workflow
 
-1. **Develop and test core logic**: Work in `caTTY.Core` with tests in `caTTY.Core.Tests/`
-2. **Test standalone**: Run `caTTY.TestApp` for quick console-based testing
-3. **Integrate with ImGui**: Implement display logic in `caTTY.ImGui` with tests in `caTTY.ImGui.Tests/`
-4. **Deploy to game**: Build `caTTY.GameMod` and copy `dist/` contents to KSA mods folder
+1. **Develop and test core logic**: Work in `purrTTY.Core` with tests in `purrTTY.Core.Tests/`
+2. **Test standalone**: Run `purrTTY.TestApp` for quick console-based testing
+3. **Integrate with ImGui**: Implement display logic in `purrTTY.ImGui` with tests in `purrTTY.ImGui.Tests/`
+4. **Deploy to game**: Build `purrTTY.GameMod` and copy `dist/` contents to KSA mods folder
 
 ### Testing Strategy
 
 The solution follows the conventional .NET pattern of per-project test projects:
 
-- **caTTY.Core.Tests**: Tests the headless terminal logic in isolation
+- **purrTTY.Core.Tests**: Tests the headless terminal logic in isolation
   - Unit tests for core components (parsers, terminal state, etc.)
   - Property-based tests for correctness properties using FsCheck
-- **caTTY.ImGui.Tests**: Tests the ImGui integration layer
+- **purrTTY.ImGui.Tests**: Tests the ImGui integration layer
   - Unit tests for ImGui controllers and rendering
   - Integration tests for game engine interaction
 

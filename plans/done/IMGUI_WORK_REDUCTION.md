@@ -33,7 +33,7 @@ Skip all processing for cells that are empty spaces with default attributes and 
 
 ### Current Behavior
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 The cell rendering loop (lines 207-330) processes every cell regardless of content:
 
@@ -93,7 +93,7 @@ Add an early-exit check at the **beginning** of the cell loop that skips all pro
 
 Add a new method to `SgrAttributes` or create an extension method:
 
-**File:** [caTTY.Core/Types/SgrAttributes.cs](caTTY.Core/Types/SgrAttributes.cs)
+**File:** [purrTTY.Core/Types/SgrAttributes.cs](purrTTY.Core/Types/SgrAttributes.cs)
 
 Add after line 393 (after `public static SgrAttributes Default => new();`):
 
@@ -118,7 +118,7 @@ public bool IsDefault =>
 
 #### Step 2: Add Early Exit in Cell Loop
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Modify the cell loop starting at line 207. Insert early-exit logic immediately after reading the cell:
 
@@ -234,7 +234,7 @@ Avoid calling `currentSelection.Contains(row, col)` for every cell. Instead, com
 
 ### Current Behavior
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Lines 221-233 check selection for every cell:
 
@@ -250,7 +250,7 @@ else
 }
 ```
 
-**File:** [caTTY.Display/Types/TextSelection.cs](caTTY.Display/Types/TextSelection.cs)
+**File:** [purrTTY.Display/Types/TextSelection.cs](purrTTY.Display/Types/TextSelection.cs)
 
 The `TextSelection` struct likely has `StartRow`, `EndRow`, `StartCol`, `EndCol` properties and a `Contains(int row, int col)` method.
 
@@ -266,7 +266,7 @@ Pre-compute row-level selection bounds once per row, eliminating `Contains()` ca
 
 #### Step 1: Add Row-Overlap Check to TextSelection
 
-**File:** [caTTY.Display/Types/TextSelection.cs](caTTY.Display/Types/TextSelection.cs)
+**File:** [purrTTY.Display/Types/TextSelection.cs](purrTTY.Display/Types/TextSelection.cs)
 
 Add a method to check if a row could possibly contain selected cells:
 
@@ -286,7 +286,7 @@ public bool RowMightBeSelected(int row)
 
 #### Step 2: Cache Row Selection State in Render Loop
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Add a per-row variable before the column loop (around line 133, inside the row loop):
 
@@ -350,7 +350,7 @@ Skip entire rows that contain only default empty cells and have no selection ove
 
 ### Current Behavior
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 The row loop (lines 128-331) always iterates through all columns for every row:
 
@@ -382,7 +382,7 @@ Add a row-level scan to detect if a row has any content worth rendering, and ski
 
 #### Step 1: Add Row Content Detection
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Add a helper method to the class:
 
@@ -479,7 +479,7 @@ Reduce `drawList.AddRectFilled()` calls by combining contiguous same-color backg
 
 ### Current Behavior
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Background drawing (lines 258-281) draws one rectangle per cell with explicit background:
 
@@ -666,7 +666,7 @@ Replace multiple sequential function calls for color/style processing with a sin
 
 ### Current Behavior
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Lines 240-252 perform 5 separate operations per cell:
 
@@ -704,7 +704,7 @@ Create a fused method that handles all color processing in one call, with early 
 
 #### Step 1: Add Fused Resolution Method
 
-**File:** [caTTY.Display/Rendering/CachedColorResolver.cs](caTTY.Display/Rendering/CachedColorResolver.cs)
+**File:** [purrTTY.Display/Rendering/CachedColorResolver.cs](purrTTY.Display/Rendering/CachedColorResolver.cs)
 
 Add a new method:
 
@@ -777,7 +777,7 @@ public void ResolveCellColors(
 
 #### Step 2: Update Render Loop to Use Fused Method
 
-**File:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+**File:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
 
 Replace lines 240-252:
 

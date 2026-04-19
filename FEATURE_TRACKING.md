@@ -1,6 +1,6 @@
-# caTTY KSA Feature Tracking
+# purrTTY KSA Feature Tracking
 
-This document tracks the implementation status of terminal emulation features in the C# caTTY KSA project, comparing against the TypeScript reference implementation and planned spec tasks.
+This document tracks the implementation status of terminal emulation features in the C# purrTTY KSA project, comparing against the TypeScript reference implementation and planned spec tasks.
 
 ## Legend
 - ✅ **Implemented**: Feature is fully implemented and tested

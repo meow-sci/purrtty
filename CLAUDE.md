@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-caTTY-cs is a C# terminal emulator for the Kitten Space Agency (KSA) game engine, providing full VT100/xterm-compatible terminal emulation. The project is structured as a .NET 10 solution with a headless core library and game-specific display layer.
+purrTTY-cs is a C# terminal emulator for the Kitten Space Agency (KSA) game engine, providing full VT100/xterm-compatible terminal emulation. The project is structured as a .NET 10 solution with a headless core library and game-specific display layer.
 
 ## Build and Test Commands
 
 ### Building
 ```bash
 dotnet build                    # Build entire solution
-dotnet build caTTY.Core         # Build core library only
-dotnet build caTTY.GameMod      # Build game mod (outputs to caTTY.GameMod/dist/)
+dotnet build purrTTY.Core         # Build core library only
+dotnet build purrTTY.GameMod      # Build game mod (outputs to purrTTY.GameMod/dist/)
 ```
 
 ### Testing
@@ -30,28 +30,28 @@ The script runs dotnet test, saves results to `.testresults/results.trx`, then a
 
 ### Running
 ```bash
-dotnet run --project caTTY.TestApp                   # Run standalone console app
+dotnet run --project purrTTY.TestApp                   # Run standalone console app
 ```
 
 ## Architecture
 
 ### Project Dependencies
 ```
-caTTY.Core (headless, no game dependencies)
+purrTTY.Core (headless, no game dependencies)
     ↑
-    ├── caTTY.TermSequenceRpc (KSA-specific RPC handlers)
+    ├── purrTTY.TermSequenceRpc (KSA-specific RPC handlers)
     │       ↑
-    │       └── caTTY.TermSequenceRpc.Tests
-    ├── caTTY.TestApp (console app)
-    ├── caTTY.Core.Tests (unit & property tests)
-    └── caTTY.Display (ImGui integration, depends on KSA DLLs)
+    │       └── purrTTY.TermSequenceRpc.Tests
+    ├── purrTTY.TestApp (console app)
+    ├── purrTTY.Core.Tests (unit & property tests)
+    └── purrTTY.Display (ImGui integration, depends on KSA DLLs)
             ↑
-            ├── caTTY.Display.Playground
-            ├── caTTY.Display.Tests
-            └── caTTY.GameMod (final game mod DLL, includes mod.toml)
+            ├── purrTTY.Display.Playground
+            ├── purrTTY.Display.Tests
+            └── purrTTY.GameMod (final game mod DLL, includes mod.toml)
 ```
 
-### Core Architecture (caTTY.Core)
+### Core Architecture (purrTTY.Core)
 
 The terminal emulator follows a multi-stage parsing and execution pipeline:
 
@@ -73,7 +73,7 @@ The terminal emulator follows a multi-stage parsing and execution pipeline:
 - `Parsing/`: Escape sequence parsers (CSI, OSC, ESC, DCS)
 - `Terminal/`: Core terminal logic, process management, custom shell support
 - `Rpc/`: RPC mechanisms for game integration (both CSI and OSC-based)
-- `Tracing/`: SQLite-based logging for debugging (disabled by default, see caTTY.Core/Tracing/README.md)
+- `Tracing/`: SQLite-based logging for debugging (disabled by default, see purrTTY.Core/Tracing/README.md)
 - `Types/`: Data structures (Cell, Cursor, ScreenBuffer, messages)
 - `Utils/`: Character classification, UTF-8 handling
 
@@ -83,7 +83,7 @@ RPC is **optional** and game-agnostic. Core defines interfaces, game projects im
 
 - **CSI RPC**: Command sequences via CSI private-use functions (commands 1000+)
   - Core infrastructure: `Rpc/IRpcHandler.cs`, `Rpc/RpcCommandRouter.cs`, `Rpc/IRpcCommandHandler.cs`
-  - KSA implementation: `caTTY.TermSequenceRpc/KsaGameActionRegistry.cs`, `VehicleCommands/`
+  - KSA implementation: `purrTTY.TermSequenceRpc/KsaGameActionRegistry.cs`, `VehicleCommands/`
   - Format: CSI-based with fire-and-forget (1001-1999) or query (2001-2999) patterns
 
 - **OSC RPC**: Uses OSC sequences in private-use range (1000+) for JSON action dispatch
@@ -93,17 +93,17 @@ RPC is **optional** and game-agnostic. Core defines interfaces, game projects im
     - `Terminal/ParserHandlers/OscHandler.cs`: Delegates private commands to injected handler
     - `Rpc/IOscRpcHandler.cs`: RPC interface (abstract)
     - `Rpc/OscRpcHandler.cs`: Abstract base with JSON parsing infrastructure
-  - KSA implementation: `caTTY.TermSequenceRpc/KsaOscRpcHandler.cs`
+  - KSA implementation: `purrTTY.TermSequenceRpc/KsaOscRpcHandler.cs`
   - Why OSC instead of DCS: Windows ConPTY filters DCS sequences but passes OSC through
 
 **RPC Integration Pattern:**
 ```csharp
-// For KSA game integration (in caTTY.GameMod):
-using caTTY.TermSequenceRpc;
+// For KSA game integration (in purrTTY.GameMod):
+using purrTTY.TermSequenceRpc;
 var (rpcHandler, oscRpcHandler) = RpcBootstrapper.CreateKsaRpcHandlers(logger, outputCallback);
 var terminal = TerminalEmulator.Create(80, 24, 2500, logger, rpcHandler, oscRpcHandler);
 
-// Without RPC (in caTTY.TestApp):
+// Without RPC (in purrTTY.TestApp):
 var terminal = TerminalEmulator.Create(80, 24, 2500, logger);
 
 // With custom RPC implementation:
@@ -111,7 +111,7 @@ var customOscHandler = new MyCustomOscRpcHandler(logger);
 var terminal = TerminalEmulator.Create(80, 24, 2500, logger, null, customOscHandler);
 ```
 
-### Display Layer (caTTY.Display)
+### Display Layer (purrTTY.Display)
 
 **Controllers:**
 - `TerminalController`: Bridges `TerminalEmulator` with ImGui rendering
@@ -125,7 +125,7 @@ var terminal = TerminalEmulator.Create(80, 24, 2500, logger, null, customOscHand
 - KSA game DLLs from `C:\Program Files\Kitten Space Agency\` (configurable via `KSAFolder` in Directory.Build.props)
 - `Brutal.Core.Common.dll`, `Brutal.ImGui.dll`, `KSA.dll`, etc.
 
-### RPC Layer (caTTY.TermSequenceRpc)
+### RPC Layer (purrTTY.TermSequenceRpc)
 
 **KSA-specific RPC implementations:**
 - `KsaOscRpcHandler`: OSC RPC implementation with KSA game engine integration
@@ -135,7 +135,7 @@ var terminal = TerminalEmulator.Create(80, 24, 2500, logger, null, customOscHand
 
 **Purpose**: Isolates all game-specific RPC code from Core. Core remains headless and game-agnostic, defining only interfaces.
 
-### Game Mod (caTTY.GameMod)
+### Game Mod (purrTTY.GameMod)
 
 - StarMap.API-based mod with `[StarMapMod]` attribute
 - Lifecycle hooks: `[StarMapAllModsLoaded]`, `[StarMapAfterGui]`, `[StarMapUnload]`
@@ -148,7 +148,7 @@ var terminal = TerminalEmulator.Create(80, 24, 2500, logger, null, customOscHand
 ### Testing Strategy
 - **Unit tests**: Per-component tests in matching test projects
 - **Property tests**: FsCheck-based in `Property/` folders
-- **Test organization**: Mirrors source structure (e.g., `caTTY.Core.Tests/Unit/ProcessManagerTests.cs` → `caTTY.Core/Terminal/ProcessManager.cs`)
+- **Test organization**: Mirrors source structure (e.g., `purrTTY.Core.Tests/Unit/ProcessManagerTests.cs` → `purrTTY.Core/Terminal/ProcessManager.cs`)
 - **Test execution**: MUST use `.\scripts\dotnet-test.ps1` to avoid massive stdout bloat
 
 ### Refactoring Goals
@@ -165,10 +165,10 @@ The codebase is undergoing refactoring to break `TerminalEmulator.cs` (2500 LOC)
 - All projects generate XML documentation
 
 ### Tracing
-- SQLite-based tracing in `caTTY.Core/Tracing/`
+- SQLite-based tracing in `purrTTY.Core/Tracing/`
 - Disabled by default for performance
 - Enable with `TerminalTracer.Enabled = true`
-- Database location: `%TEMP%\catty_trace.db` (Windows)
+- Database location: `%TEMP%\purrTTY_trace.db` (Windows)
 
 ### Tools
 - ALWAYS use bun to run .ts scripts
@@ -179,30 +179,30 @@ The codebase is undergoing refactoring to break `TerminalEmulator.cs` (2500 LOC)
 1. Add parsing logic to appropriate parser (e.g., `CsiParser.cs`)
 2. Define message type if needed (e.g., in `Types/CsiMessage.cs`)
 3. Add handler in `TerminalEmulator.cs` (or appropriate ops class if refactored)
-4. Add unit tests in `caTTY.Core.Tests/`
+4. Add unit tests in `purrTTY.Core.Tests/`
 5. Run tests with `.\scripts\dotnet-test.ps1`
 
 ### Adding a new RPC command (OSC-based)
-1. Add action constant to `caTTY.TermSequenceRpc/KsaOscRpcHandler.cs` `Actions` class
+1. Add action constant to `purrTTY.TermSequenceRpc/KsaOscRpcHandler.cs` `Actions` class
 2. Add dispatch case in `KsaOscRpcHandler.DispatchAction()`
-3. Add unit tests in `caTTY.TermSequenceRpc.Tests/Unit/KsaOscRpcHandlerTests.cs`
+3. Add unit tests in `purrTTY.TermSequenceRpc.Tests/Unit/KsaOscRpcHandlerTests.cs`
 4. Use from shell: `echo -ne '\e]1010;{"action":"your_action"}\a'`
 
 ### Adding a new RPC command (CSI-based)
-1. Create command handler implementing `IRpcCommandHandler` in `caTTY.TermSequenceRpc/VehicleCommands/`
+1. Create command handler implementing `IRpcCommandHandler` in `purrTTY.TermSequenceRpc/VehicleCommands/`
 2. Register in `KsaGameActionRegistry.RegisterVehicleCommands()`
 3. Commands 1001-1999 are fire-and-forget, 2001-2999 are queries
-4. Add tests in `caTTY.TermSequenceRpc.Tests/Unit/`
+4. Add tests in `purrTTY.TermSequenceRpc.Tests/Unit/`
 
 ### Testing terminal behavior
-1. Use `caTTY.TestApp` for quick console testing
-2. Add unit tests in `caTTY.Core.Tests/`
-3. For display issues, test with `caTTY.Display.Playground` or full game mod
+1. Use `purrTTY.TestApp` for quick console testing
+2. Add unit tests in `purrTTY.Core.Tests/`
+3. For display issues, test with `purrTTY.Display.Playground` or full game mod
 4. Always run tests via `.\scripts\dotnet-test.ps1`
 
 ### Deploying game mod
-1. Build: `dotnet build caTTY.GameMod`
-2. Copy `caTTY.GameMod/dist/*` to KSA mods folder
+1. Build: `dotnet build purrTTY.GameMod`
+2. Copy `purrTTY.GameMod/dist/*` to KSA mods folder
 3. Launch KSA, press F12 to toggle terminal
 
 ## Important Files
@@ -210,7 +210,7 @@ The codebase is undergoing refactoring to break `TerminalEmulator.cs` (2500 LOC)
 - `Directory.Build.props`: Shared build configuration, KSA installation path
 - `.editorconfig`: C# formatting rules
 - `FEATURE_TRACKING.md`: VT100/xterm feature implementation status
-- `caTTY.Core/Tracing/README.md`: Tracing system documentation
-- `caTTY.GameMod/README.md`: Game mod installation and usage guide
+- `purrTTY.Core/Tracing/README.md`: Tracing system documentation
+- `purrTTY.GameMod/README.md`: Game mod installation and usage guide
 - `scripts/dotnet-test.ps1`: Test runner that suppresses verbose output and auto-parses results (MUST USE THIS)
 - `scripts/test-errors.ts`: TRX parser (automatically invoked by dotnet-test.ps1)

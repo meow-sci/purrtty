@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>purrTTY.Core.Terminal</RootNamespace>
+    <AssemblyName>purrTTY.CustomShellContract</AssemblyName>
+    <Description>Custom shell contract interfaces for purrTTY terminal emulator</Description>
+    <PackageId>purrTTY.CustomShellContract</PackageId>
+  </PropertyGroup>
+
+</Project>

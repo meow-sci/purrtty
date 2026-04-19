@@ -1,10 +1,10 @@
-# ImGui Render-Loop Optimization Analysis (caTTY) - v3 (Post-Refactor)
+# ImGui Render-Loop Optimization Analysis (purrTTY) - v3 (Post-Refactor)
 
 > **Last Updated:** January 5, 2026  
 > **Status:** Planning / Analysis Complete (Updated for Refactored Codebase)  
 > **Supersedes:** IMGUI_IMPROVEMENTS_opus4.5.md v2
 > 
-> **Note:** This analysis has been updated to reflect the recent codebase refactor where `TerminalController` was split into multiple specialized service classes under `caTTY.Display/Controllers/TerminalUi/`. The refactor was **location-only** (no logical changes), so all performance concerns remain valid.
+> **Note:** This analysis has been updated to reflect the recent codebase refactor where `TerminalController` was split into multiple specialized service classes under `purrTTY.Display/Controllers/TerminalUi/`. The refactor was **location-only** (no logical changes), so all performance concerns remain valid.
 
 ## Goal / Ideal Architecture
 
@@ -25,15 +25,15 @@ In practice, this usually means:
 ### Data path (process output → terminal state)
 - `ProcessManager` reads ConPTY output asynchronously and raises `DataReceived`.
 - `TerminalSession` subscribes to `ProcessManager.DataReceived` and immediately forwards bytes to the emulator:
-  - [TerminalSession.cs#L235-L238](caTTY.Core/Terminal/TerminalSession.cs#L235-L238): `OnProcessDataReceived` → `Terminal.Write(e.Data.Span)`
+  - [TerminalSession.cs#L235-L238](purrTTY.Core/Terminal/TerminalSession.cs#L235-L238): `OnProcessDataReceived` → `Terminal.Write(e.Data.Span)`
 - `TerminalEmulator.Write(ReadOnlySpan<byte>)` does parsing/state updates immediately:
   - `_parser.PushBytes(data)`
-  - [TerminalEmulator.cs#L777-L779](caTTY.Core/Terminal/TerminalEmulator.cs#L777-L779): `OnScreenUpdated()` triggers events
+  - [TerminalEmulator.cs#L777-L779](purrTTY.Core/Terminal/TerminalEmulator.cs#L777-L779): `OnScreenUpdated()` triggers events
 
 **Implication:** Terminal state mutation happens on the process output thread (not necessarily the UI thread). This creates potential race conditions between emulation and rendering.
 
 ### Data path (terminal state → ImGui draw)
-- `TerminalTestApp` runs per-frame inside the ImGui callback ([TerminalTestApp.cs#L131-L136](caTTY.TestApp/TerminalTestApp.cs#L131-L136)):
+- `TerminalTestApp` runs per-frame inside the ImGui callback ([TerminalTestApp.cs#L131-L136](purrTTY.TestApp/TerminalTestApp.cs#L131-L136)):
   ```csharp
   StandaloneImGui.Run((deltaTime) => 
   {
@@ -42,11 +42,11 @@ In practice, this usually means:
   });
   ```
 - **Refactored rendering pipeline:**
-  - [TerminalController.cs#L370](caTTY.Display/Controllers/TerminalController.cs#L370): `Render()` → `RenderTerminalCanvas()` (line 1016)
-  - [TerminalController.cs#L830-L841](caTTY.Display/Controllers/TerminalController.cs#L830-L841): `RenderTerminalContent()` delegates to service
-  - [TerminalUiRender.cs#L29-L121](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L29-L121): **Actual heavy work happens here**
+  - [TerminalController.cs#L370](purrTTY.Display/Controllers/TerminalController.cs#L370): `Render()` → `RenderTerminalCanvas()` (line 1016)
+  - [TerminalController.cs#L830-L841](purrTTY.Display/Controllers/TerminalController.cs#L830-L841): `RenderTerminalContent()` delegates to service
+  - [TerminalUiRender.cs#L29-L121](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L29-L121): **Actual heavy work happens here**
 
-- `TerminalUiRender.RenderTerminalContent()` performs heavy per-frame work ([TerminalUiRender.cs#L78-L105](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L78-L105)):
+- `TerminalUiRender.RenderTerminalContent()` performs heavy per-frame work ([TerminalUiRender.cs#L78-L105](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L78-L105)):
   1. **Screen buffer copy** - Copies **every row** from `ScreenBuffer` into new `Cell[]` arrays:
      ```csharp
      var screenBuffer = new ReadOnlyMemory<Cell>[activeSession.Terminal.Height];
@@ -62,12 +62,12 @@ In practice, this usually means:
      - Allocates a new `List<ReadOnlyMemory<Cell>>` per call
      - For scrollback rows, allocates new `Cell[]` and copies into it
   3. **Cell loop render** - Iterates every cell and calls `RenderCell()`:
-     - [TerminalUiRender.cs#L133-L194](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L133-L194): Allocates `cell.Character.ToString()` per drawn character (line 187)
+     - [TerminalUiRender.cs#L133-L194](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L133-L194): Allocates `cell.Character.ToString()` per drawn character (line 187)
      - Does `ImGui.PushFont/PopFont` per character (lines 185-191)
 
 ### Additional Allocation Sources
 
-1. **ScreenBuffer.GetRow() internally allocates** ([ScreenBuffer.cs#L152-L165](caTTY.Core/Types/ScreenBuffer.cs#L152-L165)):
+1. **ScreenBuffer.GetRow() internally allocates** ([ScreenBuffer.cs#L152-L165](purrTTY.Core/Types/ScreenBuffer.cs#L152-L165)):
    ```csharp
    public ReadOnlySpan<Cell> GetRow(int row)
    {
@@ -85,13 +85,13 @@ In practice, this usually means:
    ```
    This means even before `TerminalUiRender.RenderTerminalContent` copies the data, `GetRow()` has already allocated.
 
-2. **GameMod has separate direct data path** ([TerminalMod.cs#L188](caTTY.GameMod/TerminalMod.cs#L188)):
+2. **GameMod has separate direct data path** ([TerminalMod.cs#L188](purrTTY.GameMod/TerminalMod.cs#L188)):
    ```csharp
    _processManager.DataReceived += OnProcessDataReceived;
    ```
    Any changes to `TerminalSession` must also be applied to `TerminalMod`.
 
-3. **Double allocation in viewport retrieval** - `ScrollbackManager.GetViewportRows()` allocates for scrollback lines ([ScrollbackManager.cs#L227-L231](caTTY.Core/Managers/ScrollbackManager.cs#L227-L231)):
+3. **Double allocation in viewport retrieval** - `ScrollbackManager.GetViewportRows()` allocates for scrollback lines ([ScrollbackManager.cs#L227-L231](purrTTY.Core/Managers/ScrollbackManager.cs#L227-L231)):
    ```csharp
    var line = GetLine(globalRow);
    var lineArray = new Cell[line.Length];  // ALLOCATION
@@ -110,9 +110,9 @@ In practice, this usually means:
 ## How Close Are We To "Paint-Only"?
 
 ### Good News
-- [TerminalController.cs#L459-L463](caTTY.Display/Controllers/TerminalController.cs#L459-L463): The controller has an `Update(deltaTime)` method already, which is the right conceptual place to host non-render work.
+- [TerminalController.cs#L459-L463](purrTTY.Display/Controllers/TerminalController.cs#L459-L463): The controller has an `Update(deltaTime)` method already, which is the right conceptual place to host non-render work.
 - `TerminalEmulator` is headless and does not depend on ImGui (good layering).
-- [TerminalEventArgs.cs#L15-L30](caTTY.Core/Terminal/TerminalEventArgs.cs#L15-L30): `ScreenUpdatedEventArgs.UpdatedRegion` infrastructure exists for dirty tracking.
+- [TerminalEventArgs.cs#L15-L30](purrTTY.Core/Terminal/TerminalEventArgs.cs#L15-L30): `ScreenUpdatedEventArgs.UpdatedRegion` infrastructure exists for dirty tracking.
 - `ScrollbackManager` already uses `ArrayPool<Cell>.Shared` for its internal storage.
 - **Refactor win**: Rendering logic is now isolated in dedicated service classes (`TerminalUi/*`), making it easier to introduce a render snapshot without touching other concerns.
 
@@ -120,13 +120,13 @@ In practice, this usually means:
 
 | Gap | Impact | Priority | Location |
 |-----|--------|----------|----------|
-| Terminal emulation runs concurrently with rendering | Race conditions, forces defensive copying | **High** | [TerminalSession.cs#L238](caTTY.Core/Terminal/TerminalSession.cs#L238) |
-| `ScreenBuffer.GetRow()` allocates internally | Hidden allocation source | **High** | [ScreenBuffer.cs#L152-L165](caTTY.Core/Types/ScreenBuffer.cs#L152-L165) |
-| Viewport composition happens in `Render()` | Per-frame work | **High** | [TerminalUiRender.cs#L78-L92](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L78-L92) |
-| Per-character `PushFont/PopFont` and `ToString()` | Major GC pressure | **High** | [TerminalUiRender.cs#L185-L191](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L185-L191) |
-| No render snapshot concept | Forced to rebuild view every frame | **Medium** | [TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) |
-| `UpdatedRegion` exists but isn't used | Missed optimization opportunity | **Medium** | [TerminalEventArgs.cs#L30](caTTY.Core/Terminal/TerminalEventArgs.cs#L30) |
-| GameMod has separate code path | Duplication of fixes needed | **Low** | [TerminalMod.cs#L188](caTTY.GameMod/TerminalMod.cs#L188) |
+| Terminal emulation runs concurrently with rendering | Race conditions, forces defensive copying | **High** | [TerminalSession.cs#L238](purrTTY.Core/Terminal/TerminalSession.cs#L238) |
+| `ScreenBuffer.GetRow()` allocates internally | Hidden allocation source | **High** | [ScreenBuffer.cs#L152-L165](purrTTY.Core/Types/ScreenBuffer.cs#L152-L165) |
+| Viewport composition happens in `Render()` | Per-frame work | **High** | [TerminalUiRender.cs#L78-L92](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L78-L92) |
+| Per-character `PushFont/PopFont` and `ToString()` | Major GC pressure | **High** | [TerminalUiRender.cs#L185-L191](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs#L185-L191) |
+| No render snapshot concept | Forced to rebuild view every frame | **Medium** | [TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) |
+| `UpdatedRegion` exists but isn't used | Missed optimization opportunity | **Medium** | [TerminalEventArgs.cs#L30](purrTTY.Core/Terminal/TerminalEventArgs.cs#L30) |
+| GameMod has separate code path | Duplication of fixes needed | **Low** | [TerminalMod.cs#L188](purrTTY.GameMod/TerminalMod.cs#L188) |
 
 **Overall Assessment:** We are **not close** to the paint-only target. The current implementation prioritizes correctness over performance and uses per-frame copying as a safety mechanism against race conditions.
 
@@ -141,8 +141,8 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 1: Measure Current Per-Frame Costs (Baseline)
 - **Goal:** Make the hot paths undeniable and track improvement over time.
 - **Files to Edit:**
-  - [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
-  - [caTTY.Display/Controllers/TerminalController.cs](caTTY.Display/Controllers/TerminalController.cs) (for metrics collection)
+  - [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+  - [purrTTY.Display/Controllers/TerminalController.cs](purrTTY.Display/Controllers/TerminalController.cs) (for metrics collection)
 - **Changes:**
   - Add a `RenderMetrics` class to track timing and allocations
   - Add lightweight timing around `TerminalUiRender.RenderTerminalContent()` phases (lines 29-121):
@@ -151,7 +151,7 @@ Each task is scoped so you can land it independently and keep the app working. T
     - Cell render loop phase (lines 95-105)
   - Add allocation tracking via `GC.GetAllocatedBytesForCurrentThread()` deltas
   - Print summary every N frames (e.g., 120) to avoid console spam
-  - Add conditional compilation `#if CATTY_PERF_METRICS` to disable in release
+  - Add conditional compilation `#if PurrTTY_PERF_METRICS` to disable in release
 - **Example API:**
   ```csharp
   private class RenderMetrics
@@ -167,8 +167,8 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 2: Queue Process Output (Thread Safety)
 - **Goal:** Make terminal emulation deterministic and keep mutation off the render thread.
 - **Files to Edit:**
-  - [caTTY.Core/Terminal/TerminalSession.cs](caTTY.Core/Terminal/TerminalSession.cs)
-  - [caTTY.GameMod/TerminalMod.cs](caTTY.GameMod/TerminalMod.cs) (apply same pattern)
+  - [purrTTY.Core/Terminal/TerminalSession.cs](purrTTY.Core/Terminal/TerminalSession.cs)
+  - [purrTTY.GameMod/TerminalMod.cs](purrTTY.GameMod/TerminalMod.cs) (apply same pattern)
 - **Changes:**
   - Add a `ConcurrentQueue<byte[]>` field and an `ArrayPool<byte>` for efficient buffer reuse
   - Replace `Terminal.Write(e.Data.Span)` in `OnProcessDataReceived` with:
@@ -196,9 +196,9 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 3: Pump Terminal Updates in Pre-ImGui Phase
 - **Goal:** Move emulation work out of the ImGui "draw UI" callback.
 - **Files to Edit:**
-  - [caTTY.TestApp/Rendering/StandaloneImGui.cs](caTTY.TestApp/Rendering/StandaloneImGui.cs)
-  - [caTTY.Display.Playground/Rendering/StandaloneImGui.cs](caTTY.Display.Playground/Rendering/StandaloneImGui.cs)
-  - [caTTY.TestApp/TerminalTestApp.cs](caTTY.TestApp/TerminalTestApp.cs)
+  - [purrTTY.TestApp/Rendering/StandaloneImGui.cs](purrTTY.TestApp/Rendering/StandaloneImGui.cs)
+  - [purrTTY.Display.Playground/Rendering/StandaloneImGui.cs](purrTTY.Display.Playground/Rendering/StandaloneImGui.cs)
+  - [purrTTY.TestApp/TerminalTestApp.cs](purrTTY.TestApp/TerminalTestApp.cs)
 - **Changes:**
   - Extend `StandaloneImGui.Run(...)` to accept **two callbacks** (or use a struct):
     ```csharp
@@ -240,9 +240,9 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 4: Fix ScreenBuffer.GetRow() Allocation
 - **Goal:** Stop `GetRow()` from allocating a new array every call.
 - **Files to Edit:**
-  - [caTTY.Core/Types/IScreenBuffer.cs](caTTY.Core/Types/IScreenBuffer.cs)
-  - [caTTY.Core/Types/ScreenBuffer.cs](caTTY.Core/Types/ScreenBuffer.cs)
-  - [caTTY.Core/Types/DualScreenBuffer.cs](caTTY.Core/Types/DualScreenBuffer.cs)
+  - [purrTTY.Core/Types/IScreenBuffer.cs](purrTTY.Core/Types/IScreenBuffer.cs)
+  - [purrTTY.Core/Types/ScreenBuffer.cs](purrTTY.Core/Types/ScreenBuffer.cs)
+  - [purrTTY.Core/Types/DualScreenBuffer.cs](purrTTY.Core/Types/DualScreenBuffer.cs)
 - **Changes:**
   - **Option A (Recommended):** Change internal storage from `Cell[,]` to `Cell[][]` (jagged array):
     ```csharp
@@ -264,8 +264,8 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 5: Make Scrollback Viewport Retrieval Non-Allocating
 - **Goal:** Eliminate `GetViewportRows()` allocating and copying per call.
 - **Files to Edit:**
-  - [caTTY.Core/Managers/IScrollbackManager.cs](caTTY.Core/Managers/IScrollbackManager.cs)
-  - [caTTY.Core/Managers/ScrollbackManager.cs](caTTY.Core/Managers/ScrollbackManager.cs)
+  - [purrTTY.Core/Managers/IScrollbackManager.cs](purrTTY.Core/Managers/IScrollbackManager.cs)
+  - [purrTTY.Core/Managers/ScrollbackManager.cs](purrTTY.Core/Managers/ScrollbackManager.cs)
 - **Changes:**
   - Add overload that fills a provided list (avoid allocation):
     ```csharp
@@ -290,9 +290,9 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 6: Move Terminal Work Out of Render()
 - **Goal:** Keep `Render()` as paint-only as possible.
 - **Files to Edit:**
-  - [caTTY.Display/Controllers/TerminalController.cs](caTTY.Display/Controllers/TerminalController.cs) (lines 370-456 for Render, lines 459-463 for Update)
-  - [caTTY.Display/Controllers/TerminalUi/TerminalUiResize.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiResize.cs) (resize handling)
-  - [caTTY.Display/Controllers/TerminalUi/TerminalUiInput.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiInput.cs) (input processing)
+  - [purrTTY.Display/Controllers/TerminalController.cs](purrTTY.Display/Controllers/TerminalController.cs) (lines 370-456 for Render, lines 459-463 for Update)
+  - [purrTTY.Display/Controllers/TerminalUi/TerminalUiResize.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiResize.cs) (resize handling)
+  - [purrTTY.Display/Controllers/TerminalUi/TerminalUiInput.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiInput.cs) (input processing)
 - **Changes:**
   - Move these operations from `TerminalController.Render()` to `Update()`:
     - Drain pending process output via `session.DrainPendingProcessOutput()`
@@ -317,9 +317,9 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 7: Introduce Render Snapshot
 - **Goal:** `TerminalUiRender.RenderTerminalContent()` reads a snapshot prepared during update, not live terminal state.
 - **Files to Create/Edit:**
-  - **Create:** [caTTY.Display/Types/TerminalRenderSnapshot.cs](caTTY.Display/Types/TerminalRenderSnapshot.cs)
-  - **Edit:** [caTTY.Display/Controllers/TerminalController.cs](caTTY.Display/Controllers/TerminalController.cs) (Update method)
-  - **Edit:** [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) (RenderTerminalContent method)
+  - **Create:** [purrTTY.Display/Types/TerminalRenderSnapshot.cs](purrTTY.Display/Types/TerminalRenderSnapshot.cs)
+  - **Edit:** [purrTTY.Display/Controllers/TerminalController.cs](purrTTY.Display/Controllers/TerminalController.cs) (Update method)
+  - **Edit:** [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) (RenderTerminalContent method)
 - **TerminalRenderSnapshot Structure:**
   ```csharp
   public class TerminalRenderSnapshot
@@ -357,7 +357,7 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 8: Batch Text Rendering
 - **Goal:** Reduce ImGui draw-call overhead and GC pressure from per-character operations.
 - **Files to Edit:**
-  - [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) (RenderCell method at lines 133-202)
+  - [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) (RenderCell method at lines 133-202)
 - **Changes:**
   - Build per-row "runs" during snapshot build (or lazy in render):
     ```csharp
@@ -393,9 +393,9 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 9: Dirty Row Tracking
 - **Goal:** Avoid rebuilding the entire snapshot/run list when only a portion changed.
 - **Files to Edit:**
-  - [caTTY.Core/Terminal/TerminalEmulator.cs](caTTY.Core/Terminal/TerminalEmulator.cs) (ensure UpdatedRegion is populated at line 779)
-  - [caTTY.Display/Controllers/TerminalController.cs](caTTY.Display/Controllers/TerminalController.cs) (event subscription in Initialize method)
-  - [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) (render only dirty rows)
+  - [purrTTY.Core/Terminal/TerminalEmulator.cs](purrTTY.Core/Terminal/TerminalEmulator.cs) (ensure UpdatedRegion is populated at line 779)
+  - [purrTTY.Display/Controllers/TerminalController.cs](purrTTY.Display/Controllers/TerminalController.cs) (event subscription in Initialize method)
+  - [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs) (render only dirty rows)
 - **Changes:**
   - Ensure `ScreenUpdatedEventArgs.UpdatedRegion` is populated correctly when raising `ScreenUpdated`
   - In controller (or new snapshot management class), track dirty rows via event handler:
@@ -422,9 +422,9 @@ Each task is scoped so you can land it independently and keep the app working. T
 #### Task 10: Add Architecture Tests
 - **Goal:** Ensure the separation (queue → pump → snapshot → render) stays intact.
 - **Files to Create/Edit:**
-  - **Create:** [caTTY.Core.Tests/Unit/Terminal/TerminalSessionOutputQueueTests.cs](caTTY.Core.Tests/Unit/Terminal/TerminalSessionOutputQueueTests.cs)
-  - **Create:** [caTTY.Display.Tests/Unit/Controllers/TerminalControllerSnapshotTests.cs](caTTY.Display.Tests/Unit/Controllers/TerminalControllerSnapshotTests.cs)
-  - **Create:** [caTTY.Display.Tests/Unit/Controllers/TerminalUi/TerminalUiRenderSnapshotTests.cs](caTTY.Display.Tests/Unit/Controllers/TerminalUi/TerminalUiRenderSnapshotTests.cs)
+  - **Create:** [purrTTY.Core.Tests/Unit/Terminal/TerminalSessionOutputQueueTests.cs](purrTTY.Core.Tests/Unit/Terminal/TerminalSessionOutputQueueTests.cs)
+  - **Create:** [purrTTY.Display.Tests/Unit/Controllers/TerminalControllerSnapshotTests.cs](purrTTY.Display.Tests/Unit/Controllers/TerminalControllerSnapshotTests.cs)
+  - **Create:** [purrTTY.Display.Tests/Unit/Controllers/TerminalUi/TerminalUiRenderSnapshotTests.cs](purrTTY.Display.Tests/Unit/Controllers/TerminalUi/TerminalUiRenderSnapshotTests.cs)
 - **Test Cases for TerminalSession:**
   - Output queue ordering is preserved
   - Drain budget is respected
@@ -650,9 +650,9 @@ uint fg = snapshotRow[col].ResolvedFgColor;  // Already computed
 **Goal:** Eliminate per-cell color resolution during rendering.
 
 **Files to Edit:**
-- [caTTY.Display/Types/TerminalRenderSnapshot.cs](caTTY.Display/Types/TerminalRenderSnapshot.cs) (create)
-- [caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
-- [caTTY.Display/Rendering/ColorResolver.cs](caTTY.Display/Rendering/ColorResolver.cs) (or equivalent)
+- [purrTTY.Display/Types/TerminalRenderSnapshot.cs](purrTTY.Display/Types/TerminalRenderSnapshot.cs) (create)
+- [purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs](purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs)
+- [purrTTY.Display/Rendering/ColorResolver.cs](purrTTY.Display/Rendering/ColorResolver.cs) (or equivalent)
 
 **Changes:**
 1. Add resolved color fields to snapshot cell structure:

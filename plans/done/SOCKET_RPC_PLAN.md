@@ -72,28 +72,28 @@ ERROR RESPONSE:
 
 ---
 
-## Task 1: Create Socket RPC Infrastructure in caTTY.Core
+## Task 1: Create Socket RPC Infrastructure in purrTTY.Core
 
-**Goal:** Add core socket RPC interfaces and base classes to `caTTY.Core` that are game-agnostic.
+**Goal:** Add core socket RPC interfaces and base classes to `purrTTY.Core` that are game-agnostic.
 
-**Project:** `caTTY.Core`
+**Project:** `purrTTY.Core`
 
 **Files to create:**
 
-1. `caTTY.Core/Rpc/Socket/ISocketRpcHandler.cs`
-2. `caTTY.Core/Rpc/Socket/ISocketRpcServer.cs`
-3. `caTTY.Core/Rpc/Socket/SocketRpcRequest.cs`
-4. `caTTY.Core/Rpc/Socket/SocketRpcResponse.cs`
-5. `caTTY.Core/Rpc/Socket/SocketRpcServer.cs`
+1. `purrTTY.Core/Rpc/Socket/ISocketRpcHandler.cs`
+2. `purrTTY.Core/Rpc/Socket/ISocketRpcServer.cs`
+3. `purrTTY.Core/Rpc/Socket/SocketRpcRequest.cs`
+4. `purrTTY.Core/Rpc/Socket/SocketRpcResponse.cs`
+5. `purrTTY.Core/Rpc/Socket/SocketRpcServer.cs`
 
 **Detailed Instructions:**
 
 ### 1.1 Create `ISocketRpcHandler.cs`
 
-Location: `caTTY.Core/Rpc/Socket/ISocketRpcHandler.cs`
+Location: `purrTTY.Core/Rpc/Socket/ISocketRpcHandler.cs`
 
 ```csharp
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Interface for handling socket-based RPC requests.
@@ -113,10 +113,10 @@ public interface ISocketRpcHandler
 
 ### 1.2 Create `ISocketRpcServer.cs`
 
-Location: `caTTY.Core/Rpc/Socket/ISocketRpcServer.cs`
+Location: `purrTTY.Core/Rpc/Socket/ISocketRpcServer.cs`
 
 ```csharp
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Interface for the Unix Domain Socket RPC server.
@@ -150,12 +150,12 @@ public interface ISocketRpcServer : IDisposable
 
 ### 1.3 Create `SocketRpcRequest.cs`
 
-Location: `caTTY.Core/Rpc/Socket/SocketRpcRequest.cs`
+Location: `purrTTY.Core/Rpc/Socket/SocketRpcRequest.cs`
 
 ```csharp
 using System.Text.Json.Serialization;
 
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Represents an RPC request received over the socket.
@@ -178,12 +178,12 @@ public sealed class SocketRpcRequest
 
 ### 1.4 Create `SocketRpcResponse.cs`
 
-Location: `caTTY.Core/Rpc/Socket/SocketRpcResponse.cs`
+Location: `purrTTY.Core/Rpc/Socket/SocketRpcResponse.cs`
 
 ```csharp
 using System.Text.Json.Serialization;
 
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Represents an RPC response to send back over the socket.
@@ -225,7 +225,7 @@ public sealed class SocketRpcResponse
 
 ### 1.5 Create `SocketRpcServer.cs`
 
-Location: `caTTY.Core/Rpc/Socket/SocketRpcServer.cs`
+Location: `purrTTY.Core/Rpc/Socket/SocketRpcServer.cs`
 
 ```csharp
 using System.Net.Sockets;
@@ -233,7 +233,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Unix Domain Socket RPC server implementation.
@@ -444,7 +444,7 @@ public sealed class SocketRpcServer : ISocketRpcServer
 
 **Verification:**
 
-- Run `dotnet build caTTY.Core` - must compile without errors
+- Run `dotnet build purrTTY.Core` - must compile without errors
 - No existing code is modified
 
 **Commit message:**
@@ -470,29 +470,29 @@ concerns.
 
 **Goal:** Create comprehensive unit tests for the socket RPC server.
 
-**Project:** `caTTY.Core.Tests`
+**Project:** `purrTTY.Core.Tests`
 
 **Files to create:**
 
-1. `caTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcServerTests.cs`
-2. `caTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcResponseTests.cs`
+1. `purrTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcServerTests.cs`
+2. `purrTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcResponseTests.cs`
 
 **Detailed Instructions:**
 
 ### 2.1 Create `SocketRpcServerTests.cs`
 
-Location: `caTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcServerTests.cs`
+Location: `purrTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcServerTests.cs`
 
 ```csharp
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
-namespace caTTY.Core.Tests.Unit.Rpc.Socket;
+namespace purrTTY.Core.Tests.Unit.Rpc.Socket;
 
 public class SocketRpcServerTests : IDisposable
 {
@@ -501,7 +501,7 @@ public class SocketRpcServerTests : IDisposable
 
     public SocketRpcServerTests()
     {
-        _socketPath = Path.Combine(Path.GetTempPath(), $"catty-test-{Guid.NewGuid()}.sock");
+        _socketPath = Path.Combine(Path.GetTempPath(), $"purrTTY-test-{Guid.NewGuid()}.sock");
     }
 
     public void Dispose()
@@ -686,13 +686,13 @@ public class SocketRpcServerTests : IDisposable
 
 ### 2.2 Create `SocketRpcResponseTests.cs`
 
-Location: `caTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcResponseTests.cs`
+Location: `purrTTY.Core.Tests/Unit/Rpc/Socket/SocketRpcResponseTests.cs`
 
 ```csharp
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 using Xunit;
 
-namespace caTTY.Core.Tests.Unit.Rpc.Socket;
+namespace purrTTY.Core.Tests.Unit.Rpc.Socket;
 
 public class SocketRpcResponseTests
 {
@@ -747,30 +747,30 @@ Add comprehensive test coverage for SocketRpcServer:
 
 ---
 
-## Task 3: Create KSA Socket RPC Handler in caTTY.TermSequenceRpc
+## Task 3: Create KSA Socket RPC Handler in purrTTY.TermSequenceRpc
 
 **Goal:** Create the KSA-specific implementation of `ISocketRpcHandler` that dispatches actions to game code.
 
-**Project:** `caTTY.TermSequenceRpc`
+**Project:** `purrTTY.TermSequenceRpc`
 
 **Files to create:**
 
-1. `caTTY.TermSequenceRpc/SocketRpc/KsaSocketRpcHandler.cs`
-2. `caTTY.TermSequenceRpc/SocketRpc/Actions/ISocketRpcAction.cs`
-3. `caTTY.TermSequenceRpc/SocketRpc/Actions/ListCraftsAction.cs`
-4. `caTTY.TermSequenceRpc/SocketRpc/Actions/GetCurrentCraftAction.cs`
+1. `purrTTY.TermSequenceRpc/SocketRpc/KsaSocketRpcHandler.cs`
+2. `purrTTY.TermSequenceRpc/SocketRpc/Actions/ISocketRpcAction.cs`
+3. `purrTTY.TermSequenceRpc/SocketRpc/Actions/ListCraftsAction.cs`
+4. `purrTTY.TermSequenceRpc/SocketRpc/Actions/GetCurrentCraftAction.cs`
 
 **Detailed Instructions:**
 
 ### 3.1 Create `ISocketRpcAction.cs`
 
-Location: `caTTY.TermSequenceRpc/SocketRpc/Actions/ISocketRpcAction.cs`
+Location: `purrTTY.TermSequenceRpc/SocketRpc/Actions/ISocketRpcAction.cs`
 
 ```csharp
 using System.Text.Json;
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 
-namespace caTTY.TermSequenceRpc.SocketRpc.Actions;
+namespace purrTTY.TermSequenceRpc.SocketRpc.Actions;
 
 /// <summary>
 /// Interface for individual socket RPC actions.
@@ -794,15 +794,15 @@ public interface ISocketRpcAction
 
 ### 3.2 Create `ListCraftsAction.cs`
 
-Location: `caTTY.TermSequenceRpc/SocketRpc/Actions/ListCraftsAction.cs`
+Location: `purrTTY.TermSequenceRpc/SocketRpc/Actions/ListCraftsAction.cs`
 
 ```csharp
 using System.Text.Json;
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 using KSA;
 using Microsoft.Extensions.Logging;
 
-namespace caTTY.TermSequenceRpc.SocketRpc.Actions;
+namespace purrTTY.TermSequenceRpc.SocketRpc.Actions;
 
 /// <summary>
 /// Lists all crafts/vehicles in the current game.
@@ -853,15 +853,15 @@ public class ListCraftsAction : ISocketRpcAction
 
 ### 3.3 Create `GetCurrentCraftAction.cs`
 
-Location: `caTTY.TermSequenceRpc/SocketRpc/Actions/GetCurrentCraftAction.cs`
+Location: `purrTTY.TermSequenceRpc/SocketRpc/Actions/GetCurrentCraftAction.cs`
 
 ```csharp
 using System.Text.Json;
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 using KSA;
 using Microsoft.Extensions.Logging;
 
-namespace caTTY.TermSequenceRpc.SocketRpc.Actions;
+namespace purrTTY.TermSequenceRpc.SocketRpc.Actions;
 
 /// <summary>
 /// Gets the currently controlled craft/vehicle.
@@ -908,14 +908,14 @@ public class GetCurrentCraftAction : ISocketRpcAction
 
 ### 3.4 Create `KsaSocketRpcHandler.cs`
 
-Location: `caTTY.TermSequenceRpc/SocketRpc/KsaSocketRpcHandler.cs`
+Location: `purrTTY.TermSequenceRpc/SocketRpc/KsaSocketRpcHandler.cs`
 
 ```csharp
-using caTTY.Core.Rpc.Socket;
-using caTTY.TermSequenceRpc.SocketRpc.Actions;
+using purrTTY.Core.Rpc.Socket;
+using purrTTY.TermSequenceRpc.SocketRpc.Actions;
 using Microsoft.Extensions.Logging;
 
-namespace caTTY.TermSequenceRpc.SocketRpc;
+namespace purrTTY.TermSequenceRpc.SocketRpc;
 
 /// <summary>
 /// KSA-specific socket RPC handler.
@@ -969,8 +969,8 @@ public class KsaSocketRpcHandler : ISocketRpcHandler
 
 **Verification:**
 
-- Run `dotnet build caTTY.TermSequenceRpc` - must compile without errors
-- Verify project references `caTTY.Core` (should already be present)
+- Run `dotnet build purrTTY.TermSequenceRpc` - must compile without errors
+- Verify project references `purrTTY.Core` (should already be present)
 
 **Commit message:**
 ```
@@ -993,28 +993,28 @@ with custom implementations.
 
 **Goal:** Create unit tests for the KSA socket RPC handler (mocking KSA game types).
 
-**Project:** `caTTY.TermSequenceRpc.Tests`
+**Project:** `purrTTY.TermSequenceRpc.Tests`
 
 **Files to create:**
 
-1. `caTTY.TermSequenceRpc.Tests/Unit/SocketRpc/KsaSocketRpcHandlerTests.cs`
+1. `purrTTY.TermSequenceRpc.Tests/Unit/SocketRpc/KsaSocketRpcHandlerTests.cs`
 
 **Detailed Instructions:**
 
 ### 4.1 Create `KsaSocketRpcHandlerTests.cs`
 
-Location: `caTTY.TermSequenceRpc.Tests/Unit/SocketRpc/KsaSocketRpcHandlerTests.cs`
+Location: `purrTTY.TermSequenceRpc.Tests/Unit/SocketRpc/KsaSocketRpcHandlerTests.cs`
 
 ```csharp
 using System.Text.Json;
-using caTTY.Core.Rpc.Socket;
-using caTTY.TermSequenceRpc.SocketRpc;
-using caTTY.TermSequenceRpc.SocketRpc.Actions;
+using purrTTY.Core.Rpc.Socket;
+using purrTTY.TermSequenceRpc.SocketRpc;
+using purrTTY.TermSequenceRpc.SocketRpc.Actions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
-namespace caTTY.TermSequenceRpc.Tests.Unit.SocketRpc;
+namespace purrTTY.TermSequenceRpc.Tests.Unit.SocketRpc;
 
 public class KsaSocketRpcHandlerTests
 {
@@ -1182,26 +1182,26 @@ Test coverage for KSA socket RPC handler:
 
 **Goal:** Start/stop the socket RPC server when a PTY process starts/stops, and set the `KSA_RPC_SOCKET` environment variable.
 
-**Project:** `caTTY.Core`
+**Project:** `purrTTY.Core`
 
 **Files to modify:**
 
-1. `caTTY.Core/Terminal/ProcessManager.cs` - Add socket server integration
+1. `purrTTY.Core/Terminal/ProcessManager.cs` - Add socket server integration
 
 **Files to create:**
 
-1. `caTTY.Core/Rpc/Socket/SocketRpcServerFactory.cs`
+1. `purrTTY.Core/Rpc/Socket/SocketRpcServerFactory.cs`
 
 **Detailed Instructions:**
 
 ### 5.1 Create `SocketRpcServerFactory.cs`
 
-Location: `caTTY.Core/Rpc/Socket/SocketRpcServerFactory.cs`
+Location: `purrTTY.Core/Rpc/Socket/SocketRpcServerFactory.cs`
 
 ```csharp
 using Microsoft.Extensions.Logging;
 
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Factory for creating socket RPC servers with unique socket paths.
@@ -1248,10 +1248,10 @@ First, check if there's an existing `IProcessManager` interface. If it exists, w
 
 Create a new interface for socket RPC integration that ProcessManager can optionally implement:
 
-Location: `caTTY.Core/Rpc/Socket/ISocketRpcIntegration.cs`
+Location: `purrTTY.Core/Rpc/Socket/ISocketRpcIntegration.cs`
 
 ```csharp
-namespace caTTY.Core.Rpc.Socket;
+namespace purrTTY.Core.Rpc.Socket;
 
 /// <summary>
 /// Interface for components that can host a socket RPC server.
@@ -1285,7 +1285,7 @@ Add the following changes to `ProcessManager.cs`:
 
 **Add to using statements at top:**
 ```csharp
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 ```
 
 **Add interface implementation:**
@@ -1403,7 +1403,7 @@ Check if `ProcessLaunchOptions` has an `EnvironmentVariables` property. If not, 
 
 ### 5.4 Update ProcessLaunchOptions
 
-Location: Check `caTTY.Core/Terminal/ProcessLaunchOptions.cs` and add if not present:
+Location: Check `purrTTY.Core/Terminal/ProcessLaunchOptions.cs` and add if not present:
 
 ```csharp
     /// <summary>
@@ -1418,7 +1418,7 @@ In `ProcessLifecycleManager.CreateProcess`, ensure environment variables from op
 
 **Verification:**
 
-- Run `dotnet build caTTY.Core` - must compile without errors
+- Run `dotnet build purrTTY.Core` - must compile without errors
 - Existing ProcessManager tests still pass
 - No changes to existing public API behavior
 
@@ -1445,11 +1445,11 @@ Add SocketRpcServerFactory for generating unique socket paths.
 
 **Goal:** Extend `RpcBootstrapper` to create and configure socket RPC handler alongside existing OSC RPC.
 
-**Project:** `caTTY.TermSequenceRpc`
+**Project:** `purrTTY.TermSequenceRpc`
 
 **Files to modify:**
 
-1. `caTTY.TermSequenceRpc/RpcBootstrapper.cs`
+1. `purrTTY.TermSequenceRpc/RpcBootstrapper.cs`
 
 **Detailed Instructions:**
 
@@ -1458,12 +1458,12 @@ Add SocketRpcServerFactory for generating unique socket paths.
 Add a new method that creates all RPC handlers including the socket RPC handler:
 
 ```csharp
-using caTTY.Core.Rpc;
-using caTTY.Core.Rpc.Socket;
-using caTTY.TermSequenceRpc.SocketRpc;
+using purrTTY.Core.Rpc;
+using purrTTY.Core.Rpc.Socket;
+using purrTTY.TermSequenceRpc.SocketRpc;
 using Microsoft.Extensions.Logging;
 
-namespace caTTY.TermSequenceRpc;
+namespace purrTTY.TermSequenceRpc;
 
 /// <summary>
 /// Factory for creating and wiring KSA-specific RPC handlers.
@@ -1525,7 +1525,7 @@ public static class RpcBootstrapper
 
 **Verification:**
 
-- Run `dotnet build caTTY.TermSequenceRpc` - must compile without errors
+- Run `dotnet build purrTTY.TermSequenceRpc` - must compile without errors
 - Existing `CreateKsaRpcHandlers` method unchanged and still works
 
 **Commit message:**
@@ -1548,11 +1548,11 @@ compatibility.
 
 **Goal:** Start singleton socket RPC server when game mod loads, independent of terminal sessions.
 
-**Project:** `caTTY.GameMod`
+**Project:** `purrTTY.GameMod`
 
 **Files to modify:**
 
-1. `caTTY.GameMod/TerminalMod.cs`
+1. `purrTTY.GameMod/TerminalMod.cs`
 
 **Detailed Instructions:**
 
@@ -1589,14 +1589,14 @@ public void OnAllModsLoaded()
             EnvironmentVariableTarget.Process
         );
         
-        Console.WriteLine($"caTTY: Socket RPC server started at {_socketRpcServer.SocketPath}");
+        Console.WriteLine($"purrTTY: Socket RPC server started at {_socketRpcServer.SocketPath}");
         
         // Continue with terminal initialization...
         // (existing terminal creation code remains unchanged)
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"caTTY: Failed to start socket RPC server: {ex.Message}");
+        Console.WriteLine($"purrTTY: Failed to start socket RPC server: {ex.Message}");
         // Continue without socket RPC - terminal still works
     }
 }
@@ -1615,11 +1615,11 @@ public void OnUnload()
         {
             _socketRpcServer.StopAsync().Wait(1000);
             _socketRpcServer.Dispose();
-            Console.WriteLine("caTTY: Socket RPC server stopped");
+            Console.WriteLine("purrTTY: Socket RPC server stopped");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"caTTY: Error stopping socket RPC: {ex.Message}");
+            Console.WriteLine($"purrTTY: Error stopping socket RPC: {ex.Message}");
         }
     }
     
@@ -1648,7 +1648,7 @@ _socketRpcHandler = socketRpcHandler;
 
 **Verification:**
 
-- Run `dotnet build caTTY.GameMod` - must compile without errors
+- Run `dotnet build purrTTY.GameMod` - must compile without errors
 - Game mod loads successfully
 - Console shows socket RPC startup message
 - Socket file created in temp directory
@@ -2169,7 +2169,7 @@ Demonstrates pipeline-compatible CLI design:
 
 **Files to create/modify:**
 
-1. `caTTY.Core.Tests/Integration/SocketRpcIntegrationTests.cs`
+1. `purrTTY.Core.Tests/Integration/SocketRpcIntegrationTests.cs`
 2. Update main `README.md` with RPC documentation
 3. Update `FEATURE_TRACKING.md` if it tracks RPC features
 
@@ -2177,18 +2177,18 @@ Demonstrates pipeline-compatible CLI design:
 
 ### 10.1 Create `SocketRpcIntegrationTests.cs`
 
-Location: `caTTY.Core.Tests/Integration/SocketRpcIntegrationTests.cs`
+Location: `purrTTY.Core.Tests/Integration/SocketRpcIntegrationTests.cs`
 
 ```csharp
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using caTTY.Core.Rpc.Socket;
+using purrTTY.Core.Rpc.Socket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
-namespace caTTY.Core.Tests.Integration;
+namespace purrTTY.Core.Tests.Integration;
 
 /// <summary>
 /// Integration tests for socket RPC end-to-end communication.
@@ -2200,7 +2200,7 @@ public class SocketRpcIntegrationTests : IDisposable
 
     public SocketRpcIntegrationTests()
     {
-        _socketPath = Path.Combine(Path.GetTempPath(), $"catty-integration-{Guid.NewGuid()}.sock");
+        _socketPath = Path.Combine(Path.GetTempPath(), $"purrTTY-integration-{Guid.NewGuid()}.sock");
     }
 
     public void Dispose()
@@ -2362,13 +2362,13 @@ Update documentation with socket RPC architecture and usage.
 
 | Task | Project | Description |
 |------|---------|-------------|
-| 1 | caTTY.Core | Socket RPC interfaces and server implementation (game-agnostic) |
-| 2 | caTTY.Core.Tests | Unit tests for SocketRpcServer |
-| 3 | caTTY.TermSequenceRpc | KSA socket handler and action implementations |
-| 4 | caTTY.TermSequenceRpc.Tests | Unit tests for KsaSocketRpcHandler |
-| 5 | caTTY.GameMod | Set KSA_RPC_SOCKET environment variable |
-| 6 | caTTY.TermSequenceRpc | RpcBootstrapper socket handler factory |
-| 7 | caTTY.GameMod | Initialize singleton socket RPC server at mod lifecycle |
+| 1 | purrTTY.Core | Socket RPC interfaces and server implementation (game-agnostic) |
+| 2 | purrTTY.Core.Tests | Unit tests for SocketRpcServer |
+| 3 | purrTTY.TermSequenceRpc | KSA socket handler and action implementations |
+| 4 | purrTTY.TermSequenceRpc.Tests | Unit tests for KsaSocketRpcHandler |
+| 5 | purrTTY.GameMod | Set KSA_RPC_SOCKET environment variable |
+| 6 | purrTTY.TermSequenceRpc | RpcBootstrapper socket handler factory |
+| 7 | purrTTY.GameMod | Initialize singleton socket RPC server at mod lifecycle |
 | 8 | userland/ksa-rpc-client | TypeScript client SDK |
 | 9 | userland/ksa-tools | Example CLI tools |
 | 10 | Multiple | Integration tests and documentation |

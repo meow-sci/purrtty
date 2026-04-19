@@ -11,7 +11,7 @@ Implement a high-precision performance measurement system to baseline ImGui rend
 ## Task List
 
 ### Task 1: Create PerformanceStopwatch Class ✅ COMPLETED
-**File**: `caTTY.Display/Performance/PerformanceStopwatch.cs` (new file)
+**File**: `purrTTY.Display/Performance/PerformanceStopwatch.cs` (new file)
 
 Create a thread-safe stopwatch class with the following requirements:
 
@@ -46,7 +46,7 @@ Performance Summary (60 frames):
 Sort by total time descending. Include frame count in header.
 
 ### Task 2: Create PerformanceStopwatch Tests ⏸️ PENDING
-**File**: `caTTY.Display.Tests/Performance/PerformanceStopwatchTests.cs` (new file)
+**File**: `purrTTY.Display.Tests/Performance/PerformanceStopwatchTests.cs` (new file)
 
 Unit tests covering:
 - Basic start/stop functionality
@@ -57,7 +57,7 @@ Unit tests covering:
 - Edge cases (stop without start, nested timings)
 
 ### Task 3: Integrate Stopwatch into TerminalController ✅ COMPLETED
-**File**: `caTTY.Display/Controllers/TerminalController.cs`
+**File**: `purrTTY.Display/Controllers/TerminalController.cs`
 
 **Changes:**
 1. ✅ Add private field: `private readonly PerformanceStopwatch _perfWatch = new();`
@@ -71,7 +71,7 @@ Unit tests covering:
    - `GetPerformanceSummary()`
 
 ### Task 4: Instrument TerminalUiRender Core Loop ✅ PARTIALLY COMPLETE
-**File**: `caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs`
+**File**: `purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs`
 
 **Constructor Changes:** ✅ COMPLETED
 - ✅ Added `PerformanceStopwatch` parameter to constructor
@@ -92,25 +92,25 @@ Unit tests covering:
 5. ⏸️ RenderDecorations
 
 ### Task 5: Instrument Color and Style Resolution ⏸️ PENDING
-**File**: `caTTY.Display/Rendering/ColorResolver.cs`
+**File**: `purrTTY.Display/Rendering/ColorResolver.cs`
 
 - ⏸️ Add stopwatch field
 - ⏸️ Instrument `Resolve()` method
 
-**File**: `caTTY.Display/Rendering/StyleManager.cs`
+**File**: `purrTTY.Display/Rendering/StyleManager.cs`
 
 - ⏸️ Add stopwatch field
 - ⏸️ Instrument `ApplyAttributes()` method
 
 ### Task 6: Instrument Font Management ⏸️ PENDING
-**File**: `caTTY.Display/Controllers/TerminalUi/TerminalUiFonts.cs`
+**File**: `purrTTY.Display/Controllers/TerminalUi/TerminalUiFonts.cs`
 
 - ⏸️ Add stopwatch field
 - ⏸️ Instrument `EnsureFontsLoaded()`
 - ⏸️ Instrument `SelectFont()`
 
 ### Task 7: Instrument Cursor Rendering ⏸️ PENDING
-**File**: `caTTY.Display/Rendering/CursorRenderer.cs`
+**File**: `purrTTY.Display/Rendering/CursorRenderer.cs`
 
 - ⏸️ Add stopwatch field
 - ⏸️ Instrument `UpdateBlinkState()`
@@ -118,7 +118,7 @@ Unit tests covering:
 - ⏸️ Instrument individual shape renderers
 
 ### Task 8: Instrument Decoration Rendering ✅ COMPLETED
-**File**: `caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs`
+**File**: `purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs`
 
 - ✅ Instrument `RenderUnderline()`
 - ✅ Instrument `RenderStrikethrough()`
@@ -126,8 +126,8 @@ Unit tests covering:
 - ✅ Instrument `RenderDashedUnderline()`
 
 ### Task 9: Add Performance Control UI ✅ COMPLETED
-**File**: `caTTY.Display/Controllers/TerminalUi/TerminalUiSettingsPanel.cs`
-**File**: `caTTY.Display/Controllers/TerminalUi/Menus/PerformanceMenuRenderer.cs` (new file)
+**File**: `purrTTY.Display/Controllers/TerminalUi/TerminalUiSettingsPanel.cs`
+**File**: `purrTTY.Display/Controllers/TerminalUi/Menus/PerformanceMenuRenderer.cs` (new file)
 
 Add menu items for performance tracing control:
 - ✅ "Enable Tracing" checkbox
@@ -136,7 +136,7 @@ Add menu items for performance tracing control:
 - ✅ "Auto-dump Interval" input field
 
 ### Task 10: Add Console Output Formatting ✅ COMPLETED
-**File**: `caTTY.Display/Performance/PerformanceStopwatch.cs`
+**File**: `purrTTY.Display/Performance/PerformanceStopwatch.cs`
 
 ✅ `DumpToConsole()` includes:
 - Clear separator lines
@@ -145,7 +145,7 @@ Add menu items for performance tracing control:
 - Formatted ASCII table
 
 ### Task 11: Create Performance Analysis Documentation ✅ COMPLETED
-**File**: `caTTY.Display/Performance/README.md` (new file)
+**File**: `purrTTY.Display/Performance/README.md` (new file)
 
 Document:
 - ✅ How to enable performance tracing
@@ -175,10 +175,10 @@ Execute test suite to ensure no regressions:
 - Fixed 2 test failures in PerformanceStopwatchTests (null handling and timing variance)
 
 ### Task 14: Manual Testing and Baseline Collection ✅ COMPLETED
-**Build Status:** ✅ caTTY.GameMod built successfully
+**Build Status:** ✅ purrTTY.GameMod built successfully
 **Documentation:** ✅ Created comprehensive BASELINE.md guide
 
-Created `caTTY.Display/Performance/BASELINE.md` with:
+Created `purrTTY.Display/Performance/BASELINE.md` with:
 - Complete baseline collection procedures
 - 6 standard workload scenarios (idle, active shell, moderate scrolling, heavy scrolling, styling, vim editing)
 - Data recording templates
@@ -198,21 +198,21 @@ This plan is now in the repository root for easy reference and task tracking.
 ## Critical Files Reference
 
 **New Files:**
-- ✅ `caTTY.Display/Performance/PerformanceStopwatch.cs`
-- ✅ `caTTY.Display.Tests/Performance/PerformanceStopwatchTests.cs`
-- ✅ `caTTY.Display/Performance/README.md`
-- ✅ `caTTY.Display/Performance/BASELINE.md`
+- ✅ `purrTTY.Display/Performance/PerformanceStopwatch.cs`
+- ✅ `purrTTY.Display.Tests/Performance/PerformanceStopwatchTests.cs`
+- ✅ `purrTTY.Display/Performance/README.md`
+- ✅ `purrTTY.Display/Performance/BASELINE.md`
 
 **Modified Files:**
-- ✅ `caTTY.Display/Controllers/TerminalController.cs`
-- ✅ `caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs`
-- ✅ `caTTY.Display/Controllers/TerminalControllerBuilder.cs`
-- ✅ `caTTY.Display/Rendering/ColorResolver.cs`
-- ✅ `caTTY.Display/Rendering/StyleManager.cs`
-- ✅ `caTTY.Display/Controllers/TerminalUi/TerminalUiFonts.cs`
-- ✅ `caTTY.Display/Rendering/CursorRenderer.cs`
-- ✅ `caTTY.Display/Controllers/TerminalUi/TerminalUiSettingsPanel.cs`
-- ✅ `caTTY.Display/Controllers/TerminalUi/Menus/PerformanceMenuRenderer.cs` (new file)
+- ✅ `purrTTY.Display/Controllers/TerminalController.cs`
+- ✅ `purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs`
+- ✅ `purrTTY.Display/Controllers/TerminalControllerBuilder.cs`
+- ✅ `purrTTY.Display/Rendering/ColorResolver.cs`
+- ✅ `purrTTY.Display/Rendering/StyleManager.cs`
+- ✅ `purrTTY.Display/Controllers/TerminalUi/TerminalUiFonts.cs`
+- ✅ `purrTTY.Display/Rendering/CursorRenderer.cs`
+- ✅ `purrTTY.Display/Controllers/TerminalUi/TerminalUiSettingsPanel.cs`
+- ✅ `purrTTY.Display/Controllers/TerminalUi/Menus/PerformanceMenuRenderer.cs` (new file)
 
 ## Implementation Notes
 

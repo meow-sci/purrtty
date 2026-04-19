@@ -24,8 +24,8 @@ We can cache **the render result** of terminal content and re-display it cheaply
    - Each frame, copy the cached buffers into the current `ImDrawList` rather than re-running cell loops and `AddText` per character.
    - This is still O(n) copying, but avoids high-overhead per-cell C# calls.
 
-### Why this is relevant to caTTY
-`caTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs` currently emits many draw calls (`AddRectFilled`, `AddText`, etc.). This is *already* reduced when viewing the live screen via:
+### Why this is relevant to purrTTY
+`purrTTY.Display/Controllers/TerminalUi/TerminalUiRender.cs` currently emits many draw calls (`AddRectFilled`, `AddText`, etc.). This is *already* reduced when viewing the live screen via:
 - dirty row tracking (`IScreenBuffer.IsRowDirty`)
 - early exits for empty/default cells
 
@@ -70,14 +70,14 @@ Introduce a small “render key” struct to decide when the cached texture must
 1. Confirm backend support for rendering a texture and presenting it through ImGui
    - Identify how `Brutal.ImGuiApi` / `ImGuiBackend` expects textures to be registered (often via a descriptor-set-like handle).
    - Check how this differs between:
-     - `caTTY.TestApp` / `caTTY.Display.Playground` standalone Vulkan renderer
-     - `caTTY.GameMod` inside KSA render loop
+     - `purrTTY.TestApp` / `purrTTY.Display.Playground` standalone Vulkan renderer
+     - `purrTTY.GameMod` inside KSA render loop
 2. Decide the abstraction point for “render-to-texture” so the terminal UI code doesn’t depend on Vulkan specifics.
 
 **Deliverable:** a short spike implementation or documented API choice.
 
 ### Phase 1 — Introduce a render cache abstraction
-1. Add `TerminalViewportRenderCache` (location suggestion: `caTTY.Display/Rendering/`)
+1. Add `TerminalViewportRenderCache` (location suggestion: `purrTTY.Display/Rendering/`)
    - Owns:
      - cached texture handle (ImGui texture id)
      - cached size in pixels

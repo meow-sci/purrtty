@@ -273,20 +273,20 @@ This section is written to be handed to a “non-thinking” coding sub-agent. E
 
 Repository layout decision:
 
-- All GameStuffShell-related code lives under `caTTY.CustomShells/GameStuffShell/` to keep the feature cleanly demarcated.
+- All GameStuffShell-related code lives under `purrTTY.CustomShells/GameStuffShell/` to keep the feature cleanly demarcated.
 - Only the project files remain at the project root; do not add new unrelated top-level folders.
 
 ## Task 0 — Enable typed output (stdout vs stderr) for all custom shells
 
 Goal: make it possible for a custom shell to emit true stderr (so the PTY bridge can mark it as error), without requiring every shell to reinvent output pumping.
 
-Why: `ShellOutputEventArgs` already supports `ShellOutputType.Stderr`, and [caTTY.Core/Terminal/CustomShellPtyBridge.cs](caTTY.Core/Terminal/CustomShellPtyBridge.cs) uses it to set `isError`, but the current output pump in [caTTY.CustomShellContract/Base/BaseChannelOutputShell.cs](caTTY.CustomShellContract/Base/BaseChannelOutputShell.cs) always raises stdout.
+Why: `ShellOutputEventArgs` already supports `ShellOutputType.Stderr`, and [purrTTY.Core/Terminal/CustomShellPtyBridge.cs](purrTTY.Core/Terminal/CustomShellPtyBridge.cs) uses it to set `isError`, but the current output pump in [purrTTY.CustomShellContract/Base/BaseChannelOutputShell.cs](purrTTY.CustomShellContract/Base/BaseChannelOutputShell.cs) always raises stdout.
 
 Files to edit:
 
-- [caTTY.CustomShellContract/Base/BaseChannelOutputShell.cs](caTTY.CustomShellContract/Base/BaseChannelOutputShell.cs)
-- [caTTY.CustomShellContract/Base/BaseLineBufferedShell.cs](caTTY.CustomShellContract/Base/BaseLineBufferedShell.cs)
-- (Optional improvement) [caTTY.CustomShells/GameConsoleShell.cs](caTTY.CustomShells/GameConsoleShell.cs)
+- [purrTTY.CustomShellContract/Base/BaseChannelOutputShell.cs](purrTTY.CustomShellContract/Base/BaseChannelOutputShell.cs)
+- [purrTTY.CustomShellContract/Base/BaseLineBufferedShell.cs](purrTTY.CustomShellContract/Base/BaseLineBufferedShell.cs)
+- (Optional improvement) [purrTTY.CustomShells/GameConsoleShell.cs](purrTTY.CustomShells/GameConsoleShell.cs)
 
 Implementation steps:
 
@@ -301,10 +301,10 @@ Implementation steps:
 
 Tests to add/update:
 
-- Add unit tests in a new file [caTTY.CustomShells.Tests/Unit/BaseChannelOutputShellTypedOutputTests.cs](caTTY.CustomShells.Tests/Unit/BaseChannelOutputShellTypedOutputTests.cs).
+- Add unit tests in a new file [purrTTY.CustomShells.Tests/Unit/BaseChannelOutputShellTypedOutputTests.cs](purrTTY.CustomShells.Tests/Unit/BaseChannelOutputShellTypedOutputTests.cs).
     - Create a tiny test shell derived from `BaseChannelOutputShell` that exposes methods to enqueue stdout/stderr.
     - Subscribe to `OutputReceived` and assert the `ShellOutputEventArgs.OutputType` matches what was queued.
-- Reference pattern: [caTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs](caTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs).
+- Reference pattern: [purrTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs](purrTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs).
 
 Acceptance criteria:
 
@@ -318,8 +318,8 @@ Goal: introduce the new shell class wired into the existing custom shell infrast
 
 Files to create/edit:
 
-- Create: [caTTY.CustomShells/GameStuffShell/GameStuffShell.cs](caTTY.CustomShells/GameStuffShell/GameStuffShell.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellLifecycleTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellLifecycleTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/GameStuffShell.cs](purrTTY.CustomShells/GameStuffShell/GameStuffShell.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellLifecycleTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellLifecycleTests.cs)
 
 Implementation steps:
 
@@ -340,10 +340,10 @@ Tests:
 
 Reference files:
 
-- Shell interface contract: [caTTY.CustomShellContract/ICustomShell.cs](caTTY.CustomShellContract/ICustomShell.cs)
-- Output event types: [caTTY.CustomShellContract/ShellEventArgs.cs](caTTY.CustomShellContract/ShellEventArgs.cs)
-- Base shell patterns: [caTTY.CustomShells/GameConsoleShell.cs](caTTY.CustomShells/GameConsoleShell.cs)
-- Line-buffered input behavior: [caTTY.CustomShellContract/Base/BaseLineBufferedShell.cs](caTTY.CustomShellContract/Base/BaseLineBufferedShell.cs)
+- Shell interface contract: [purrTTY.CustomShellContract/ICustomShell.cs](purrTTY.CustomShellContract/ICustomShell.cs)
+- Output event types: [purrTTY.CustomShellContract/ShellEventArgs.cs](purrTTY.CustomShellContract/ShellEventArgs.cs)
+- Base shell patterns: [purrTTY.CustomShells/GameConsoleShell.cs](purrTTY.CustomShells/GameConsoleShell.cs)
+- Line-buffered input behavior: [purrTTY.CustomShellContract/Base/BaseLineBufferedShell.cs](purrTTY.CustomShellContract/Base/BaseLineBufferedShell.cs)
 
 
 ## Task 2 — Add a lexer for the shell language (tokenizer)
@@ -352,9 +352,9 @@ Goal: convert a command string into tokens needed for parsing.
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Lexing/Token.cs](caTTY.CustomShells/GameStuffShell/Lexing/Token.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Lexing/Lexer.cs](caTTY.CustomShells/GameStuffShell/Lexing/Lexer.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellLexerTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellLexerTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Lexing/Token.cs](purrTTY.CustomShells/GameStuffShell/Lexing/Token.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Lexing/Lexer.cs](purrTTY.CustomShells/GameStuffShell/Lexing/Lexer.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellLexerTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellLexerTests.cs)
 
 Implementation details:
 
@@ -388,9 +388,9 @@ Goal: parse tokens into an AST representing list/pipeline/command nodes.
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Parsing/Ast.cs](caTTY.CustomShells/GameStuffShell/Parsing/Ast.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Parsing/Parser.cs](caTTY.CustomShells/GameStuffShell/Parsing/Parser.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellParserTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellParserTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Parsing/Ast.cs](purrTTY.CustomShells/GameStuffShell/Parsing/Ast.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Parsing/Parser.cs](purrTTY.CustomShells/GameStuffShell/Parsing/Parser.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellParserTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellParserTests.cs)
 
 AST requirements:
 
@@ -416,11 +416,11 @@ Goal: execute an AST with correct list and pipeline semantics, using stubs for p
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Execution/ExecContext.cs](caTTY.CustomShells/GameStuffShell/Execution/ExecContext.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Execution/Executor.cs](caTTY.CustomShells/GameStuffShell/Execution/Executor.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Execution/IProgramResolver.cs](caTTY.CustomShells/GameStuffShell/Execution/IProgramResolver.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Execution/ProgramContext.cs](caTTY.CustomShells/GameStuffShell/Execution/ProgramContext.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellExecutorListTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellExecutorListTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Execution/ExecContext.cs](purrTTY.CustomShells/GameStuffShell/Execution/ExecContext.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Execution/Executor.cs](purrTTY.CustomShells/GameStuffShell/Execution/Executor.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Execution/IProgramResolver.cs](purrTTY.CustomShells/GameStuffShell/Execution/IProgramResolver.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Execution/ProgramContext.cs](purrTTY.CustomShells/GameStuffShell/Execution/ProgramContext.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellExecutorListTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellExecutorListTests.cs)
 
 Execution requirements:
 
@@ -462,9 +462,9 @@ Goal: apply per-command redirections with left-to-right semantics.
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Execution/Streams.cs](caTTY.CustomShells/GameStuffShell/Execution/Streams.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Execution/RedirectionApplier.cs](caTTY.CustomShells/GameStuffShell/Execution/RedirectionApplier.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellRedirectionTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellRedirectionTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Execution/Streams.cs](purrTTY.CustomShells/GameStuffShell/Execution/Streams.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Execution/RedirectionApplier.cs](purrTTY.CustomShells/GameStuffShell/Execution/RedirectionApplier.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellRedirectionTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellRedirectionTests.cs)
 
 Implementation requirements:
 
@@ -489,8 +489,8 @@ Goal: the shell runs real command lines end-to-end and shows a prompt again.
 
 Files to edit:
 
-- [caTTY.CustomShells/GameStuffShell/GameStuffShell.cs](caTTY.CustomShells/GameStuffShell/GameStuffShell.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellIntegrationTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellIntegrationTests.cs)
+- [purrTTY.CustomShells/GameStuffShell/GameStuffShell.cs](purrTTY.CustomShells/GameStuffShell/GameStuffShell.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellIntegrationTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellIntegrationTests.cs)
 
 Implementation steps:
 
@@ -513,11 +513,11 @@ Goal: create the “easy to add programs” mechanism and first two programs.
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/IProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/IProgram.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/ProgramRegistry.cs](caTTY.CustomShells/GameStuffShell/Programs/ProgramRegistry.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/EchoProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/EchoProgram.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/SleepProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/SleepProgram.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellProgramsBasicTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellProgramsBasicTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/IProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/IProgram.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/ProgramRegistry.cs](purrTTY.CustomShells/GameStuffShell/Programs/ProgramRegistry.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/EchoProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/EchoProgram.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/SleepProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/SleepProgram.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellProgramsBasicTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellProgramsBasicTests.cs)
 
 Implementation details:
 
@@ -548,11 +548,11 @@ Goal: keep programs testable without requiring the full KSA runtime.
 
 Files to create/edit:
 
-- Create: [caTTY.CustomShells/GameStuffShell/GameApi/IGameStuffApi.cs](caTTY.CustomShells/GameStuffShell/GameApi/IGameStuffApi.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/CraftsProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/CraftsProgram.cs)
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/FollowProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/FollowProgram.cs)
-- Edit: [caTTY.CustomShells/GameStuffShell/GameStuffShell.cs](caTTY.CustomShells/GameStuffShell/GameStuffShell.cs) to provide a real implementation or adapter at runtime.
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellProgramsGameApiTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellProgramsGameApiTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/GameApi/IGameStuffApi.cs](purrTTY.CustomShells/GameStuffShell/GameApi/IGameStuffApi.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/CraftsProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/CraftsProgram.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/FollowProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/FollowProgram.cs)
+- Edit: [purrTTY.CustomShells/GameStuffShell/GameStuffShell.cs](purrTTY.CustomShells/GameStuffShell/GameStuffShell.cs) to provide a real implementation or adapter at runtime.
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellProgramsGameApiTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellProgramsGameApiTests.cs)
 
 Implementation details:
 
@@ -574,8 +574,8 @@ Goal: `crafts | xargs follow` works.
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/XargsProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/XargsProgram.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellXargsTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellXargsTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/XargsProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/XargsProgram.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellXargsTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellXargsTests.cs)
 
 Implementation details:
 
@@ -606,8 +606,8 @@ Goal: allow nested execution, including `;`, `&&`, `||` inside the string.
 
 Files to create:
 
-- Create: [caTTY.CustomShells/GameStuffShell/Programs/ShProgram.cs](caTTY.CustomShells/GameStuffShell/Programs/ShProgram.cs)
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellShTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellShTests.cs)
+- Create: [purrTTY.CustomShells/GameStuffShell/Programs/ShProgram.cs](purrTTY.CustomShells/GameStuffShell/Programs/ShProgram.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellShTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellShTests.cs)
 
 Implementation details:
 
@@ -627,7 +627,7 @@ Goal: prove the full semantics work together and remain stable.
 
 Files to create:
 
-- Create: [caTTY.CustomShells.Tests/Unit/GameStuffShellGoldenTests.cs](caTTY.CustomShells.Tests/Unit/GameStuffShellGoldenTests.cs)
+- Create: [purrTTY.CustomShells.Tests/Unit/GameStuffShellGoldenTests.cs](purrTTY.CustomShells.Tests/Unit/GameStuffShellGoldenTests.cs)
 
 Suggested tests:
 
@@ -643,7 +643,7 @@ Suggested tests:
 
 Test harness guidance:
 
-- Use the approach from [caTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs](caTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs):
+- Use the approach from [purrTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs](purrTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs):
     - Start shell
     - Subscribe to `OutputReceived` and accumulate into buffers for stdout/stderr separately
     - Drive input via `WriteInputAsync` with bytes (including Enter)

@@ -1,6 +1,6 @@
 # Shell Switching Guide
 
-This guide explains how to easily switch between different shells in caTTY terminal emulator.
+This guide explains how to easily switch between different shells in purrTTY terminal emulator.
 
 ## Default Shell
 
@@ -58,16 +58,16 @@ var options = ProcessLaunchOptions.CreateCustom(@"C:\path\to\shell.exe", "arg1",
 
 ## How to Switch Shells
 
-### In TestApp (caTTY.TestApp/TerminalTestApp.cs)
+### In TestApp (purrTTY.TestApp/TerminalTestApp.cs)
 
-1. Open `catty-ksa/caTTY.TestApp/TerminalTestApp.cs`
+1. Open `purrTTY-ksa/purrTTY.TestApp/TerminalTestApp.cs`
 2. Find the shell configuration section (around line 60)
 3. Comment out the current option and uncomment your preferred shell
-4. Build and run: `dotnet run` from the `caTTY.TestApp` directory
+4. Build and run: `dotnet run` from the `purrTTY.TestApp` directory
 
-### In GameMod (caTTY.GameMod/TerminalMod.cs)
+### In GameMod (purrTTY.GameMod/TerminalMod.cs)
 
-1. Open `catty-ksa/caTTY.GameMod/TerminalMod.cs`
+1. Open `purrTTY-ksa/purrTTY.GameMod/TerminalMod.cs`
 2. Find the shell configuration section in the `InitializeTerminal()` method
 3. Comment out the current option and uncomment your preferred shell
 4. Build the mod: `dotnet build --configuration Release`

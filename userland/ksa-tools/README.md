@@ -152,4 +152,4 @@ Unix Domain Socket
 KSA Game Engine (C#)
 ```
 
-The socket path is discovered automatically from the `KSA_RPC_SOCKET` environment variable, which is set by the caTTY terminal emulator when running inside the game.
+The socket path is discovered automatically from the `KSA_RPC_SOCKET` environment variable, which is set by the purrTTY terminal emulator when running inside the game.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the dramatic performance improvement achieved by implementing a comprehensive batching system for terminal tracing in caTTY.
+This document describes the dramatic performance improvement achieved by implementing a comprehensive batching system for terminal tracing in purrTTY.
 
 ## Problem
 

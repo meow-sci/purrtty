@@ -1,9 +1,9 @@
 # Camera Basics Manual Testing Checklist
 
 **Feature**: Camera Basics Panel - Manual camera control and follow target management  
-**Component**: `caTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`  
-**Parent UI**: `caTTY.SkunkworksGameMod/UI/CameraDebugPanel.cs`  
-**Service**: `caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`  
+**Component**: `purrTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`  
+**Parent UI**: `purrTTY.SkunkworksGameMod/UI/CameraDebugPanel.cs`  
+**Service**: `purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`  
 **Date Created**: 2026-01-25
 
 ## Overview
@@ -12,7 +12,7 @@ This document provides manual testing procedures for the camera basics feature, 
 
 ## Test Environment Setup
 
-1. Build the solution: `dotnet build caTTY.SkunkworksGameMod`
+1. Build the solution: `dotnet build purrTTY.SkunkworksGameMod`
 2. Deploy the mod to KSA mods folder
 3. Launch Kitten Space Agency
 4. Press **F11** to open the Skunkworks debug window

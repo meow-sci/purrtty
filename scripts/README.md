@@ -1,7 +1,7 @@
 # scripts overview
 
 - always run typescript `.ts` files with bun
-- always run scripts from `catty-ksa/` dir
+- always run scripts from `purrTTY-ksa/` dir
 
 # script index
 

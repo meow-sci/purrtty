@@ -2,7 +2,7 @@
 
 We need to figure out how the camera controls work in detail in the KSA (Kitten Space Agency) game.
 
-We have some code which is doing camera manipulation in the `caTTY.SkunkworksGameMod` mod, but there are some areas of camera control behaviors observed that cannot be explained yet.
+We have some code which is doing camera manipulation in the `purrTTY.SkunkworksGameMod` mod, but there are some areas of camera control behaviors observed that cannot be explained yet.
 
 We need to go back to fundamental building blocks of ways to control the camera in-game before building up the more complex features like the existing keyframe system and orbit animation.
 
@@ -26,7 +26,7 @@ We need to go back to fundamental building blocks of ways to control the camera 
 ## Phase 1: UI Refactoring - Collapsing Header Structure
 
 ### Task 1.1: Refactor CameraDebugPanel to use Collapsing Headers
-**File**: `caTTY.SkunkworksGameMod/UI/CameraDebugPanel.cs`
+**File**: `purrTTY.SkunkworksGameMod/UI/CameraDebugPanel.cs`
 
 **Objective**: Restructure the existing camera debug panel to organize content into collapsing headers, making room for multiple experimental sections.
 
@@ -67,7 +67,7 @@ We need to go back to fundamental building blocks of ways to control the camera 
 ## Phase 2: Camera Mode Understanding & Infrastructure
 
 ### Task 2.1: Document Camera Control Modes
-**File**: Create `caTTY.SkunkworksGameMod/Camera/CameraModes.md`
+**File**: Create `purrTTY.SkunkworksGameMod/Camera/CameraModes.md`
 
 **Objective**: Document the different camera control modes available in KSA and how they're exposed through the Camera API.
 
@@ -107,8 +107,8 @@ We need to go back to fundamental building blocks of ways to control the camera 
 
 ### Task 2.2: Define Manual-Follow “Exit” Semantics (keep both behaviors)
 **Files**:
-- `caTTY.SkunkworksGameMod/Camera/ICameraService.cs`
-- `caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
+- `purrTTY.SkunkworksGameMod/Camera/ICameraService.cs`
+- `purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
 
 **Objective**: Support two distinct outcomes:
 1) Keep the current offset and avoid snapping (required by current orbit/animation behavior).
@@ -145,8 +145,8 @@ bool ExitManualFollow(
 
 ### Task 2.3: Implement Safe `SetFollow` Invocation + Flag Experiment Support
 **Files**:
-- `caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
-- (optional helper) `caTTY.SkunkworksGameMod/Camera/SetFollowOptions.cs`
+- `purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
+- (optional helper) `purrTTY.SkunkworksGameMod/Camera/SetFollowOptions.cs`
 
 **Objective**: Call `KSA.Camera.SetFollow(...)` robustly even when follow targets are stored as `dynamic`/`object`, and enable systematic experimentation of the boolean parameters.
 
@@ -182,7 +182,7 @@ bool ExitManualFollow(
 ---
 
 ### Task 2.4: Add Best-Effort “Control Mode” Introspection (reflection)
-**File**: `caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
+**File**: `purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
 
 **Objective**: Expose additional diagnostics about KSA’s internal camera control/controller mode beyond follow/unfollow/manual-follow.
 
@@ -198,7 +198,7 @@ bool ExitManualFollow(
 ---
 
 ### Task 2.5: Add Camera Mode Query/Control Methods to ICameraService
-**File**: `caTTY.SkunkworksGameMod/Camera/ICameraService.cs`
+**File**: `purrTTY.SkunkworksGameMod/Camera/ICameraService.cs`
 
 **Objective**: Extend the camera service interface to expose camera mode information and mode switching operations.
 
@@ -260,7 +260,7 @@ bool ExitManualFollow(ManualFollowExitMode mode, bool? unknown0 = null, bool? ch
 ---
 
 ### Task 2.6: Implement Camera Mode Methods in KsaCameraService
-**File**: `caTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
+**File**: `purrTTY.SkunkworksGameMod/Camera/KsaCameraService.cs`
 
 **Objective**: Implement the new camera mode query and control methods added to the interface.
 
@@ -347,13 +347,13 @@ bool ExitManualFollow(ManualFollowExitMode mode, bool? unknown0 = null, bool? ch
 ## Phase 3: Camera Basics UI Section
 
 ### Task 3.1: Create CameraBasicsPanel Component
-**File**: Create `caTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
+**File**: Create `purrTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
 
 **Objective**: Create a new reusable UI component for testing basic camera controls.
 
 **Class Structure**:
 ```csharp
-namespace caTTY.SkunkworksGameMod.UI;
+namespace purrTTY.SkunkworksGameMod.UI;
 
 /// <summary>
 /// ImGui panel for testing basic camera control operations.
@@ -407,7 +407,7 @@ public class CameraBasicsPanel
 ---
 
 ### Task 3.2: Implement Camera Mode Controls
-**File**: `caTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
+**File**: `purrTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
 
 **Objective**: Implement the `RenderCameraModeSection()` method to provide UI controls for switching camera modes.
 
@@ -556,7 +556,7 @@ private void RenderCameraModeSection()
 ---
 
 ### Task 3.3: Implement Camera Movement Controls
-**File**: `caTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
+**File**: `purrTTY.SkunkworksGameMod/UI/CameraBasicsPanel.cs`
 
 **Objective**: Implement the `RenderCameraMovementSection()` method to provide UI controls for manually moving the camera in various directions.
 
@@ -709,7 +709,7 @@ private void RenderCameraMovementSection()
 ---
 
 ### Task 3.4: Integrate Camera Basics Panel into Main UI
-**File**: `caTTY.SkunkworksGameMod/UI/CameraDebugPanel.cs`
+**File**: `purrTTY.SkunkworksGameMod/UI/CameraDebugPanel.cs`
 
 **Objective**: Add the Camera Basics panel to the main debug UI within a collapsing header.
 

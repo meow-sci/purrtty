@@ -16,15 +16,15 @@ analyze SGR underlying related handling and ensure they are all ECMA/vt100/xterm
 > SgrMessageFactory.cs
 >  and confirmed that SGR 21 was mapped to sgr.doubleUnderline. While standard ECMA-48 > defines SGR 21 as "Double Underline", it is historically and commonly used as > "Normal Intensity" (disable bold) by the Linux console and other terminals. > Applications like starship (used in the screenshot) often use SGR 21 to disable > bold, assuming the Linux console behavior.
 > 
-> If caTTY interprets 21 as Double Underline, an application trying to disable bold > will inadvertently enable double underlines for all subsequent text, exactly matching > the user's report.
+> If purrTTY interprets 21 as Double Underline, an application trying to disable bold > will inadvertently enable double underlines for all subsequent text, exactly matching > the user's report.
 > 
 > I modified 
-> caTTY.Core/Parsing/Sgr/SgrMessageFactory.cs
->  to map SGR 21 to sgr.normalIntensity instead of sgr.doubleUnderline. This aligns > behavior with the likely expectations of the running applications. Double Underline > functionality is preserved for applications that use the unambiguous SGR 4:2 > sequence, which caTTY already supports.
+> purrTTY.Core/Parsing/Sgr/SgrMessageFactory.cs
+>  to map SGR 21 to sgr.normalIntensity instead of sgr.doubleUnderline. This aligns > behavior with the likely expectations of the running applications. Double Underline > functionality is preserved for applications that use the unambiguous SGR 4:2 > sequence, which purrTTY already supports.
 > 
 > Changes
 > Modified 
-> caTTY.Core/Parsing/Sgr/SgrMessageFactory.cs
+> purrTTY.Core/Parsing/Sgr/SgrMessageFactory.cs
 > :
 > Changed case 21 to return sgr.normalIntensity instead of sgr.doubleUnderline.
 > Added a comment explaining the historical context and the reason for the change > (compatibility with apps using 21 for "disable bold").
