@@ -10,7 +10,6 @@
     <Project Path="purrTTY.CustomShellContract/purrTTY.CustomShellContract.csproj" />
     <Project Path="purrTTY.CustomShells.Tests/purrTTY.CustomShells.Tests.csproj" />
     <Project Path="purrTTY.GameMod/purrTTY.GameMod.csproj" />
-    <Project Path="purrTTY.SkunkworksGameMod/purrTTY.SkunkworksGameMod.csproj" />
     <Project Path="purrTTY.CustomShells/purrTTY.CustomShells.csproj" />
     <Project Path="purrTTY.Display.Playground/purrTTY.Display.Playground.csproj" />
     <Project Path="purrTTY.Display.Tests/purrTTY.Display.Tests.csproj" />
@@ -18,6 +17,4 @@
     <Project Path="purrTTY.TermSequenceRpc.Tests/purrTTY.TermSequenceRpc.Tests.csproj" />
     <Project Path="purrTTY.TermSequenceRpc/purrTTY.TermSequenceRpc.csproj" />
     <Project Path="purrTTY.TestApp/purrTTY.TestApp.csproj" />
-    <Project Path="purrTTY.TestGameMod.Display/purrTTY.TestGameMod.Display.csproj" />
-    <Project Path="purrTTY.TestGameMod/purrTTY.TestGameMod.csproj" />
 </Solution>

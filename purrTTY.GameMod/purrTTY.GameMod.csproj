@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <AssemblyName>purrTTY</AssemblyName>
+        <AssemblyName>purrTTY.GameMod</AssemblyName>
         <RootNamespace>purrTTY.GameMod</RootNamespace>
         <Description>KSA game mod for purrTTY terminal emulator</Description>
         <PackageId>purrTTY.GameMod</PackageId>
@@ -24,7 +24,7 @@
         <Copy SourceFiles="$(TargetDir)mod.toml" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetDir)mod.toml')"/>
         <Copy SourceFiles="$(ProjectDepsFilePath)" DestinationFolder="$(DistDir)" Condition="Exists('$(ProjectDepsFilePath)')"/>
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetPath)')"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.pdb" DestinationFolder="$(DistDir)"/>
+        <Copy SourceFiles="$(TargetDir)purrTTY.GameMod.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Core.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Core.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.dll" DestinationFolder="$(DistDir)"/>
