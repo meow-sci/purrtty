@@ -1,6 +1,7 @@
 using System;
 using Brutal.ImGuiApi;
 using purrTTY.Display.Controllers;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Input;
 
@@ -36,10 +37,10 @@ public class InputFocusManager
       // ImGui.InputText("##hidden", dummySpan, ImGuiInputTextFlags.None);
       // ImGui.PopStyleVar();
 
-      // Console.WriteLine($"IsInputCaptureActive={IsInputCaptureActive}");
+      // ModLog.Log.Debug($"IsInputCaptureActive={IsInputCaptureActive}");
 
       // ImGui.GetIO().WantCaptureKeyboard = true;
-      // Console.WriteLine($"ImGui.GetIO().WantCaptureKeyboard {ImGui.GetIO().WantCaptureKeyboard}");
+      // ModLog.Log.Debug($"ImGui.GetIO().WantCaptureKeyboard {ImGui.GetIO().WantCaptureKeyboard}");
       // ImGui.SetNextFrameWantCaptureKeyboard(true);
       // ImGui.SetKeyboardFocusHere();
 
@@ -53,14 +54,14 @@ public class InputFocusManager
         // TODO: FIXME: this still doesn't prevent global hotkeys like 'm' from taking place
         // ImGui.SetNextFrameWantCaptureKeyboard(true);
         // ImGui.SetKeyboardFocusHere();
-        // Console.WriteLine("TerminalController: Capturing keyboard input (suppressing game hotkeys)");
+        // ModLog.Log.Debug("TerminalController: Capturing keyboard input (suppressing game hotkeys)");
       }
       // Note: No need to explicitly set to false due to ImGui immediate mode design
       // Just don't call SetNextFrameWantCaptureKeyboard when terminal shouldn't capture input
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error managing input capture: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error managing input capture: {ex.Message}");
     }
   }
 

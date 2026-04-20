@@ -1,3 +1,5 @@
+using purrTTY.Logging;
+
 namespace purrTTY.Core.Terminal;
 
 /// <summary>
@@ -19,17 +21,17 @@ internal class SessionLogging
         if (exception != null)
         {
             // Always log errors for debugging
-            Console.WriteLine($"SessionManager Error: {message}");
+            ModLog.Log.Debug($"SessionManager Error: {message}");
             if (exception != null)
             {
-                Console.WriteLine($"SessionManager Exception: {exception.Message}");
+                ModLog.Log.Debug($"SessionManager Exception: {exception.Message}");
             }
         }
         // For non-error events, only log if debug mode is enabled
         // This could be controlled by a configuration setting in the future
         else if (IsDebugLoggingEnabled())
         {
-            Console.WriteLine($"SessionManager: {message}");
+            ModLog.Log.Debug($"SessionManager: {message}");
         }
     }
 

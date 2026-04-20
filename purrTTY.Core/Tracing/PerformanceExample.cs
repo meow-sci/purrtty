@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using purrTTY.Logging;
 
 namespace purrTTY.Core.Tracing;
 
@@ -15,25 +16,25 @@ public static class PerformanceExample
   {
     const int iterations = 1_000_000;
 
-    Console.WriteLine("Terminal Tracing Performance Test");
-    Console.WriteLine($"Running {iterations:N0} trace operations...\n");
+    ModLog.Log.Debug("Terminal Tracing Performance Test");
+    ModLog.Log.Debug($"Running {iterations:N0} trace operations...\n");
 
     // Test with tracing disabled (default)
     TerminalTracer.Enabled = false;
     var disabledTime = MeasureTraceOperations(iterations);
-    Console.WriteLine($"Tracing DISABLED: {disabledTime.TotalMilliseconds:F2} ms ({disabledTime.TotalNanoseconds / iterations:F1} ns per call)");
+    ModLog.Log.Debug($"Tracing DISABLED: {disabledTime.TotalMilliseconds:F2} ms ({disabledTime.TotalNanoseconds / iterations:F1} ns per call)");
 
     // Test with tracing enabled
     TerminalTracer.Enabled = true;
     var enabledTime = MeasureTraceOperations(iterations);
-    Console.WriteLine($"Tracing ENABLED:  {enabledTime.TotalMilliseconds:F2} ms ({enabledTime.TotalNanoseconds / iterations:F1} ns per call)");
+    ModLog.Log.Debug($"Tracing ENABLED:  {enabledTime.TotalMilliseconds:F2} ms ({enabledTime.TotalNanoseconds / iterations:F1} ns per call)");
 
     // Calculate overhead
     var overhead = enabledTime.TotalMilliseconds - disabledTime.TotalMilliseconds;
     var overheadPercent = (overhead / disabledTime.TotalMilliseconds) * 100;
 
-    Console.WriteLine($"\nOverhead: {overhead:F2} ms ({overheadPercent:F1}% increase)");
-    Console.WriteLine($"Per-call overhead: {(enabledTime.TotalNanoseconds - disabledTime.TotalNanoseconds) / iterations:F1} ns");
+    ModLog.Log.Debug($"\nOverhead: {overhead:F2} ms ({overheadPercent:F1}% increase)");
+    ModLog.Log.Debug($"Per-call overhead: {(enabledTime.TotalNanoseconds - disabledTime.TotalNanoseconds) / iterations:F1} ns");
 
     // Cleanup
     TerminalTracer.Enabled = false;

@@ -1,5 +1,6 @@
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Controllers;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Configuration;
 
@@ -62,7 +63,7 @@ public static class FontConfigurationExamples
         var fontConfig = FontContextDetector.DetectAndCreateConfig();
         
         // You can inspect or log the detected configuration here if needed
-        Console.WriteLine($"Detected context configuration: {fontConfig.RegularFontName}, Size: {fontConfig.FontSize}");
+        ModLog.Log.Debug($"Detected context configuration: {fontConfig.RegularFontName}, Size: {fontConfig.FontSize}");
         
         return new TerminalController(sessionManager, fontConfig);
     }
@@ -128,7 +129,7 @@ public static class FontConfigurationExamples
         // This will immediately reload fonts and recalculate character metrics
         controller.UpdateFontConfig(newFontConfig);
         
-        Console.WriteLine("Font configuration updated successfully");
+        ModLog.Log.Debug("Font configuration updated successfully");
     }
 
     /// <summary>
@@ -146,19 +147,19 @@ public static class FontConfigurationExamples
             // Verify the detected configuration is acceptable
             if (IsConfigurationAcceptable(detectedConfig))
             {
-                Console.WriteLine($"Using detected configuration: {detectedConfig.RegularFontName}");
+                ModLog.Log.Debug($"Using detected configuration: {detectedConfig.RegularFontName}");
                 return new TerminalController(sessionManager, detectedConfig);
             }
             else
             {
-                Console.WriteLine("Detected configuration not acceptable, falling back to explicit TestApp config");
+                ModLog.Log.Debug("Detected configuration not acceptable, falling back to explicit TestApp config");
                 var fallbackConfig = TerminalFontConfig.CreateForTestApp();
                 return new TerminalController(sessionManager, fallbackConfig);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Font detection failed: {ex.Message}, using safe defaults");
+            ModLog.Log.Debug($"Font detection failed: {ex.Message}, using safe defaults");
             
             // Use safe default configuration if detection fails
             var safeConfig = TerminalFontConfig.CreateForTestApp();

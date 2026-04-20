@@ -2,6 +2,7 @@ using System;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Fonts;
 
@@ -26,24 +27,24 @@ internal class FontConfigPersistence
     {
       var config = ThemeConfiguration.Load();
 
-      // Console.WriteLine($"FontConfigPersistence: Constructor - Loaded config FontFamily: '{config.FontFamily}', FontSize: {config.FontSize}");
+      // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Loaded config FontFamily: '{config.FontFamily}', FontSize: {config.FontSize}");
 
       // Apply saved font family if available
       if (!string.IsNullOrEmpty(config.FontFamily))
       {
         try
         {
-          // Console.WriteLine($"FontConfigPersistence: Constructor - Attempting to create font config for family: '{config.FontFamily}'");
+          // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Attempting to create font config for family: '{config.FontFamily}'");
 
           // Create font configuration manually since PurrTTYFontManager.CreateFontConfigForFamily is broken
           var savedFontConfig = PurrTTYFontManager.CreateFontConfigForFamily(config.FontFamily, config.FontSize ?? fontConfig.FontSize);
 
           if (savedFontConfig != null)
           {
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Successfully created font config");
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Regular: {savedFontConfig.RegularFontName}");
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Bold: {savedFontConfig.BoldFontName}");
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Size: {savedFontConfig.FontSize}");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Successfully created font config");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Regular: {savedFontConfig.RegularFontName}");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Bold: {savedFontConfig.BoldFontName}");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Size: {savedFontConfig.FontSize}");
 
             var oldRegular = fontConfig.RegularFontName;
 
@@ -54,24 +55,24 @@ internal class FontConfigPersistence
             // Recreate family selector with new config and loaded family
             familySelector = new FontFamilySelector(fontConfig, config.FontFamily ?? familySelector.CurrentFontFamily);
 
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Font config updated from '{oldRegular}' to '{fontConfig.RegularFontName}'");
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Current font family set to: '{familySelector.CurrentFontFamily}'");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Font config updated from '{oldRegular}' to '{fontConfig.RegularFontName}'");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Current font family set to: '{familySelector.CurrentFontFamily}'");
           }
           else
           {
-            // Console.WriteLine($"FontConfigPersistence: Constructor - Could not create font config for '{config.FontFamily}', keeping default");
+            // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Could not create font config for '{config.FontFamily}', keeping default");
           }
         }
         catch (Exception ex)
         {
-          Console.WriteLine($"FontConfigPersistence: Constructor - FAILED to load saved font family '{config.FontFamily}': {ex.Message}");
+          ModLog.Log.Debug($"FontConfigPersistence: Constructor - FAILED to load saved font family '{config.FontFamily}': {ex.Message}");
 
           // Keep current font configuration on error
         }
       }
       else
       {
-        // Console.WriteLine("FontConfigPersistence: Constructor - No saved font family found in config");
+        // ModLog.Log.Debug("FontConfigPersistence: Constructor - No saved font family found in config");
       }
 
       // Apply saved font size if available
@@ -80,18 +81,18 @@ internal class FontConfigPersistence
         var fontSize = Math.Max(LayoutConstants.MIN_FONT_SIZE, Math.Min(LayoutConstants.MAX_FONT_SIZE, config.FontSize.Value));
         var oldSize = fontConfig.FontSize;
         fontConfig.FontSize = fontSize;
-        // Console.WriteLine($"FontConfigPersistence: Constructor - Font size updated from {oldSize} to {fontSize}");
+        // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Font size updated from {oldSize} to {fontSize}");
       }
       else
       {
-        // Console.WriteLine("FontConfigPersistence: Constructor - No saved font size found in config");
+        // ModLog.Log.Debug("FontConfigPersistence: Constructor - No saved font size found in config");
       }
 
-      // Console.WriteLine($"FontConfigPersistence: Constructor - Final font config: Regular='{fontConfig.RegularFontName}', Size={fontConfig.FontSize}");
+      // ModLog.Log.Debug($"FontConfigPersistence: Constructor - Final font config: Regular='{fontConfig.RegularFontName}', Size={fontConfig.FontSize}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontConfigPersistence: Constructor - ERROR loading font settings: {ex.Message}");
+      ModLog.Log.Debug($"FontConfigPersistence: Constructor - ERROR loading font settings: {ex.Message}");
     }
 
     return (fontConfig, fontLoader, familySelector);
@@ -125,8 +126,8 @@ internal class FontConfigPersistence
           var savedFontConfig = PurrTTYFontManager.CreateFontConfigForFamily(config.FontFamily, config.FontSize ?? fontConfig.FontSize);
 
           // Log what we're trying to load vs what we got
-          Console.WriteLine($"FontConfigPersistence: Attempting to load font family '{config.FontFamily}'");
-          Console.WriteLine($"FontConfigPersistence: Created font config - Regular: {savedFontConfig.RegularFontName}");
+          ModLog.Log.Debug($"FontConfigPersistence: Attempting to load font family '{config.FontFamily}'");
+          ModLog.Log.Debug($"FontConfigPersistence: Created font config - Regular: {savedFontConfig.RegularFontName}");
 
           fontConfig = savedFontConfig;
           fontLoader = new FontLoader(fontConfig);
@@ -135,17 +136,17 @@ internal class FontConfigPersistence
           // Recreate family selector with new config and loaded family
           familySelector = new FontFamilySelector(fontConfig, config.FontFamily ?? familySelector.CurrentFontFamily);
           fontConfigChanged = true;
-          Console.WriteLine($"FontConfigPersistence: Successfully loaded font family from settings: {config.FontFamily}");
+          ModLog.Log.Debug($"FontConfigPersistence: Successfully loaded font family from settings: {config.FontFamily}");
         }
         catch (Exception ex)
         {
-          Console.WriteLine($"FontConfigPersistence: Failed to load saved font family '{config.FontFamily}': {ex.Message}");
+          ModLog.Log.Debug($"FontConfigPersistence: Failed to load saved font family '{config.FontFamily}': {ex.Message}");
           // Keep current font configuration on error
         }
       }
       else
       {
-        Console.WriteLine("FontConfigPersistence: No saved font family found, using default");
+        ModLog.Log.Debug("FontConfigPersistence: No saved font family found, using default");
       }
 
       // Apply saved font size if available
@@ -156,24 +157,24 @@ internal class FontConfigPersistence
         {
           fontConfig.FontSize = fontSize;
           fontConfigChanged = true;
-          Console.WriteLine($"FontConfigPersistence: Loaded font size from settings: {fontSize}");
+          ModLog.Log.Debug($"FontConfigPersistence: Loaded font size from settings: {fontSize}");
         }
       }
       else
       {
-        Console.WriteLine("FontConfigPersistence: No saved font size found, using default");
+        ModLog.Log.Debug("FontConfigPersistence: No saved font size found, using default");
       }
 
       // Log final configuration if changed
       if (fontConfigChanged)
       {
-        Console.WriteLine("FontConfigPersistence: Font configuration changed, fonts will be reloaded on next render");
-        Console.WriteLine($"FontConfigPersistence: Final font config after loading - Regular: {fontConfig.RegularFontName}, Size: {fontConfig.FontSize}");
+        ModLog.Log.Debug("FontConfigPersistence: Font configuration changed, fonts will be reloaded on next render");
+        ModLog.Log.Debug($"FontConfigPersistence: Final font config after loading - Regular: {fontConfig.RegularFontName}, Size: {fontConfig.FontSize}");
       }
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontConfigPersistence: Error loading font settings: {ex.Message}");
+      ModLog.Log.Debug($"FontConfigPersistence: Error loading font settings: {ex.Message}");
     }
 
     return (fontConfig, fontLoader, familySelector, fontConfigChanged);
@@ -197,11 +198,11 @@ internal class FontConfigPersistence
       // Save configuration
       config.Save();
 
-      Console.WriteLine($"FontConfigPersistence: Saved font settings - Family: {familySelector.CurrentFontFamily}, Size: {fontConfig.FontSize}");
+      ModLog.Log.Debug($"FontConfigPersistence: Saved font settings - Family: {familySelector.CurrentFontFamily}, Size: {fontConfig.FontSize}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontConfigPersistence: Error saving font settings: {ex.Message}");
+      ModLog.Log.Debug($"FontConfigPersistence: Error saving font settings: {ex.Message}");
     }
   }
 }

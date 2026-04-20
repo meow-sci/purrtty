@@ -8,6 +8,7 @@ using purrTTY.Display.Input;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Types;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers;
 
@@ -96,7 +97,7 @@ internal class TerminalControllerBuilder
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Failed to initialize render cache: {ex.Message}");
+        ModLog.Log.Debug($"Failed to initialize render cache: {ex.Message}");
         // Fallback to direct rendering strategy if caching fails
         _renderStrategy = new DirectRenderStrategy(gridRenderer);
     }

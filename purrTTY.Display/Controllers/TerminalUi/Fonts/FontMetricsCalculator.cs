@@ -1,6 +1,7 @@
 using System;
 using Brutal.ImGuiApi;
 using purrTTY.Display.Configuration;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Fonts;
 
@@ -76,7 +77,7 @@ internal class FontMetricsCalculator
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontMetricsCalculator: Error calculating character metrics: {ex.Message}");
+      ModLog.Log.Debug($"FontMetricsCalculator: Error calculating character metrics: {ex.Message}");
 
       // Fallback to DPI-based metrics from config
       _currentCharacterWidth = _config.CharacterWidth;

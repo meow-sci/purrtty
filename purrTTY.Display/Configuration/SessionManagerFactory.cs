@@ -2,6 +2,7 @@ using System.Reflection;
 using purrTTY.Core.Rpc;
 using purrTTY.Core.Rpc.Socket;
 using purrTTY.Core.Terminal;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Configuration;
 
@@ -26,10 +27,10 @@ public static class SessionManagerFactory
     {
         // Load persisted configuration to determine initial shell type
         var themeConfig = ThemeConfiguration.Load();
-        Console.WriteLine($"SessionManagerFactory: Configured shell type: {themeConfig.DefaultShellType}");
+        ModLog.Log.Debug($"SessionManagerFactory: Configured shell type: {themeConfig.DefaultShellType}");
         if (themeConfig.DefaultShellType == ShellType.CustomGame)
         {
-            Console.WriteLine($"SessionManagerFactory: Configured custom game shell ID: {themeConfig.DefaultCustomGameShellId}");
+            ModLog.Log.Debug($"SessionManagerFactory: Configured custom game shell ID: {themeConfig.DefaultCustomGameShellId}");
         }
 
         // Ensure custom shell registry discovers available shells BEFORE creating sessions
@@ -45,18 +46,18 @@ public static class SessionManagerFactory
                 // Step 2: Discover shells (will now find GameConsoleShell)
                 CustomShellRegistry.Instance.DiscoverShells();
                 var discoveredShells = CustomShellRegistry.Instance.GetAvailableShells();
-                Console.WriteLine($"SessionManagerFactory: Custom shell discovery completed. Available shells: {string.Join(", ", discoveredShells.Select(s => s.Id))}");
+                ModLog.Log.Debug($"SessionManagerFactory: Custom shell discovery completed. Available shells: {string.Join(", ", discoveredShells.Select(s => s.Id))}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"SessionManagerFactory: Warning - Failed to discover custom shells: {ex.Message}");
+                ModLog.Log.Debug($"SessionManagerFactory: Warning - Failed to discover custom shells: {ex.Message}");
                 // Continue anyway - will fail more clearly when trying to create the session
             }
         }
 
         // Create launch options from persisted configuration
         var defaultLaunchOptions = themeConfig.CreateLaunchOptions();
-        Console.WriteLine($"SessionManagerFactory: Created launch options with shell type: {defaultLaunchOptions.ShellType}");
+        ModLog.Log.Debug($"SessionManagerFactory: Created launch options with shell type: {defaultLaunchOptions.ShellType}");
 
         // Set default terminal dimensions and working directory
         defaultLaunchOptions.InitialWidth = 80;
@@ -83,19 +84,19 @@ public static class SessionManagerFactory
 
             if (alreadyLoaded != null)
             {
-                Console.WriteLine("SessionManagerFactory: purrTTY.CustomShells assembly already loaded");
+                ModLog.Log.Debug("SessionManagerFactory: purrTTY.CustomShells assembly already loaded");
                 return;
             }
 
             // Assembly is not loaded, so load it explicitly
             // This forces the assembly into the AppDomain so CustomShellRegistry can discover it
-            Console.WriteLine("SessionManagerFactory: Loading purrTTY.CustomShells assembly explicitly");
+            ModLog.Log.Debug("SessionManagerFactory: Loading purrTTY.CustomShells assembly explicitly");
             Assembly.Load("purrTTY.CustomShells");
-            Console.WriteLine("SessionManagerFactory: Successfully loaded purrTTY.CustomShells assembly");
+            ModLog.Log.Debug("SessionManagerFactory: Successfully loaded purrTTY.CustomShells assembly");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"SessionManagerFactory: Failed to load purrTTY.CustomShells assembly: {ex.Message}");
+            ModLog.Log.Debug($"SessionManagerFactory: Failed to load purrTTY.CustomShells assembly: {ex.Message}");
             throw;
         }
     }

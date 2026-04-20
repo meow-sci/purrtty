@@ -4,6 +4,7 @@ using Brutal.ImGuiApi;
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Menus;
 
@@ -56,8 +57,8 @@ internal class SessionsMenuRenderer
                 }
                 catch (Exception ex)
                 {
-                  Console.WriteLine($"Failed to create shell session '{option.DisplayName}': {ex.Message}");
-                  Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                  ModLog.Log.Debug($"Failed to create shell session '{option.DisplayName}': {ex.Message}");
+                  ModLog.Log.Debug($"Stack trace: {ex.StackTrace}");
                 }
               });
             }

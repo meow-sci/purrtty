@@ -6,6 +6,7 @@ using purrTTY.Core.Terminal;
 using purrTTY.Core.Utils;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Input;
 
@@ -64,7 +65,7 @@ public class MouseWheelHandler
       // Validate wheel delta for NaN/infinity - critical for robustness
       if (!float.IsFinite(wheelDelta))
       {
-        Console.WriteLine($"TerminalController: Invalid wheel delta detected (NaN/Infinity): {wheelDelta}, ignoring");
+        ModLog.Log.Debug($"TerminalController: Invalid wheel delta detected (NaN/Infinity): {wheelDelta}, ignoring");
 
         // Reset accumulator to prevent corruption from invalid values
         _wheelAccumulator = 0.0f;
@@ -74,7 +75,7 @@ public class MouseWheelHandler
       // Additional validation for extreme values that could cause issues
       if (Math.Abs(wheelDelta) > 1000.0f)
       {
-        Console.WriteLine($"TerminalController: Extreme wheel delta detected: {wheelDelta}, clamping");
+        ModLog.Log.Debug($"TerminalController: Extreme wheel delta detected: {wheelDelta}, clamping");
         wheelDelta = Math.Sign(wheelDelta) * 10.0f; // Clamp to reasonable range
       }
 
@@ -84,14 +85,14 @@ public class MouseWheelHandler
     catch (Exception ex)
     {
       // Log detailed error information for debugging
-      Console.WriteLine($"TerminalController: Mouse wheel handling error: {ex.GetType().Name}: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Mouse wheel handling error: {ex.GetType().Name}: {ex.Message}");
 
       // Reset accumulator to prevent stuck state - critical for recovery
       _wheelAccumulator = 0.0f;
 
       // Log stack trace for debugging in development builds
 #if DEBUG
-      Console.WriteLine($"TerminalController: Stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: Stack trace: {ex.StackTrace}");
 #endif
     }
   }
@@ -111,7 +112,7 @@ public class MouseWheelHandler
       // but defensive programming requires validation at each level
       if (!float.IsFinite(wheelDelta))
       {
-        Console.WriteLine($"TerminalController: Invalid wheel delta in ProcessMouseWheelScroll: {wheelDelta}");
+        ModLog.Log.Debug($"TerminalController: Invalid wheel delta in ProcessMouseWheelScroll: {wheelDelta}");
         _wheelAccumulator = 0.0f;
         return;
       }
@@ -122,7 +123,7 @@ public class MouseWheelHandler
       // Prevent accumulator overflow - critical for stability
       if (Math.Abs(_wheelAccumulator) > 100.0f)
       {
-        Console.WriteLine($"TerminalController: Wheel accumulator overflow detected: {_wheelAccumulator}, clamping");
+        ModLog.Log.Debug($"TerminalController: Wheel accumulator overflow detected: {_wheelAccumulator}, clamping");
         _wheelAccumulator = Math.Sign(_wheelAccumulator) * 10.0f;
       }
 
@@ -193,7 +194,7 @@ public class MouseWheelHandler
       var scrollbackManager = activeSession.Terminal.ScrollbackManager;
       if (scrollbackManager == null)
       {
-        Console.WriteLine("TerminalController: ScrollbackManager is null, cannot process wheel scroll");
+        ModLog.Log.Debug("TerminalController: ScrollbackManager is null, cannot process wheel scroll");
         _wheelAccumulator = 0.0f;
         return;
       }
@@ -226,11 +227,11 @@ public class MouseWheelHandler
 #if DEBUG
           if (scrollUp)
           {
-            // Console.WriteLine("TerminalController: Scroll up hit top boundary, clearing accumulator");
+            // ModLog.Log.Debug("TerminalController: Scroll up hit top boundary, clearing accumulator");
           }
           else if (!wasAtBottom)
           {
-            // Console.WriteLine("TerminalController: Scroll down hit bottom boundary, clearing accumulator");
+            // ModLog.Log.Debug("TerminalController: Scroll down hit bottom boundary, clearing accumulator");
           }
 #endif
         }
@@ -253,7 +254,7 @@ public class MouseWheelHandler
       catch (Exception ex)
       {
         // Catch any errors during scrolling and reset to safe state
-        Console.WriteLine($"TerminalController: Error during scrollback scroll: {ex.GetType().Name}: {ex.Message}");
+        ModLog.Log.Debug($"TerminalController: Error during scrollback scroll: {ex.GetType().Name}: {ex.Message}");
         _wheelAccumulator = 0.0f;
 
         // Attempt to recover to bottom position (most common expected state)
@@ -270,11 +271,11 @@ public class MouseWheelHandler
     catch (Exception ex)
     {
       // Outer catch for any unexpected errors in scroll processing logic itself
-      Console.WriteLine($"TerminalController: Unexpected error in ProcessMouseWheelScroll: {ex.GetType().Name}: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Unexpected error in ProcessMouseWheelScroll: {ex.GetType().Name}: {ex.Message}");
       _wheelAccumulator = 0.0f;
 
 #if DEBUG
-      Console.WriteLine($"TerminalController: Stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: Stack trace: {ex.StackTrace}");
 #endif
     }
   }

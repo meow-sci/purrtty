@@ -1,5 +1,6 @@
 using purrTTY.Core.Rpc;
 using KSA;
+using purrTTY.Logging;
 
 namespace purrTTY.TermSequenceRpc.VehicleCommands;
 
@@ -19,7 +20,7 @@ public class ShutdownMainEngineCommand : FireAndForgetCommandHandler
     /// <inheritdoc />
     protected override void ExecuteAction(RpcParameters parameters)
     {
-        Console.WriteLine($"Ignite Main Throttle: {parameters}");
+        ModLog.Log.Debug($"Ignite Main Throttle: {parameters}");
 
         var rocket = Program.ControlledVehicle;
 

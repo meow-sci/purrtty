@@ -19,7 +19,15 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\purrTTY.Logging\purrTTY.Logging.csproj" />
         <ProjectReference Include="..\purrTTY.CustomShellContract\purrTTY.CustomShellContract.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
     </ItemGroup>
 
     <ItemGroup>

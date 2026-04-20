@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using purrTTY.Core.Terminal;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Configuration;
 
@@ -178,7 +179,7 @@ public class ThemeConfiguration
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
         {
             // Log error and return default configuration
-            Console.WriteLine($"Error loading theme configuration: {ex.Message}");
+            ModLog.Log.Debug($"Error loading theme configuration: {ex.Message}");
             return new ThemeConfiguration();
         }
     }
@@ -209,7 +210,7 @@ public class ThemeConfiguration
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
         {
-            Console.WriteLine($"Error saving theme configuration: {ex.Message}");
+            ModLog.Log.Debug($"Error saving theme configuration: {ex.Message}");
         }
     }
 

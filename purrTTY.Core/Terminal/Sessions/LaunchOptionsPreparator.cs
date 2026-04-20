@@ -1,3 +1,5 @@
+using purrTTY.Logging;
+
 namespace purrTTY.Core.Terminal;
 
 /// <summary>
@@ -17,13 +19,13 @@ internal class LaunchOptionsPreparator
     {
         // Ensure the terminal emulator and PTY process start with the same dimensions.
         // If launchOptions is null, use the last-known/default size (updated via resize handlers).
-        Console.WriteLine($"LaunchOptionsPreparator: PrepareEffectiveLaunchOptions called with providedOptions={providedOptions != null}");
+        ModLog.Log.Debug($"LaunchOptionsPreparator: PrepareEffectiveLaunchOptions called with providedOptions={providedOptions != null}");
         if (providedOptions != null)
         {
-            Console.WriteLine($"LaunchOptionsPreparator: Provided shell type: {providedOptions.ShellType}");
+            ModLog.Log.Debug($"LaunchOptionsPreparator: Provided shell type: {providedOptions.ShellType}");
             if (providedOptions.ShellType == ShellType.CustomGame)
             {
-                Console.WriteLine($"LaunchOptionsPreparator: Provided custom shell ID: {providedOptions.CustomShellId}");
+                ModLog.Log.Debug($"LaunchOptionsPreparator: Provided custom shell ID: {providedOptions.CustomShellId}");
             }
         }
 
@@ -31,7 +33,7 @@ internal class LaunchOptionsPreparator
             ? SessionDimensionTracker.CloneLaunchOptions(providedOptions)
             : dimensionTracker.GetDefaultLaunchOptionsSnapshot();
 
-        Console.WriteLine($"LaunchOptionsPreparator: Effective shell type after preparation: {effectiveLaunchOptions.ShellType}");
+        ModLog.Log.Debug($"LaunchOptionsPreparator: Effective shell type after preparation: {effectiveLaunchOptions.ShellType}");
 
         // Always start new sessions at the last-known UI size.
         // This prevents shell changes (WSL/PowerShell/Cmd) from reverting to 80x24/80x25 defaults.

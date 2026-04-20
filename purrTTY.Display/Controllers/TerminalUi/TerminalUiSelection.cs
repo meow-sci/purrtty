@@ -5,6 +5,7 @@ using purrTTY.Core.Terminal;
 using purrTTY.Core.Types;
 using purrTTY.Display.Types;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi;
 
@@ -174,12 +175,12 @@ public class TerminalUiSelection
       if (!string.IsNullOrEmpty(clipboardText))
       {
         _controller.SendToProcess(clipboardText);
-        Console.WriteLine($"TerminalUiSelection: Pasted {clipboardText.Length} characters from clipboard");
+        ModLog.Log.Debug($"TerminalUiSelection: Pasted {clipboardText.Length} characters from clipboard");
       }
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalUiSelection: Error pasting from clipboard: {ex.Message}");
+      ModLog.Log.Debug($"TerminalUiSelection: Error pasting from clipboard: {ex.Message}");
     }
   }
 
@@ -201,7 +202,7 @@ public class TerminalUiSelection
     _currentSelection = new TextSelection(startPos, endPos);
     _isSelecting = false;
 
-    Console.WriteLine("TerminalController: Selected all visible content");
+    ModLog.Log.Debug("TerminalController: Selected all visible content");
   }
 
   /// <summary>
@@ -325,18 +326,18 @@ public class TerminalUiSelection
 
       if (success)
       {
-        Console.WriteLine($"TerminalController: Copied {selectedText.Length} characters to clipboard");
+        ModLog.Log.Debug($"TerminalController: Copied {selectedText.Length} characters to clipboard");
       }
       else
       {
-        Console.WriteLine("TerminalController: Failed to copy selection to clipboard");
+        ModLog.Log.Debug("TerminalController: Failed to copy selection to clipboard");
       }
 
       return success;
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error copying selection to clipboard: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error copying selection to clipboard: {ex.Message}");
       return false;
     }
   }

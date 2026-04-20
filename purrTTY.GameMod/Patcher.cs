@@ -7,6 +7,7 @@ using purrTTY.GameMod;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using purrTTY.Logging;
 
 
 [HarmonyPatch]
@@ -48,7 +49,7 @@ static class Patch02
                 {
                     codes.Insert(i + 4, new CodeInstruction(OpCodes.Ldarg_1));
                     codes.Insert(i + 5, new CodeInstruction(OpCodes.Call, injectMethod));
-                    Console.WriteLine("purrTTY: game menu bar injection succeeded");
+                    ModLog.Log.Debug("purrTTY: game menu bar injection succeeded");
                     break;
                 }
             }

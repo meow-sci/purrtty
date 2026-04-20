@@ -1,6 +1,7 @@
 using System;
 using Brutal.ImGuiApi;
 using purrTTY.Core.Terminal;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Resize;
@@ -146,7 +147,7 @@ internal class WindowResizeHandler
         // Validate new dimensions are reasonable
         if (newCols < 10 || newRows < 3 || newCols > 1000 || newRows > 1000)
         {
-          Console.WriteLine($"TerminalController: Invalid terminal dimensions calculated: {newCols}x{newRows}, ignoring resize");
+          ModLog.Log.Debug($"TerminalController: Invalid terminal dimensions calculated: {newCols}x{newRows}, ignoring resize");
           return;
         }
 
@@ -174,10 +175,10 @@ internal class WindowResizeHandler
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error during window resize handling: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error during window resize handling: {ex.Message}");
 
 #if DEBUG
-      Console.WriteLine($"TerminalController: Resize error stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: Resize error stack trace: {ex.StackTrace}");
 #endif
     }
   }

@@ -4,6 +4,7 @@ using System.Linq;
 using Brutal.ImGuiApi;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Menus;
 
@@ -128,16 +129,16 @@ internal class ColorThemeSubmenuRenderer
   {
     try
     {
-      Console.WriteLine($"TerminalController: Applying theme: {theme.Name}");
+      ModLog.Log.Debug($"TerminalController: Applying theme: {theme.Name}");
 
       // Apply the theme through ThemeManager
       ThemeManager.ApplyTheme(theme);
 
-      Console.WriteLine($"TerminalController: Successfully applied theme: {theme.Name}");
+      ModLog.Log.Debug($"TerminalController: Successfully applied theme: {theme.Name}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Failed to apply theme {theme.Name}: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Failed to apply theme {theme.Name}: {ex.Message}");
       // Theme system should handle fallback to default theme
     }
   }
@@ -149,16 +150,16 @@ internal class ColorThemeSubmenuRenderer
   {
     try
     {
-      Console.WriteLine("TerminalController: Refreshing themes...");
+      ModLog.Log.Debug("TerminalController: Refreshing themes...");
 
       // Refresh themes through ThemeManager
       ThemeManager.RefreshAvailableThemes();
 
-      Console.WriteLine($"TerminalController: Themes refreshed. Available themes: {ThemeManager.AvailableThemes.Count}");
+      ModLog.Log.Debug($"TerminalController: Themes refreshed. Available themes: {ThemeManager.AvailableThemes.Count}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Failed to refresh themes: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Failed to refresh themes: {ex.Message}");
     }
   }
 }

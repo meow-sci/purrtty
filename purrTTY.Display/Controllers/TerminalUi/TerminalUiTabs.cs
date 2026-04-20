@@ -4,6 +4,7 @@ using Brutal.ImGuiApi;
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Controllers.TerminalUi;
@@ -209,7 +210,7 @@ internal class TerminalUiTabs
                           }
                           catch (Exception ex)
                           {
-                            Console.WriteLine($"TerminalController: Failed to restart session {session.Id}: {ex.Message}");
+                            ModLog.Log.Debug($"TerminalController: Failed to restart session {session.Id}: {ex.Message}");
                           }
                         });
                       }
@@ -252,7 +253,7 @@ internal class TerminalUiTabs
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error rendering tab area: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error rendering tab area: {ex.Message}");
 
       // Fallback: render a simple text indicator if tab rendering fails
       ImGui.Text("No sessions");
@@ -315,7 +316,7 @@ internal class TerminalUiTabs
   /// <param name="feature">The feature name to display</param>
   private void ShowNotImplementedMessage(string feature)
   {
-    Console.WriteLine($"TerminalController: {feature} not implemented in this phase");
+    ModLog.Log.Debug($"TerminalController: {feature} not implemented in this phase");
     // Future: Could show ImGui popup
   }
 }

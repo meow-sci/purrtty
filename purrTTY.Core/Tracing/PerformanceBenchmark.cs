@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using purrTTY.Logging;
 
 namespace purrTTY.Core.Tracing;
 
@@ -92,8 +93,8 @@ public static class PerformanceBenchmark
             
             if (verbose)
             {
-                Console.WriteLine("Demonstrating batched tracing behavior:");
-                Console.WriteLine($"Tracing {characterCount} characters...");
+                ModLog.Log.Debug("Demonstrating batched tracing behavior:");
+                ModLog.Log.Debug($"Tracing {characterCount} characters...");
             }
             
             for (int i = 0; i < characterCount; i++)
@@ -104,7 +105,7 @@ public static class PerformanceBenchmark
                 // Show buffer statistics every 100 characters
                 if (verbose && i % 100 == 0)
                 {
-                    Console.WriteLine($"Character {i}: Buffer has {TerminalTracer.BufferedEntryCount} entries, {TerminalTracer.BufferedDataSize} bytes");
+                    ModLog.Log.Debug($"Character {i}: Buffer has {TerminalTracer.BufferedEntryCount} entries, {TerminalTracer.BufferedDataSize} bytes");
                 }
                 
                 // Add a small delay to see buffering in action
@@ -116,15 +117,15 @@ public static class PerformanceBenchmark
             
             if (verbose)
             {
-                Console.WriteLine($"Final buffer: {TerminalTracer.BufferedEntryCount} entries, {TerminalTracer.BufferedDataSize} bytes");
-                Console.WriteLine("Flushing buffer...");
+                ModLog.Log.Debug($"Final buffer: {TerminalTracer.BufferedEntryCount} entries, {TerminalTracer.BufferedDataSize} bytes");
+                ModLog.Log.Debug("Flushing buffer...");
             }
             
             TerminalTracer.Flush();
             
             if (verbose)
             {
-                Console.WriteLine($"After flush: {TerminalTracer.BufferedEntryCount} entries, {TerminalTracer.BufferedDataSize} bytes");
+                ModLog.Log.Debug($"After flush: {TerminalTracer.BufferedEntryCount} entries, {TerminalTracer.BufferedDataSize} bytes");
             }
         }
         finally

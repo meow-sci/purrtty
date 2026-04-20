@@ -9,6 +9,7 @@ using purrTTY.TermSequenceRpc;
 using purrTTY.TermSequenceRpc.SocketRpc;
 using Microsoft.Extensions.Logging.Abstractions;
 using StarMap.API;
+using purrTTY.Logging;
 
 namespace purrTTY.GameMod;
 
@@ -49,7 +50,7 @@ public class TerminalMod
     [StarMapAfterGui]
     public void OnAfterUi(double dt)
     {
-        // Console.WriteLine("purrTTY OnAfterUi");
+        // ModLog.Log.Debug("purrTTY OnAfterUi");
         if (!_isInitialized || _isDisposed)
         {
             return;
@@ -60,7 +61,7 @@ public class TerminalMod
             // Handle terminal toggle keybind (F12)
             if (ImGui.IsKeyPressed(ImGuiKey.F12))
             {
-                // Console.WriteLine($"DEBUG: GameMod detected F12 press, current _terminalVisible={_terminalVisible}");
+                // ModLog.Log.Debug($"DEBUG: GameMod detected F12 press, current _terminalVisible={_terminalVisible}");
                 ToggleTerminal();
             }
 
@@ -73,7 +74,7 @@ public class TerminalMod
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"purrTTY GameMod OnAfterUi error: {ex.Message}");
+            ModLog.Log.Debug($"purrTTY GameMod OnAfterUi error: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
             // Don't let exceptions crash the game
         }
@@ -86,7 +87,7 @@ public class TerminalMod
     [StarMapBeforeGui]
     public void OnBeforeUi(double dt)
     {
-        // Console.WriteLine("purrTTY OnBeforeUi");
+        // ModLog.Log.Debug("purrTTY OnBeforeUi");
         // No pre-UI logic needed currently
     }
 
@@ -96,7 +97,7 @@ public class TerminalMod
     [StarMapAllModsLoaded]
     public void OnFullyLoaded()
     {
-        Console.WriteLine("purrTTY OnFullyLoaded");
+        ModLog.Log.Debug("purrTTY OnFullyLoaded");
         try
         {
             Patcher.patch();
@@ -110,7 +111,7 @@ public class TerminalMod
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"purrTTY GameMod initialization failed: {ex.Message}");
+            ModLog.Log.Debug($"purrTTY GameMod initialization failed: {ex.Message}");
         }
     }
 
@@ -120,7 +121,7 @@ public class TerminalMod
     [StarMapImmediateLoad]
     public void OnImmediatLoad()
     {
-        Console.WriteLine("purrTTY OnImmediatLoad");
+        ModLog.Log.Debug("purrTTY OnImmediatLoad");
         // No immediate load logic needed
     }
 
@@ -130,7 +131,7 @@ public class TerminalMod
     [StarMapUnload]
     public void Unload()
     {
-        Console.WriteLine("purrTTY Unload");
+        ModLog.Log.Debug("purrTTY Unload");
         try
         {
             Patcher.unload();
@@ -139,7 +140,7 @@ public class TerminalMod
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"purrTTY GameMod unload error: {ex.Message}");
+            ModLog.Log.Debug($"purrTTY GameMod unload error: {ex.Message}");
         }
     }
 
@@ -157,12 +158,12 @@ public class TerminalMod
 
             ThemeConfiguration.OverrideConfigDirectory = productionConfigRoot;
 
-            Console.WriteLine($"purrTTY GameMod: Production config path set to: {productionConfigRoot}");
+            ModLog.Log.Debug($"purrTTY GameMod: Production config path set to: {productionConfigRoot}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"purrTTY GameMod: WARNING - Failed to set production config path: {ex.Message}");
-            Console.WriteLine("Configuration will use temporary directory and settings will not persist.");
+            ModLog.Log.Debug($"purrTTY GameMod: WARNING - Failed to set production config path: {ex.Message}");
+            ModLog.Log.Debug("Configuration will use temporary directory and settings will not persist.");
         }
     }
 
@@ -177,7 +178,7 @@ public class TerminalMod
             return;
         }
 
-        Console.WriteLine("purrTTY GameMod: Initializing terminal...");
+        ModLog.Log.Debug("purrTTY GameMod: Initializing terminal...");
 
         try
         {
@@ -200,11 +201,11 @@ public class TerminalMod
                 // Register endpoint with factory for ProcessManager to query
                 SocketRpcServerFactory.RegisterEndpoint(_socketRpcServer.Endpoint);
 
-                Console.WriteLine($"[purrTTY GameMod] Socket RPC server started at {_socketRpcServer.Endpoint}");
+                ModLog.Log.Debug($"[purrTTY GameMod] Socket RPC server started at {_socketRpcServer.Endpoint}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[purrTTY GameMod] Failed to start socket RPC server: {ex.Message}");
+                ModLog.Log.Debug($"[purrTTY GameMod] Failed to start socket RPC server: {ex.Message}");
                 _socketRpcServer = null;
                 SocketRpcServerFactory.ClearEndpoint();
             }
@@ -218,22 +219,22 @@ public class TerminalMod
 
             _terminal = session.Terminal;
 
-            Console.WriteLine($"TerminalMod: rpc enabled={_terminal.IsRpcEnabled}");
+            ModLog.Log.Debug($"TerminalMod: rpc enabled={_terminal.IsRpcEnabled}");
 
             var fontConfig = TerminalFontConfig.CreateForGameMod();
-            Console.WriteLine(
+            ModLog.Log.Debug(
                 $"purrTTY GameMod using explicit font configuration: Regular={fontConfig.RegularFontName}, Bold={fontConfig.BoldFontName}");
             _controller = new TerminalController(sessionManager, fontConfig);
 
             // Option 2: Automatic detection (alternative approach - convenient for development)
             // Uncomment the following lines to use automatic detection instead:
-            // Console.WriteLine("purrTTY GameMod using automatic font detection");
+            // ModLog.Log.Debug("purrTTY GameMod using automatic font detection");
             // _controller = new TerminalController(sessionManager);
 
             // Option 3: Explicit automatic detection (alternative approach - shows detection explicitly)
             // Uncomment the following lines to use explicit automatic detection:
             // var autoConfig = FontContextDetector.DetectAndCreateConfig();
-            // Console.WriteLine($"purrTTY GameMod using detected font configuration: Regular={autoConfig.RegularFontName}, Bold={autoConfig.BoldFontName}");
+            // ModLog.Log.Debug($"purrTTY GameMod using detected font configuration: Regular={autoConfig.RegularFontName}, Bold={autoConfig.BoldFontName}");
             // _controller = new TerminalController(sessionManager, autoConfig);
 
             // NOTE: The session manager already starts the shell process based on persisted configuration.
@@ -244,11 +245,11 @@ public class TerminalMod
             GetIsVisible = () => _terminalVisible;
 
             _isInitialized = true;
-            Console.WriteLine("purrTTY GameMod: Terminal initialized successfully. Press F12 to toggle.");
+            ModLog.Log.Debug("purrTTY GameMod: Terminal initialized successfully. Press F12 to toggle.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"purrTTY GameMod: Terminal initialization failed: {ex.Message}");
+            ModLog.Log.Debug($"purrTTY GameMod: Terminal initialization failed: {ex.Message}");
             DisposeResources();
             throw;
         }
@@ -264,7 +265,7 @@ public class TerminalMod
             return;
         }
 
-        Console.WriteLine(
+        ModLog.Log.Debug(
             $"DEBUG: ToggleTerminal called, changing _terminalVisible from {_terminalVisible} to {!_terminalVisible}");
 
         _terminalVisible = !_terminalVisible;
@@ -272,10 +273,10 @@ public class TerminalMod
         if (_controller != null)
         {
             _controller.IsVisible = _terminalVisible;
-            // Console.WriteLine($"DEBUG: Set controller.IsVisible to {_terminalVisible}");
+            // ModLog.Log.Debug($"DEBUG: Set controller.IsVisible to {_terminalVisible}");
         }
 
-        Console.WriteLine($"purrTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
+        ModLog.Log.Debug($"purrTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
     }
 
     /// <summary>
@@ -297,7 +298,7 @@ public class TerminalMod
             return;
         }
 
-        Console.WriteLine("purrTTY GameMod: Disposing resources...");
+        ModLog.Log.Debug("purrTTY GameMod: Disposing resources...");
 
         try
         {
@@ -320,11 +321,11 @@ public class TerminalMod
                     // Clear endpoint registration
                     SocketRpcServerFactory.ClearEndpoint();
 
-                    Console.WriteLine("[purrTTY GameMod] Socket RPC server stopped");
+                    ModLog.Log.Debug("[purrTTY GameMod] Socket RPC server stopped");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[purrTTY GameMod] Error stopping socket RPC server: {ex.Message}");
+                    ModLog.Log.Debug($"[purrTTY GameMod] Error stopping socket RPC server: {ex.Message}");
                 }
             }
 
@@ -334,11 +335,11 @@ public class TerminalMod
             _isInitialized = false;
             _isDisposed = true;
 
-            Console.WriteLine("purrTTY GameMod: Resources disposed successfully");
+            ModLog.Log.Debug("purrTTY GameMod: Resources disposed successfully");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"purrTTY GameMod: Error during resource disposal: {ex.Message}");
+            ModLog.Log.Debug($"purrTTY GameMod: Error during resource disposal: {ex.Message}");
         }
     }
 }

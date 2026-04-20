@@ -75,13 +75,13 @@ public class RpcSequenceHandler
         // Try to parse the valid RPC sequence
         if (_rpcSequenceParser!.TryParseRpcSequence(sequenceSpan, out RpcMessage? message) && message != null)
         {
-            // Console.WriteLine($"!!! GOT VALID RPC SEQUENCE sequenceType={sequenceType} message={message}");
+            // ModLog.Log.Debug($"!!! GOT VALID RPC SEQUENCE sequenceType={sequenceType} message={message}");
 
             _rpcHandler!.HandleRpcMessage(message);
             return true;
         }
 
-        // Console.WriteLine($"!!! GOT INVALID RPC SEQUENCE");
+        // ModLog.Log.Debug($"!!! GOT INVALID RPC SEQUENCE");
 
 
         // Parsing failed for a supposedly valid sequence

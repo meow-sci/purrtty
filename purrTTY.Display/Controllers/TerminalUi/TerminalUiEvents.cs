@@ -6,6 +6,7 @@ using purrTTY.Core.Terminal;
 using purrTTY.Core.Types;
 using purrTTY.Display.Input;
 using purrTTY.Display.Rendering;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi;
 
@@ -58,7 +59,7 @@ public class TerminalUiEvents
       // This prevents stale selections from interfering with new input
       if (!_selection.GetCurrentSelection().IsEmpty)
       {
-        Console.WriteLine("TerminalController: Clearing selection on focus gained");
+        ModLog.Log.Debug("TerminalController: Clearing selection on focus gained");
         _selection.ClearSelection();
       }
 
@@ -67,7 +68,7 @@ public class TerminalUiEvents
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error handling focus gained: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error handling focus gained: {ex.Message}");
     }
   }
 
@@ -82,18 +83,18 @@ public class TerminalUiEvents
       // Stop any ongoing selection when losing focus
       if (_selection.IsSelecting)
       {
-        Console.WriteLine("TerminalController: Stopping selection on focus lost");
+        ModLog.Log.Debug("TerminalController: Stopping selection on focus lost");
         _selection.IsSelecting = false;
       }
 
       // Reset mouse wheel accumulator to prevent stuck scrolling
       // Note: Wheel accumulator is managed by TerminalController
 
-      Console.WriteLine("TerminalController: Terminal lost focus - input capture inactive");
+      ModLog.Log.Debug("TerminalController: Terminal lost focus - input capture inactive");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error handling focus lost: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error handling focus lost: {ex.Message}");
     }
   }
 
@@ -120,7 +121,7 @@ public class TerminalUiEvents
       }
       catch (Exception ex)
       {
-        Console.WriteLine($"Failed to send terminal response to process: {ex.Message}");
+        ModLog.Log.Debug($"Failed to send terminal response to process: {ex.Message}");
       }
     }
   }
@@ -133,7 +134,7 @@ public class TerminalUiEvents
   {
     try
     {
-      Console.WriteLine($"TerminalController: Theme changed from '{e.PreviousTheme.Name}' to '{e.NewTheme.Name}'");
+      ModLog.Log.Debug($"TerminalController: Theme changed from '{e.PreviousTheme.Name}' to '{e.NewTheme.Name}'");
 
       // Reset cursor style to match new theme defaults
       _resetCursorToThemeDefaults();
@@ -144,11 +145,11 @@ public class TerminalUiEvents
       // Reset cursor blink state to ensure proper timing with new theme
       _cursorRenderer.ResetBlinkState();
 
-      Console.WriteLine($"TerminalController: Theme change handling completed for '{e.NewTheme.Name}'");
+      ModLog.Log.Debug($"TerminalController: Theme change handling completed for '{e.NewTheme.Name}'");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error handling theme change: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error handling theme change: {ex.Message}");
     }
   }
 
@@ -195,7 +196,7 @@ public class TerminalUiEvents
     session.Terminal.ResponseEmitted += OnResponseEmitted;
     session.TitleChanged += OnSessionTitleChanged;
 
-    Console.WriteLine($"TerminalController: Session created - {session.Title} ({session.Id})");
+    ModLog.Log.Debug($"TerminalController: Session created - {session.Title} ({session.Id})");
   }
 
   /// <summary>
@@ -209,7 +210,7 @@ public class TerminalUiEvents
     session.Terminal.ResponseEmitted -= OnResponseEmitted;
     session.TitleChanged -= OnSessionTitleChanged;
 
-    Console.WriteLine($"TerminalController: Session closed - {session.Title} ({session.Id})");
+    ModLog.Log.Debug($"TerminalController: Session closed - {session.Title} ({session.Id})");
   }
 
   /// <summary>
@@ -217,7 +218,7 @@ public class TerminalUiEvents
   /// </summary>
   public void OnActiveSessionChanged(object? sender, ActiveSessionChangedEventArgs e)
   {
-    Console.WriteLine($"TerminalController: Active session changed from {e.PreviousSession?.Title} to {e.NewSession?.Title}");
+    ModLog.Log.Debug($"TerminalController: Active session changed from {e.PreviousSession?.Title} to {e.NewSession?.Title}");
 
     // Clear any existing selection when switching sessions
     if (!_selection.GetCurrentSelection().IsEmpty)
@@ -237,6 +238,6 @@ public class TerminalUiEvents
   {
     // Note: No explicit UI refresh needed here since ImGui re-renders every frame
     // The tab labels will automatically show the updated session titles on next render
-    Console.WriteLine($"TerminalController: Session title changed from '{e.OldTitle}' to '{e.NewTitle}'");
+    ModLog.Log.Debug($"TerminalController: Session title changed from '{e.OldTitle}' to '{e.NewTitle}'");
   }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Utils;
 
@@ -35,7 +36,7 @@ public static class ClipboardManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ClipboardManager: Failed to set clipboard text: {ex.Message}");
+            ModLog.Log.Debug($"ClipboardManager: Failed to set clipboard text: {ex.Message}");
             return false;
         }
     }
@@ -59,7 +60,7 @@ public static class ClipboardManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ClipboardManager: Failed to get clipboard text: {ex.Message}");
+            ModLog.Log.Debug($"ClipboardManager: Failed to get clipboard text: {ex.Message}");
             return null;
         }
     }
@@ -133,7 +134,7 @@ public static class ClipboardManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ClipboardManager: Windows clipboard set failed: {ex.Message}");
+            ModLog.Log.Debug($"ClipboardManager: Windows clipboard set failed: {ex.Message}");
             return false;
         }
     }
@@ -180,7 +181,7 @@ public static class ClipboardManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"ClipboardManager: Windows clipboard get failed: {ex.Message}");
+            ModLog.Log.Debug($"ClipboardManager: Windows clipboard get failed: {ex.Message}");
             return null;
         }
     }
@@ -193,7 +194,7 @@ public static class ClipboardManager
     {
         // For non-Windows platforms, we could implement platform-specific clipboard access
         // or use a cross-platform library. For now, just log and return false.
-        Console.WriteLine("ClipboardManager: Clipboard operations not supported on this platform");
+        ModLog.Log.Debug("ClipboardManager: Clipboard operations not supported on this platform");
         return false;
     }
 
@@ -202,7 +203,7 @@ public static class ClipboardManager
     /// </summary>
     private static string? GetTextFallback()
     {
-        Console.WriteLine("ClipboardManager: Clipboard operations not supported on this platform");
+        ModLog.Log.Debug("ClipboardManager: Clipboard operations not supported on this platform");
         return null;
     }
 

@@ -8,6 +8,7 @@ using purrTTY.Display.Controllers.TerminalUi.Menus;
 using purrTTY.Display.Performance;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi;
 
@@ -152,7 +153,7 @@ internal class TerminalUiSettingsPanel
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"Error loading shell configuration: {ex.Message}");
+      ModLog.Log.Debug($"Error loading shell configuration: {ex.Message}");
       // Continue with default shell configuration
     }
   }

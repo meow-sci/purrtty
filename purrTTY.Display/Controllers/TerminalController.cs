@@ -18,6 +18,7 @@ using purrTTY.Display.Utils;
 using KSA;
 using float2 = Brutal.Numerics.float2;
 using float4 = Brutal.Numerics.float4;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers;
 
@@ -377,7 +378,7 @@ public class TerminalController : ITerminalController
       }
       catch (Exception ex)
       {
-        Console.WriteLine($"Failed to send input to process: {ex.Message}");
+        ModLog.Log.Debug($"Failed to send input to process: {ex.Message}");
       }
     }
   }
@@ -650,7 +651,7 @@ public class TerminalController : ITerminalController
     // No need to update CurrentFontSize, CurrentCharacterWidth, CurrentLineHeight here
 
     // Log the configuration change
-    // Console.WriteLine("TerminalController: Runtime configuration updated");
+    // ModLog.Log.Debug("TerminalController: Runtime configuration updated");
     // LogConfiguration();
   }
 
@@ -690,9 +691,9 @@ public class TerminalController : ITerminalController
       newScrollConfig.Validate();
 
       // Log the configuration change attempt
-      Console.WriteLine("TerminalController: Attempting runtime scroll configuration update");
-      Console.WriteLine($"  Previous: {_scrollConfig}");
-      Console.WriteLine($"  New: {newScrollConfig}");
+      ModLog.Log.Debug("TerminalController: Attempting runtime scroll configuration update");
+      ModLog.Log.Debug($"  Previous: {_scrollConfig}");
+      ModLog.Log.Debug($"  New: {newScrollConfig}");
 
       // Reset wheel accumulator when changing configuration to prevent inconsistent state
       float previousAccumulator = _wheelAccumulator;
@@ -702,27 +703,27 @@ public class TerminalController : ITerminalController
       _scrollConfig = newScrollConfig;
 
       // Log successful configuration change
-      Console.WriteLine("TerminalController: Runtime scroll configuration updated successfully");
-      Console.WriteLine($"  Applied: {_scrollConfig}");
-      Console.WriteLine($"  Wheel accumulator reset from {previousAccumulator:F3} to 0.0");
+      ModLog.Log.Debug("TerminalController: Runtime scroll configuration updated successfully");
+      ModLog.Log.Debug($"  Applied: {_scrollConfig}");
+      ModLog.Log.Debug($"  Wheel accumulator reset from {previousAccumulator:F3} to 0.0");
     }
     catch (ArgumentException ex)
     {
       // Log validation failure and re-throw with additional context
-      Console.WriteLine($"TerminalController: Scroll configuration validation failed: {ex.Message}");
-      Console.WriteLine($"  Attempted config: {newScrollConfig}");
-      Console.WriteLine($"  Current config preserved: {_scrollConfig}");
+      ModLog.Log.Debug($"TerminalController: Scroll configuration validation failed: {ex.Message}");
+      ModLog.Log.Debug($"  Attempted config: {newScrollConfig}");
+      ModLog.Log.Debug($"  Current config preserved: {_scrollConfig}");
       throw;
     }
     catch (Exception ex)
     {
       // Log unexpected errors during scroll configuration update
-      Console.WriteLine($"TerminalController: Unexpected error during scroll configuration update: {ex.GetType().Name}: {ex.Message}");
-      Console.WriteLine($"  Attempted config: {newScrollConfig}");
-      Console.WriteLine($"  Current config preserved: {_scrollConfig}");
+      ModLog.Log.Debug($"TerminalController: Unexpected error during scroll configuration update: {ex.GetType().Name}: {ex.Message}");
+      ModLog.Log.Debug($"  Attempted config: {newScrollConfig}");
+      ModLog.Log.Debug($"  Current config preserved: {_scrollConfig}");
 
 #if DEBUG
-      Console.WriteLine($"TerminalController: UpdateScrollConfig error stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: UpdateScrollConfig error stack trace: {ex.StackTrace}");
 #endif
 
       // Re-throw the exception wrapped in InvalidOperationException to provide more context
@@ -842,7 +843,7 @@ public class TerminalController : ITerminalController
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error rendering focus indicators: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error rendering focus indicators: {ex.Message}");
     }
   }
 
@@ -868,11 +869,11 @@ public class TerminalController : ITerminalController
       // Set the window focus (ImGui will handle this on next frame)
       // This may fail in unit test environments where ImGui is not initialized
       ImGui.SetWindowFocus("Terminal");
-      Console.WriteLine("TerminalController: Focus forced programmatically");
+      ModLog.Log.Debug("TerminalController: Focus forced programmatically");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Cannot force focus - ImGui not available: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Cannot force focus - ImGui not available: {ex.Message}");
     }
   }
 
@@ -975,11 +976,11 @@ public class TerminalController : ITerminalController
       // Reset cursor renderer blink state
       _cursorRenderer.ResetBlinkState();
 
-      // Console.WriteLine($"TerminalController: Cursor reset to theme defaults - Style: {defaultStyle}");
+      // ModLog.Log.Debug($"TerminalController: Cursor reset to theme defaults - Style: {defaultStyle}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error resetting cursor to theme defaults: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error resetting cursor to theme defaults: {ex.Message}");
     }
   }
 
@@ -1224,7 +1225,7 @@ public class TerminalController : ITerminalController
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error rendering terminal canvas: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error rendering terminal canvas: {ex.Message}");
 
       // Fallback: render a simple error message
       ImGui.Text("Terminal rendering error");

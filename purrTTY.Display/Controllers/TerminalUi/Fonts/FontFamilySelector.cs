@@ -1,6 +1,7 @@
 using System;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Fonts;
 
@@ -38,18 +39,18 @@ internal class FontFamilySelector
         // Determine current font family from configuration using PurrTTYFontManager
         var detectedFamily = PurrTTYFontManager.GetCurrentFontFamily(_fontConfig);
         _currentFontFamily = detectedFamily ?? "Hack"; // Default fallback
-        // Console.WriteLine($"FontFamilySelector: Detected font family from config: {_currentFontFamily}");
+        // ModLog.Log.Debug($"FontFamilySelector: Detected font family from config: {_currentFontFamily}");
       }
       else
       {
-        // Console.WriteLine($"FontFamilySelector: Using font family from constructor loading: {_currentFontFamily}");
+        // ModLog.Log.Debug($"FontFamilySelector: Using font family from constructor loading: {_currentFontFamily}");
       }
 
-      // Console.WriteLine($"FontFamilySelector: Final initialization - Font family: {_currentFontFamily}, Regular font: {_fontConfig.RegularFontName}");
+      // ModLog.Log.Debug($"FontFamilySelector: Final initialization - Font family: {_currentFontFamily}, Regular font: {_fontConfig.RegularFontName}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontFamilySelector: Error initializing current font family: {ex.Message}");
+      ModLog.Log.Debug($"FontFamilySelector: Error initializing current font family: {ex.Message}");
       _currentFontFamily = "Hack"; // Safe fallback
     }
   }
@@ -63,7 +64,7 @@ internal class FontFamilySelector
   /// <exception cref="Exception">Thrown if the font family cannot be created</exception>
   public TerminalFontConfig CreateFontConfigForFamily(string displayName, float fontSize)
   {
-    Console.WriteLine($"FontFamilySelector: Selecting font family: {displayName}");
+    ModLog.Log.Debug($"FontFamilySelector: Selecting font family: {displayName}");
 
     // Create new font configuration for the selected family
     var newFontConfig = PurrTTYFontManager.CreateFontConfigForFamily(displayName, fontSize);
@@ -81,7 +82,7 @@ internal class FontFamilySelector
   public void UpdateCurrentFontFamily(string displayName)
   {
     _currentFontFamily = displayName;
-    Console.WriteLine($"FontFamilySelector: Successfully switched to font family: {displayName}");
+    ModLog.Log.Debug($"FontFamilySelector: Successfully switched to font family: {displayName}");
   }
 
   /// <summary>
@@ -94,7 +95,7 @@ internal class FontFamilySelector
     if (!string.IsNullOrEmpty(fontFamily))
     {
       _currentFontFamily = fontFamily;
-      Console.WriteLine($"FontFamilySelector: Loaded font family from settings: {fontFamily}");
+      ModLog.Log.Debug($"FontFamilySelector: Loaded font family from settings: {fontFamily}");
       return true;
     }
 

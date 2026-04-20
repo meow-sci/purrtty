@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using purrTTY.Logging;
 using SystemProcess = System.Diagnostics.Process;
 using SystemProcessStartInfo = System.Diagnostics.ProcessStartInfo;
 
@@ -77,7 +78,7 @@ public static class WslDistributionDetector
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"WslDistributionDetector: Error detecting WSL distributions: {ex.Message}");
+            ModLog.Log.Debug($"WslDistributionDetector: Error detecting WSL distributions: {ex.Message}");
             return new List<WslDistribution>();
         }
     }
@@ -124,7 +125,7 @@ public static class WslDistributionDetector
             using var process = SystemProcess.Start(startInfo);
             if (process == null)
             {
-                Console.WriteLine("WslDistributionDetector: Failed to start wsl process");
+                ModLog.Log.Debug("WslDistributionDetector: Failed to start wsl process");
                 return distributions;
             }
 
@@ -134,7 +135,7 @@ public static class WslDistributionDetector
             if (process.ExitCode != 0)
             {
                 string error = process.StandardError.ReadToEnd();
-                Console.WriteLine($"WslDistributionDetector: wsl command failed with exit code {process.ExitCode}: {error}");
+                ModLog.Log.Debug($"WslDistributionDetector: wsl command failed with exit code {process.ExitCode}: {error}");
                 return distributions;
             }
 
@@ -178,7 +179,7 @@ public static class WslDistributionDetector
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"WslDistributionDetector: Exception while executing wsl command: {ex.Message}");
+            ModLog.Log.Debug($"WslDistributionDetector: Exception while executing wsl command: {ex.Message}");
         }
 
         return distributions;

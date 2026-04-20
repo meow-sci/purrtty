@@ -1,6 +1,7 @@
 using System;
 using Brutal.ImGuiApi;
 using purrTTY.Display.Performance;
+using purrTTY.Logging;
 using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Menus;
@@ -30,7 +31,7 @@ internal class PerformanceSubmenuRenderer
     if (ImGui.Checkbox("Enable Tracing", ref isEnabled))
     {
       _perfWatch.Enabled = isEnabled;
-      Console.WriteLine($"Performance tracing {(isEnabled ? "enabled" : "disabled")}");
+      ModLog.Log.Debug($"Performance tracing {(isEnabled ? "enabled" : "disabled")}");
     }
 
     if (ImGui.IsItemHovered())
@@ -44,7 +45,7 @@ internal class PerformanceSubmenuRenderer
     if (ImGui.MenuItem("Dump Now"))
     {
       _perfWatch.DumpToConsole();
-      Console.WriteLine("Performance data dumped to console");
+      ModLog.Log.Debug("Performance data dumped to console");
     }
 
     if (ImGui.IsItemHovered())
@@ -56,7 +57,7 @@ internal class PerformanceSubmenuRenderer
     if (ImGui.MenuItem("Reset Counters"))
     {
       _perfWatch.Reset();
-      Console.WriteLine("Performance counters reset");
+      ModLog.Log.Debug("Performance counters reset");
     }
 
     if (ImGui.IsItemHovered())
@@ -74,7 +75,7 @@ internal class PerformanceSubmenuRenderer
       // Clamp to reasonable range (1-600 frames = ~0.016s to 10s at 60fps)
       dumpInterval = Math.Max(1, Math.Min(600, dumpInterval));
       _perfWatch.DumpIntervalFrames = dumpInterval;
-      Console.WriteLine($"Performance auto-dump interval set to {dumpInterval} frames");
+      ModLog.Log.Debug($"Performance auto-dump interval set to {dumpInterval} frames");
     }
 
     if (ImGui.IsItemHovered())

@@ -1,5 +1,7 @@
 using System;
+using purrTTY.Core;
 using purrTTY.Display.Configuration;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Rendering;
 
@@ -93,7 +95,7 @@ public static class OpacityManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error initializing opacity manager: {ex.Message}");
+            ModLog.Log.Error($"Error initializing opacity manager: {ex.Message}");
             _currentBackgroundOpacity = DefaultOpacity;
             _currentForegroundOpacity = DefaultOpacity;
             _currentCellBackgroundOpacity = DefaultOpacity;
@@ -130,7 +132,7 @@ public static class OpacityManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error setting background opacity: {ex.Message}");
+            ModLog.Log.Error($"Error setting background opacity: {ex.Message}");
 
             // Revert on failure
             _currentBackgroundOpacity = previousOpacity;
@@ -168,7 +170,7 @@ public static class OpacityManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error setting foreground opacity: {ex.Message}");
+            ModLog.Log.Error($"Error setting foreground opacity: {ex.Message}");
 
             // Revert on failure
             _currentForegroundOpacity = previousOpacity;
@@ -206,7 +208,7 @@ public static class OpacityManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error setting cell background opacity: {ex.Message}");
+            ModLog.Log.Error($"Error setting cell background opacity: {ex.Message}");
 
             // Revert on failure
             _currentCellBackgroundOpacity = previousOpacity;

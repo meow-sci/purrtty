@@ -1,6 +1,7 @@
 using System;
 using Brutal.ImGuiApi;
 using purrTTY.Core.Terminal;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Resize;
@@ -49,14 +50,14 @@ internal class FontResizeProcessor
       // Set flag to trigger resize on next render frame instead of immediately
       // This ensures we're in the proper ImGui context when calculating dimensions
       _fontResizePending = true;
-      // Console.WriteLine("TerminalController: Font-triggered terminal resize scheduled for next render frame");
+      // ModLog.Log.Debug("TerminalController: Font-triggered terminal resize scheduled for next render frame");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error scheduling font-triggered terminal resize: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error scheduling font-triggered terminal resize: {ex.Message}");
 
 #if DEBUG
-      Console.WriteLine($"TerminalController: Font-triggered resize scheduling error stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: Font-triggered resize scheduling error stack trace: {ex.StackTrace}");
 #endif
     }
   }
@@ -78,7 +79,7 @@ internal class FontResizeProcessor
       // Skip if window size is not initialized or invalid
       if (!_windowResizeHandler.IsWindowSizeInitialized || currentWindowSize.X <= 0 || currentWindowSize.Y <= 0)
       {
-        Console.WriteLine("TerminalController: Cannot process pending font resize - window size not initialized or invalid");
+        ModLog.Log.Debug("TerminalController: Cannot process pending font resize - window size not initialized or invalid");
         _fontResizePending = false; // Clear flag to avoid infinite retries
         return;
       }
@@ -87,7 +88,7 @@ internal class FontResizeProcessor
       var newDimensions = _dimensionCalculator.CalculateTerminalDimensions(currentWindowSize);
       if (!newDimensions.HasValue)
       {
-        Console.WriteLine("TerminalController: Cannot process pending font resize - invalid dimensions calculated");
+        ModLog.Log.Debug("TerminalController: Cannot process pending font resize - invalid dimensions calculated");
         _fontResizePending = false; // Clear flag to avoid infinite retries
         return;
       }
@@ -97,7 +98,7 @@ internal class FontResizeProcessor
       var activeSession = _sessionManager.ActiveSession;
       if (activeSession == null)
       {
-        Console.WriteLine("TerminalController: Cannot process pending font resize - no active session");
+        ModLog.Log.Debug("TerminalController: Cannot process pending font resize - no active session");
         _fontResizePending = false;
         return;
       }
@@ -105,7 +106,7 @@ internal class FontResizeProcessor
       // Check if terminal dimensions would actually change
       if (newCols == activeSession.Terminal.Width && newRows == activeSession.Terminal.Height)
       {
-        Console.WriteLine($"TerminalController: Terminal dimensions unchanged ({newCols}x{newRows}), no resize needed");
+        ModLog.Log.Debug($"TerminalController: Terminal dimensions unchanged ({newCols}x{newRows}), no resize needed");
         _fontResizePending = false;
         return;
       }
@@ -113,13 +114,13 @@ internal class FontResizeProcessor
       // Validate new dimensions are reasonable
       if (newCols < 10 || newRows < 3 || newCols > 1000 || newRows > 1000)
       {
-        Console.WriteLine($"TerminalController: Invalid terminal dimensions calculated: {newCols}x{newRows}, ignoring font-triggered resize");
+        ModLog.Log.Debug($"TerminalController: Invalid terminal dimensions calculated: {newCols}x{newRows}, ignoring font-triggered resize");
         _fontResizePending = false;
         return;
       }
 
       // Log the resize operation
-      Console.WriteLine($"TerminalController: Processing pending font resize from {activeSession.Terminal.Width}x{activeSession.Terminal.Height} to {newCols}x{newRows}");
+      ModLog.Log.Debug($"TerminalController: Processing pending font resize from {activeSession.Terminal.Width}x{activeSession.Terminal.Height} to {newCols}x{newRows}");
 
       // Resize the headless terminal emulator
       activeSession.Terminal.Resize(newCols, newRows);
@@ -134,16 +135,16 @@ internal class FontResizeProcessor
         try
         {
           activeSession.ProcessManager.Resize(newCols, newRows);
-          Console.WriteLine($"TerminalController: PTY process resized to {newCols}x{newRows}");
+          ModLog.Log.Debug($"TerminalController: PTY process resized to {newCols}x{newRows}");
         }
         catch (Exception ex)
         {
-          Console.WriteLine($"TerminalController: Failed to resize PTY process during font-triggered resize: {ex.Message}");
+          ModLog.Log.Debug($"TerminalController: Failed to resize PTY process during font-triggered resize: {ex.Message}");
           // Continue anyway - terminal emulator resize succeeded
         }
       }
 
-      Console.WriteLine($"TerminalController: Font-triggered terminal resize completed successfully");
+      ModLog.Log.Debug($"TerminalController: Font-triggered terminal resize completed successfully");
       _fontResizePending = false; // Clear the flag
 
       // Notify that resize is complete so snap can be triggered
@@ -151,11 +152,11 @@ internal class FontResizeProcessor
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error during pending font-triggered terminal resize: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error during pending font-triggered terminal resize: {ex.Message}");
       _fontResizePending = false; // Clear flag to avoid infinite retries
 
 #if DEBUG
-      Console.WriteLine($"TerminalController: Pending font-triggered resize error stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: Pending font-triggered resize error stack trace: {ex.StackTrace}");
 #endif
     }
   }
@@ -175,14 +176,14 @@ internal class FontResizeProcessor
       // Skip if window size is not initialized or invalid
       if (!_windowResizeHandler.IsWindowSizeInitialized || currentWindowSize.X <= 0 || currentWindowSize.Y <= 0)
       {
-        Console.WriteLine("TerminalController: Cannot trigger resize for all sessions - window size not initialized or invalid");
+        ModLog.Log.Debug("TerminalController: Cannot trigger resize for all sessions - window size not initialized or invalid");
         // Set flag to trigger resize on next render frame instead
         _fontResizePending = true;
         return;
       }
 
       var sessions = _sessionManager.Sessions;
-      Console.WriteLine($"TerminalController: Triggering font-based resize for {sessions.Count} sessions");
+      ModLog.Log.Debug($"TerminalController: Triggering font-based resize for {sessions.Count} sessions");
 
       foreach (var session in sessions)
       {
@@ -192,7 +193,7 @@ internal class FontResizeProcessor
           var newDimensions = _dimensionCalculator.CalculateTerminalDimensions(currentWindowSize);
           if (!newDimensions.HasValue)
           {
-            Console.WriteLine($"TerminalController: Cannot resize session {session.Id} - invalid dimensions calculated");
+            ModLog.Log.Debug($"TerminalController: Cannot resize session {session.Id} - invalid dimensions calculated");
             continue;
           }
 
@@ -201,19 +202,19 @@ internal class FontResizeProcessor
           // Check if terminal dimensions would actually change
           if (newCols == session.Terminal.Width && newRows == session.Terminal.Height)
           {
-            Console.WriteLine($"TerminalController: Session {session.Id} dimensions unchanged ({newCols}x{newRows}), no resize needed");
+            ModLog.Log.Debug($"TerminalController: Session {session.Id} dimensions unchanged ({newCols}x{newRows}), no resize needed");
             continue;
           }
 
           // Validate new dimensions are reasonable
           if (newCols < 10 || newRows < 3 || newCols > 1000 || newRows > 1000)
           {
-            Console.WriteLine($"TerminalController: Invalid terminal dimensions calculated for session {session.Id}: {newCols}x{newRows}, skipping resize");
+            ModLog.Log.Debug($"TerminalController: Invalid terminal dimensions calculated for session {session.Id}: {newCols}x{newRows}, skipping resize");
             continue;
           }
 
           // Log the resize operation
-          Console.WriteLine($"TerminalController: Resizing session {session.Id} from {session.Terminal.Width}x{session.Terminal.Height} to {newCols}x{newRows}");
+          ModLog.Log.Debug($"TerminalController: Resizing session {session.Id} from {session.Terminal.Width}x{session.Terminal.Height} to {newCols}x{newRows}");
 
           // Resize the headless terminal emulator
           session.Terminal.Resize(newCols, newRows);
@@ -227,18 +228,18 @@ internal class FontResizeProcessor
             try
             {
               session.ProcessManager.Resize(newCols, newRows);
-              Console.WriteLine($"TerminalController: PTY process for session {session.Id} resized to {newCols}x{newRows}");
+              ModLog.Log.Debug($"TerminalController: PTY process for session {session.Id} resized to {newCols}x{newRows}");
             }
             catch (Exception ex)
             {
-              Console.WriteLine($"TerminalController: Failed to resize PTY process for session {session.Id}: {ex.Message}");
+              ModLog.Log.Debug($"TerminalController: Failed to resize PTY process for session {session.Id}: {ex.Message}");
               // Continue anyway - terminal emulator resize succeeded
             }
           }
         }
         catch (Exception ex)
         {
-          Console.WriteLine($"TerminalController: Error resizing session {session.Id}: {ex.Message}");
+          ModLog.Log.Debug($"TerminalController: Error resizing session {session.Id}: {ex.Message}");
           // Continue with other sessions
         }
       }
@@ -251,7 +252,7 @@ internal class FontResizeProcessor
         _sessionManager.UpdateLastKnownTerminalDimensions(active.Terminal.Width, active.Terminal.Height);
       }
 
-      Console.WriteLine($"TerminalController: Font-triggered resize completed for all sessions");
+      ModLog.Log.Debug($"TerminalController: Font-triggered resize completed for all sessions");
 
       // Notify that resize is complete so snap can be triggered
       // Use active session dimensions if available
@@ -262,10 +263,10 @@ internal class FontResizeProcessor
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error during font-triggered resize for all sessions: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error during font-triggered resize for all sessions: {ex.Message}");
 
 #if DEBUG
-      Console.WriteLine($"TerminalController: Font-triggered resize for all sessions error stack trace: {ex.StackTrace}");
+      ModLog.Log.Debug($"TerminalController: Font-triggered resize for all sessions error stack trace: {ex.StackTrace}");
 #endif
     }
   }

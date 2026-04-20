@@ -1,7 +1,9 @@
 using System.Reflection;
 using Brutal.ImGuiApi;
 using KSA;
+using purrTTY.Core;
 using purrTTY.Display.Configuration;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Rendering;
 
@@ -25,7 +27,6 @@ public class PurrTTYFontManager
     InitializeFontRegistry();
   }
 
-
   /// <summary>
   ///     Loads fonts explicitly for the game mod.
   ///     Based on BRUTAL ImGui font loading pattern for game mods.
@@ -48,8 +49,8 @@ public class PurrTTYFontManager
 
         if (Directory.Exists(fontsDir))
         {
-          // Get all .ttf and .otf files from Fonts folder
-                    string[] fontFiles = Directory.GetFiles(fontsDir, "*.iamttf");
+          // Get all .iamttf from TerminalFonts folder
+          string[] fontFiles = Directory.GetFiles(fontsDir, "*.iamttf");
 
           if (fontFiles.Length > 0)
           {
@@ -61,7 +62,7 @@ public class PurrTTYFontManager
               string fontPath = fontFiles[i];
               string fontName = Path.GetFileNameWithoutExtension(fontPath);
 
-              Console.WriteLine($"PurrTTYFontManager: Loading font: {fontPath}");
+              ModLog.Log.Debug($"PurrTTYFontManager: Loading font: {fontPath}");
 
 
               if (File.Exists(fontPath))
@@ -80,28 +81,28 @@ public class PurrTTYFontManager
                 try
                 {
                     FontManager.Fonts[fontName] = font;
-                    Console.WriteLine($"TestApp: Added font '{fontName}' to FontManager");
+                    ModLog.Log.Debug($"TestApp: Added font '{fontName}' to FontManager");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"TestApp: Could not add font to FontManager: {ex.Message}");
+                    ModLog.Log.Error($"TestApp: Could not add font to FontManager: {ex.Message}");
                 }
 
-                Console.WriteLine($"PurrTTYFontManager: Loaded font '{fontName}' from {fontPath}");
+                ModLog.Log.Info($"PurrTTYFontManager: Loaded font '{fontName}' from {fontPath}");
               }
             }
 
-            Console.WriteLine(
+            ModLog.Log.Info(
                 $"PurrTTYFontManager: Loaded {LoadedFonts.Count} fonts - {string.Join(", ", LoadedFonts.Keys)}");
           }
           else
           {
-            Console.WriteLine("PurrTTYFontManager: No font files found in Fonts folder");
+            ModLog.Log.Error("PurrTTYFontManager: No font files found in Fonts folder");
           }
         }
         else
         {
-          // Console.WriteLine($"PurrTTYFontManager: Fonts directory not found at: {fontsDir}");
+          ModLog.Log.Error($"PurrTTYFontManager: Fonts directory not found at: {fontsDir}");
         }
       }
 
@@ -112,7 +113,7 @@ public class PurrTTYFontManager
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"PurrTTYFontManager: Error loading fonts: {ex.Message}");
+      ModLog.Log.Error($"PurrTTYFontManager: Error loading fonts: {ex.Message}");
     }
   }
 
@@ -120,7 +121,7 @@ public class PurrTTYFontManager
   {
     if (_registryInitialized) return;
 
-    Console.WriteLine("PurrTTYFontManager: Initializing font registry...");
+    ModLog.Log.Debug("PurrTTYFontManager: Initializing font registry...");
 
     // Register fonts with all 4 variants
     RegisterFontFamily("Jet Brains Mono", "JetBrainsMonoNerdFontMono", 
@@ -140,7 +141,7 @@ public class PurrTTYFontManager
     RegisterFontFamily("Departure Mono", "DepartureMonoNerdFont", 
       hasRegular: true, hasBold: false, hasItalic: false, hasBoldItalic: false);
 
-    // Console.WriteLine($"PurrTTYFontManager: Font registry initialized with {_fontRegistry.Count} font families");
+    ModLog.Log.Info($"PurrTTYFontManager: Font registry initialized with {_fontRegistry.Count} font families");
     _registryInitialized = true;
   }
 
@@ -167,7 +168,7 @@ public class PurrTTYFontManager
     };
 
     _fontRegistry[displayName] = definition;
-    // Console.WriteLine($"PurrTTYFontManager: Registered font family: {displayName} -> {fontBaseName}");
+    // ModLog.Log.Debug($"PurrTTYFontManager: Registered font family: {displayName} -> {fontBaseName}");
   }
 
   /// <summary>
@@ -199,16 +200,16 @@ public class PurrTTYFontManager
   /// <returns>A TerminalFontConfig configured for the specified font family, or default configuration if font family not found.</returns>
   public static TerminalFontConfig CreateFontConfigForFamily(string displayName, float fontSize = 32.0f)
   {
-    // Console.WriteLine($"PurrTTYFontManager: Creating font configuration for family: {displayName}, size: {fontSize}");
+    // ModLog.Log.Debug($"PurrTTYFontManager: Creating font configuration for family: {displayName}, size: {fontSize}");
 
     var definition = GetFontFamilyDefinition(displayName);
     if (definition == null)
     {
-      // Console.WriteLine($"PurrTTYFontManager: Unknown font family '{displayName}', using default configuration");
+      // ModLog.Log.Debug($"PurrTTYFontManager: Unknown font family '{displayName}', using default configuration");
       return TerminalFontConfig.CreateForTestApp();
     }
 
-    // Console.WriteLine($"PurrTTYFontManager: Found font family definition: {definition}");
+    // ModLog.Log.Debug($"PurrTTYFontManager: Found font family definition: {definition}");
 
     // Create font configuration with variant fallback logic
     var regularFontName = $"{definition.FontBaseName}-Regular";
@@ -216,7 +217,7 @@ public class PurrTTYFontManager
     var italicFontName = definition.HasItalic ? $"{definition.FontBaseName}-Italic" : regularFontName;
     var boldItalicFontName = definition.HasBoldItalic ? $"{definition.FontBaseName}-BoldItalic" : regularFontName;
 
-    // Console.WriteLine($"PurrTTYFontManager: Font configuration - Regular: {regularFontName}, Bold: {boldFontName}, Italic: {italicFontName}, BoldItalic: {boldItalicFontName}");
+    // ModLog.Log.Debug($"PurrTTYFontManager: Font configuration - Regular: {regularFontName}, Bold: {boldFontName}, Italic: {italicFontName}, BoldItalic: {boldItalicFontName}");
 
     var config = new TerminalFontConfig
     {
@@ -228,7 +229,7 @@ public class PurrTTYFontManager
       AutoDetectContext = false
     };
 
-    // Console.WriteLine($"PurrTTYFontManager: Successfully created font configuration for '{displayName}'");
+    // ModLog.Log.Debug($"PurrTTYFontManager: Successfully created font configuration for '{displayName}'");
     return config;
   }
 
@@ -242,11 +243,11 @@ public class PurrTTYFontManager
   {
     if (currentConfig == null)
     {
-      // Console.WriteLine("PurrTTYFontManager: GetCurrentFontFamily called with null config");
+      // ModLog.Log.Debug("PurrTTYFontManager: GetCurrentFontFamily called with null config");
       return null;
     }
 
-    // Console.WriteLine($"PurrTTYFontManager: Detecting font family for RegularFontName: {currentConfig.RegularFontName}");
+    // ModLog.Log.Debug($"PurrTTYFontManager: Detecting font family for RegularFontName: {currentConfig.RegularFontName}");
 
     // Find which font family matches the current configuration
     foreach (var kvp in _fontRegistry)
@@ -256,12 +257,12 @@ public class PurrTTYFontManager
 
       if (currentConfig.RegularFontName == expectedRegular)
       {
-        // Console.WriteLine($"PurrTTYFontManager: Detected font family: {kvp.Key} (matched {expectedRegular})");
+        // ModLog.Log.Debug($"PurrTTYFontManager: Detected font family: {kvp.Key} (matched {expectedRegular})");
         return kvp.Key; // Return display name
       }
     }
 
-    // Console.WriteLine($"PurrTTYFontManager: No matching font family found for RegularFontName: {currentConfig.RegularFontName}");
+    // ModLog.Log.Debug($"PurrTTYFontManager: No matching font family found for RegularFontName: {currentConfig.RegularFontName}");
     return null; // Current config doesn't match any registered family
   }
 }

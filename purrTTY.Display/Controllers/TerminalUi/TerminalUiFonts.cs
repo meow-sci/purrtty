@@ -3,6 +3,7 @@ using Brutal.ImGuiApi;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers.TerminalUi.Fonts;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi;
 
@@ -92,7 +93,7 @@ internal class TerminalUiFonts
       }
       catch (Exception ex)
       {
-        Console.WriteLine($"Font loading error: {ex.Message}");
+        ModLog.Log.Debug($"Font loading error: {ex.Message}");
 
         // Set fallback values to prevent crashes
         _metricsCalculator.ResetToDefaults();
@@ -136,7 +137,7 @@ internal class TerminalUiFonts
     }
   }
 
-  private void LogFontConfiguration() => Console.WriteLine($"Font Config: {_fontConfig.RegularFontName} @ {_fontConfig.FontSize}pt, CharWidth: {CurrentCharacterWidth:F1}, LineHeight: {CurrentLineHeight:F1}");
+  private void LogFontConfiguration() => ModLog.Log.Debug($"Font Config: {_fontConfig.RegularFontName} @ {_fontConfig.FontSize}pt, CharWidth: {CurrentCharacterWidth:F1}, LineHeight: {CurrentLineHeight:F1}");
 
   public void PushUIFont(out bool fontUsed) => _fontLoader.PushUIFont(out fontUsed);
 
@@ -191,7 +192,7 @@ internal class TerminalUiFonts
     CurrentFontSize = _fontConfig.FontSize;
 
     onFontChanged?.Invoke();
-    Console.WriteLine($"Font updated: {_fontConfig.RegularFontName} @ {_fontConfig.FontSize}pt");
+    ModLog.Log.Debug($"Font updated: {_fontConfig.RegularFontName} @ {_fontConfig.FontSize}pt");
     LogFontConfiguration();
   }
 

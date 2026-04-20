@@ -4,6 +4,7 @@ using Brutal.ImGuiApi;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
 using KSA;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Fonts;
 
@@ -52,14 +53,14 @@ internal class FontLoader
   {
     try
     {
-      Console.WriteLine($"FontLoader: Loading fonts with config - Regular: {_fontConfig.RegularFontName}, Size: {_fontConfig.FontSize}");
+      ModLog.Log.Debug($"FontLoader: Loading fonts with config - Regular: {_fontConfig.RegularFontName}, Size: {_fontConfig.FontSize}");
 
       // Try to find fonts by name, fall back to default if not found
       var defaultFont = ImGui.GetFont();
 
       var regularFont = FindFont(_fontConfig.RegularFontName);
       _regularFont = regularFont.HasValue ? regularFont.Value : defaultFont;
-      Console.WriteLine($"FontLoader: Regular font loaded: {(regularFont.HasValue ? "Success" : "Fallback to default")}");
+      ModLog.Log.Debug($"FontLoader: Regular font loaded: {(regularFont.HasValue ? "Success" : "Fallback to default")}");
 
       var boldFont = FindFont(_fontConfig.BoldFontName);
       _boldFont = boldFont.HasValue ? boldFont.Value : _regularFont;
@@ -70,11 +71,11 @@ internal class FontLoader
       var boldItalicFont = FindFont(_fontConfig.BoldItalicFontName);
       _boldItalicFont = boldItalicFont.HasValue ? boldItalicFont.Value : _regularFont;
 
-      Console.WriteLine("FontLoader: Fonts loaded successfully");
+      ModLog.Log.Debug("FontLoader: Fonts loaded successfully");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: Error loading fonts: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: Error loading fonts: {ex.Message}");
 
       // Fallback to default font for all styles
       var defaultFont = ImGui.GetFont();
@@ -107,7 +108,7 @@ internal class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: FontManager.Fonts not available for '{fontName}': {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: FontManager.Fonts not available for '{fontName}': {ex.Message}");
     }
 
     try
@@ -129,7 +130,7 @@ internal class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: GameMod font loading failed for '{fontName}': {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: GameMod font loading failed for '{fontName}': {ex.Message}");
     }
 
     // Try to iterate through ImGui font atlas (fallback method)
@@ -141,11 +142,11 @@ internal class FontLoader
       // This is a simplified approach - in a real implementation,
       // we would need to iterate through the font atlas and match names
       // For now, return null to indicate font not found
-      Console.WriteLine($"FontLoader: Font '{fontName}' not found in ImGui font atlas");
+      ModLog.Log.Debug($"FontLoader: Font '{fontName}' not found in ImGui font atlas");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: Error searching ImGui font atlas for '{fontName}': {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: Error searching ImGui font atlas for '{fontName}': {ex.Message}");
     }
 
     return null;
@@ -168,7 +169,7 @@ internal class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: Error pushing UI font from PurrTTYFontManager: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: Error pushing UI font from PurrTTYFontManager: {ex.Message}");
     }
 
     // Fallback: Try FontManager (works in standalone apps)
@@ -183,7 +184,7 @@ internal class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: FontManager.Fonts not available for UI font: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: FontManager.Fonts not available for UI font: {ex.Message}");
     }
 
     // Try the GameMod's font loading system (works in game mod context)
@@ -207,7 +208,7 @@ internal class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: GameMod font loading failed for UI font: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: GameMod font loading failed for UI font: {ex.Message}");
     }
 
     fontUsed = false;
@@ -227,7 +228,7 @@ internal class FontLoader
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontLoader: Error pushing configured font: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: Error pushing configured font: {ex.Message}");
     }
 
     // Fallback: First try the standard FontManager (works in standalone apps)
@@ -243,7 +244,7 @@ internal class FontLoader
     catch (Exception ex)
     {
       // FontManager.Fonts may not be available in game mod context
-      Console.WriteLine($"FontLoader: FontManager.Fonts not available: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: FontManager.Fonts not available: {ex.Message}");
     }
 
     // Try the GameMod's font loading system (works in game mod context)
@@ -269,7 +270,7 @@ internal class FontLoader
     catch (Exception ex)
     {
       // GameMod font loading not available or failed
-      Console.WriteLine($"FontLoader: GameMod font loading failed: {ex.Message}");
+      ModLog.Log.Debug($"FontLoader: GameMod font loading failed: {ex.Message}");
     }
 
     fontUsed = false;

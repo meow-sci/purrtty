@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using purrTTY.Logging;
 
 namespace purrTTY.Core.Terminal;
 
@@ -163,7 +164,7 @@ public class CustomShellRegistry
 
             try
             {
-                // Console.WriteLine("CustomShellRegistry: Starting automatic shell discovery...");
+                // ModLog.Log.Debug("CustomShellRegistry: Starting automatic shell discovery...");
 
                 var discoveredCount = 0;
                 var assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -176,17 +177,17 @@ public class CustomShellRegistry
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"CustomShellRegistry: Warning - Failed to discover shells in assembly '{assembly.FullName}': {ex.Message}");
+                        ModLog.Log.Debug($"CustomShellRegistry: Warning - Failed to discover shells in assembly '{assembly.FullName}': {ex.Message}");
                         // Continue with other assemblies
                     }
                 }
 
-                Console.WriteLine($"CustomShellRegistry: Discovery completed. Found {discoveredCount} custom shell implementations. Available shells: {string.Join(", ", _shellFactories.Keys)}");
+                ModLog.Log.Debug($"CustomShellRegistry: Discovery completed. Found {discoveredCount} custom shell implementations. Available shells: {string.Join(", ", _shellFactories.Keys)}");
                 _discoveryCompleted = true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"CustomShellRegistry: Error during shell discovery: {ex.Message}");
+                ModLog.Log.Debug($"CustomShellRegistry: Error during shell discovery: {ex.Message}");
                 // Mark as completed even on error to prevent infinite retry
                 _discoveryCompleted = true;
             }
@@ -210,10 +211,10 @@ public class CustomShellRegistry
         }
         catch (ReflectionTypeLoadException ex)
         {
-            Console.WriteLine($"CustomShellRegistry: Warning - Partial type load failure in assembly '{assembly.GetName().Name}': {ex.Message}");
+            ModLog.Log.Debug($"CustomShellRegistry: Warning - Partial type load failure in assembly '{assembly.GetName().Name}': {ex.Message}");
             // Use the types that DID load successfully (filtering out nulls from failed types)
             allTypes = ex.Types.Where(t => t != null).ToArray()!;
-            Console.WriteLine($"CustomShellRegistry: Recovered {allTypes.Length} loadable types from '{assembly.GetName().Name}'");
+            ModLog.Log.Debug($"CustomShellRegistry: Recovered {allTypes.Length} loadable types from '{assembly.GetName().Name}'");
         }
 
         var shellTypes = allTypes
@@ -222,7 +223,7 @@ public class CustomShellRegistry
 
         if (shellTypes.Count > 0)
         {
-            Console.WriteLine($"CustomShellRegistry: Found {shellTypes.Count} ICustomShell type(s) in assembly '{assembly.GetName().Name}': {string.Join(", ", shellTypes.Select(t => t.Name))}");
+            ModLog.Log.Debug($"CustomShellRegistry: Found {shellTypes.Count} ICustomShell type(s) in assembly '{assembly.GetName().Name}': {string.Join(", ", shellTypes.Select(t => t.Name))}");
         }
 
         foreach (var shellType in shellTypes)
@@ -233,7 +234,7 @@ public class CustomShellRegistry
                 var constructor = shellType.GetConstructor(Type.EmptyTypes);
                 if (constructor == null)
                 {
-                    Console.WriteLine($"CustomShellRegistry: Skipping '{shellType.FullName}' - no parameterless constructor found");
+                    ModLog.Log.Debug($"CustomShellRegistry: Skipping '{shellType.FullName}' - no parameterless constructor found");
                     continue;
                 }
 
@@ -246,18 +247,18 @@ public class CustomShellRegistry
                 // Skip if already registered (explicit registration takes precedence)
                 if (_shellFactories.ContainsKey(shellId))
                 {
-                    Console.WriteLine($"CustomShellRegistry: Skipping auto-discovery of '{shellId}' - already explicitly registered");
+                    ModLog.Log.Debug($"CustomShellRegistry: Skipping auto-discovery of '{shellId}' - already explicitly registered");
                     continue;
                 }
 
                 // Register the discovered shell
                 RegisterShell(shellId, factory);
-                Console.WriteLine($"CustomShellRegistry: Successfully registered shell '{shellId}'");
+                ModLog.Log.Debug($"CustomShellRegistry: Successfully registered shell '{shellId}'");
                 discoveredCount++;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"CustomShellRegistry: Failed to register shell '{shellType.FullName}': {ex.Message}");
+                ModLog.Log.Debug($"CustomShellRegistry: Failed to register shell '{shellType.FullName}': {ex.Message}");
                 // Continue with other types
             }
         }

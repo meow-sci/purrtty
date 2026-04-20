@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using purrTTY.Logging;
 
 namespace purrTTY.Core.Rpc.Socket;
 
@@ -70,8 +71,8 @@ public sealed class SocketRpcServer : ISocketRpcServer
 
         // Log successful binding
         var actualEndpoint = (IPEndPoint)_listenSocket.LocalEndPoint!;
-        Console.WriteLine($"[purrTTY] TCP RPC server successfully bound to {actualEndpoint.Address}:{actualEndpoint.Port}");
-        Console.WriteLine($"[purrTTY] Client endpoint: {Endpoint}");
+        ModLog.Log.Debug($"[purrTTY] TCP RPC server successfully bound to {actualEndpoint.Address}:{actualEndpoint.Port}");
+        ModLog.Log.Debug($"[purrTTY] Client endpoint: {Endpoint}");
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _acceptTask = AcceptLoopAsync(_cts.Token);
@@ -123,14 +124,14 @@ public sealed class SocketRpcServer : ISocketRpcServer
 
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
-        Console.WriteLine("[purrTTY] TCP RPC server accept loop started, waiting for connections...");
+        ModLog.Log.Debug("[purrTTY] TCP RPC server accept loop started, waiting for connections...");
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 using var client = await _listenSocket!.AcceptAsync(ct).ConfigureAwait(false);
                 var remoteEndPoint = client.RemoteEndPoint;
-                Console.WriteLine($"[purrTTY] Client connected from {remoteEndPoint}");
+                ModLog.Log.Debug($"[purrTTY] Client connected from {remoteEndPoint}");
                 await HandleClientAsync(client, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -160,11 +161,11 @@ public sealed class SocketRpcServer : ISocketRpcServer
             var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrEmpty(line))
             {
-                Console.WriteLine("[purrTTY] Client sent empty request, closing connection");
+                ModLog.Log.Debug("[purrTTY] Client sent empty request, closing connection");
                 return;
             }
 
-            Console.WriteLine($"[purrTTY] Request received: {line}");
+            ModLog.Log.Debug($"[purrTTY] Request received: {line}");
             _logger.LogDebug("Socket RPC received: {Request}", line);
 
             SocketRpcResponse response;
@@ -194,7 +195,7 @@ public sealed class SocketRpcServer : ISocketRpcServer
             var responseJson = JsonSerializer.Serialize(response, _jsonOptions);
             await writer.WriteLineAsync(responseJson).ConfigureAwait(false);
             writer.Flush();
-            Console.WriteLine($"Socket RPC response: {responseJson}");
+            ModLog.Log.Debug($"Socket RPC response: {responseJson}");
             _logger.LogDebug("Socket RPC response: {Response}", responseJson);
         }
         catch (Exception ex)

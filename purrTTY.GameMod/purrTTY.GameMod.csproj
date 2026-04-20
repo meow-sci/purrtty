@@ -25,6 +25,8 @@
         <Copy SourceFiles="$(ProjectDepsFilePath)" DestinationFolder="$(DistDir)" Condition="Exists('$(ProjectDepsFilePath)')"/>
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetPath)')"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.GameMod.pdb" DestinationFolder="$(DistDir)"/>
+        <Copy SourceFiles="$(TargetDir)purrTTY.Logging.dll" DestinationFolder="$(DistDir)"/>
+        <Copy SourceFiles="$(TargetDir)purrTTY.Logging.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Core.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Core.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.dll" DestinationFolder="$(DistDir)"/>
@@ -92,6 +94,10 @@
         <!-- KSA DLL references -->
         <Reference Include="Brutal.Core.Common" Condition="Exists('$(KSAFolder)/Brutal.Core.Common.dll')">
             <HintPath>$(KSAFolder)/Brutal.Core.Common.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="Brutal.Core.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Core.Numerics.dll')">

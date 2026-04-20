@@ -1,6 +1,7 @@
 using System;
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Controllers.TerminalUi;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Resize;
@@ -57,7 +58,7 @@ internal class TerminalDimensionCalculator
       float totalUIOverheadHeight = menuBarHeight + tabAreaHeight + windowPadding;
 
       // Debug logging for multi-session UI overhead calculation
-      // Console.WriteLine($"TerminalController: Multi-session UI Overhead - Menu: {menuBarHeight}, Tab: {tabAreaHeight}, Padding: {windowPadding}, Total: {totalUIOverheadHeight}");
+      // ModLog.Log.Debug($"TerminalController: Multi-session UI Overhead - Menu: {menuBarHeight}, Tab: {tabAreaHeight}, Padding: {windowPadding}, Total: {totalUIOverheadHeight}");
 
       float horizontalPadding = LayoutConstants.WINDOW_PADDING * 2; // Left and right padding
 
@@ -73,7 +74,7 @@ internal class TerminalDimensionCalculator
       // Calculate dimensions using current character metrics
       if (_fonts.CurrentCharacterWidth <= 0 || _fonts.CurrentLineHeight <= 0)
       {
-        Console.WriteLine($"TerminalController: Invalid character metrics: width={_fonts.CurrentCharacterWidth}, height={_fonts.CurrentLineHeight}");
+        ModLog.Log.Debug($"TerminalController: Invalid character metrics: width={_fonts.CurrentCharacterWidth}, height={_fonts.CurrentLineHeight}");
         return null;
       }
 
@@ -92,7 +93,7 @@ internal class TerminalDimensionCalculator
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error calculating terminal dimensions: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error calculating terminal dimensions: {ex.Message}");
       return null;
     }
   }
@@ -288,7 +289,7 @@ internal class TerminalDimensionCalculator
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error calculating optimal terminal dimensions: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error calculating optimal terminal dimensions: {ex.Message}");
       return null;
     }
   }

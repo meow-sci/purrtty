@@ -40,11 +40,11 @@ public class RpcHandler : IRpcHandler
     {
         if (!IsEnabled)
         {
-            // Console.WriteLine($"RPC handling is disabled, ignoring message: {message.Raw}");
+            // ModLog.Log.Debug($"RPC handling is disabled, ignoring message: {message.Raw}");
             return;
         }
 
-        // Console.WriteLine($"Processing RPC message: CommandId={message.CommandId}, Type={message.CommandType}, Raw={message.Raw}");
+        // ModLog.Log.Debug($"Processing RPC message: CommandId={message.CommandId}, Type={message.CommandType}, Raw={message.Raw}");
 
         // Validate command ID range for the command type
         if (!message.IsValidCommandIdRange())
@@ -66,7 +66,7 @@ public class RpcHandler : IRpcHandler
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unhandled exception while processing RPC command {CommandId}", message.CommandId);
-              //  Console.WriteLine($"Unhandled exception while processing RPC command {message.CommandId}");
+              //  ModLog.Log.Debug($"Unhandled exception while processing RPC command {message.CommandId}");
 
                 await HandleCommandException(message, ex);
             }

@@ -5,6 +5,7 @@ using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Menus;
@@ -121,11 +122,11 @@ internal class ShellsSubmenuRenderer
       // Save configuration to disk
       _themeConfig.Save();
 
-      Console.WriteLine($"Shell configuration applied: {_themeConfig.GetShellDisplayName()}");
+      ModLog.Log.Debug($"Shell configuration applied: {_themeConfig.GetShellDisplayName()}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"Error applying shell configuration: {ex.Message}");
+      ModLog.Log.Debug($"Error applying shell configuration: {ex.Message}");
     }
   }
 }

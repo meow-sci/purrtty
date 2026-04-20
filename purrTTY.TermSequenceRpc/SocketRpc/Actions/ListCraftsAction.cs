@@ -2,6 +2,7 @@ using System.Text.Json;
 using purrTTY.Core.Rpc.Socket;
 using KSA;
 using Microsoft.Extensions.Logging;
+using purrTTY.Logging;
 
 namespace purrTTY.TermSequenceRpc.SocketRpc.Actions;
 
@@ -24,7 +25,7 @@ public class ListCraftsAction : ISocketRpcAction
     {
         try
         {
-            Console.WriteLine("Executing list-crafts action");
+            ModLog.Log.Debug("Executing list-crafts action");
             var crafts = new List<object>();
 
 

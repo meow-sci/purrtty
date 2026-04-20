@@ -8,6 +8,7 @@ using purrTTY.Core.Types;
 using purrTTY.Display.Input;
 using purrTTY.Display.Types;
 using purrTTY.Display.Utils;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Controllers.TerminalUi;
@@ -81,7 +82,7 @@ public class TerminalUiMouseTracking
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"Error in mouse tracking for applications: {ex.Message}");
+      ModLog.Log.Debug($"Error in mouse tracking for applications: {ex.Message}");
     }
   }
 
@@ -119,7 +120,7 @@ public class TerminalUiMouseTracking
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"Error in integrated mouse input handling: {ex.Message}");
+      ModLog.Log.Debug($"Error in integrated mouse input handling: {ex.Message}");
     }
   }
 
@@ -167,20 +168,20 @@ public class TerminalUiMouseTracking
       // Only update if mode changed
       if (_mouseTrackingManager.CurrentMode != mode)
       {
-        Console.WriteLine($"[DEBUG] Mouse tracking mode changed: {_mouseTrackingManager.CurrentMode} -> {mode} (bits={terminalState.MouseTrackingModeBits})");
+        ModLog.Log.Debug($"[DEBUG] Mouse tracking mode changed: {_mouseTrackingManager.CurrentMode} -> {mode} (bits={terminalState.MouseTrackingModeBits})");
         _mouseTrackingManager.SetTrackingMode(mode);
       }
 
       // Only update if SGR encoding changed
       if (_mouseTrackingManager.SgrEncodingEnabled != terminalState.MouseSgrEncodingEnabled)
       {
-        Console.WriteLine($"[DEBUG] SGR encoding changed: {_mouseTrackingManager.SgrEncodingEnabled} -> {terminalState.MouseSgrEncodingEnabled}");
+        ModLog.Log.Debug($"[DEBUG] SGR encoding changed: {_mouseTrackingManager.SgrEncodingEnabled} -> {terminalState.MouseSgrEncodingEnabled}");
         _mouseTrackingManager.SetSgrEncoding(terminalState.MouseSgrEncodingEnabled);
       }
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"Error syncing mouse tracking configuration: {ex.Message}");
+      ModLog.Log.Debug($"Error syncing mouse tracking configuration: {ex.Message}");
     }
   }
 
@@ -267,12 +268,12 @@ public class TerminalUiMouseTracking
       }
       else
       {
-        Console.WriteLine($"[WARN] No escape sequence generated for event type: {mouseEvent.Type}");
+        ModLog.Log.Debug($"[WARN] No escape sequence generated for event type: {mouseEvent.Type}");
       }
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"Error generating mouse escape sequence: {ex.Message}");
+      ModLog.Log.Debug($"Error generating mouse escape sequence: {ex.Message}");
     }
   }
 
@@ -291,10 +292,10 @@ public class TerminalUiMouseTracking
   /// </summary>
   public void OnMouseProcessingError(object? sender, MouseProcessingErrorEventArgs e)
   {
-    Console.WriteLine($"[ERROR] Mouse processing error: {e.Message}");
+    ModLog.Log.Debug($"[ERROR] Mouse processing error: {e.Message}");
     if (e.Exception != null)
     {
-      Console.WriteLine($"Exception: {e.Exception}");
+      ModLog.Log.Debug($"Exception: {e.Exception}");
     }
   }
 
@@ -303,10 +304,10 @@ public class TerminalUiMouseTracking
   /// </summary>
   public void OnMouseInputError(object? sender, MouseInputErrorEventArgs e)
   {
-    Console.WriteLine($"Mouse input error: {e.Message}");
+    ModLog.Log.Debug($"Mouse input error: {e.Message}");
     if (e.Exception != null)
     {
-      Console.WriteLine($"Exception: {e.Exception}");
+      ModLog.Log.Debug($"Exception: {e.Exception}");
     }
   }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Performance;
 
@@ -504,15 +505,15 @@ public class PerformanceStopwatch
     }
 
     /// <summary>
-    /// Calls GetSummary() and writes to Console.WriteLine() with separators and timestamp.
+    /// Calls GetSummary() and writes to ModLog.Log.Debug() with separators and timestamp.
     /// </summary>
     public void DumpToConsole()
     {
         var summary = GetSummaryHierarchical();
         var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-        Console.WriteLine("================================================================================");
-        Console.WriteLine($"[{timestamp}] {summary}");
-        Console.WriteLine("================================================================================");
+        ModLog.Log.Debug("================================================================================");
+        ModLog.Log.Debug($"[{timestamp}] {summary}");
+        ModLog.Log.Debug("================================================================================");
     }
 }

@@ -2,6 +2,7 @@ using System;
 using Brutal.ImGuiApi;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
+using purrTTY.Logging;
 using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Menus;
@@ -55,11 +56,11 @@ internal class WindowSubmenuRenderer
       // Apply background opacity change immediately
       if (OpacityManager.SetBackgroundOpacityFromPercentage(newBgOpacityPercent))
       {
-        // Console.WriteLine($"TerminalController: Background opacity set to {newBgOpacityPercent}%");
+        // ModLog.Log.Debug($"TerminalController: Background opacity set to {newBgOpacityPercent}%");
       }
       else
       {
-        Console.WriteLine($"TerminalController: Failed to set background opacity to {newBgOpacityPercent}%");
+        ModLog.Log.Debug($"TerminalController: Failed to set background opacity to {newBgOpacityPercent}%");
       }
     }
 
@@ -76,7 +77,7 @@ internal class WindowSubmenuRenderer
     {
       if (OpacityManager.ResetBackgroundOpacity())
       {
-        Console.WriteLine("TerminalController: Background opacity reset to default");
+        ModLog.Log.Debug("TerminalController: Background opacity reset to default");
       }
     }
 
@@ -95,11 +96,11 @@ internal class WindowSubmenuRenderer
       // Apply cell background opacity change immediately
       if (OpacityManager.SetCellBackgroundOpacityFromPercentage(newCellBgOpacityPercent))
       {
-        // Console.WriteLine($"TerminalController: Cell background opacity set to {newCellBgOpacityPercent}%");
+        // ModLog.Log.Debug($"TerminalController: Cell background opacity set to {newCellBgOpacityPercent}%");
       }
       else
       {
-        Console.WriteLine($"TerminalController: Failed to set cell background opacity to {newCellBgOpacityPercent}%");
+        ModLog.Log.Debug($"TerminalController: Failed to set cell background opacity to {newCellBgOpacityPercent}%");
       }
     }
 
@@ -116,7 +117,7 @@ internal class WindowSubmenuRenderer
     {
       if (OpacityManager.ResetCellBackgroundOpacity())
       {
-        Console.WriteLine("TerminalController: Cell background opacity reset to default");
+        ModLog.Log.Debug("TerminalController: Cell background opacity reset to default");
       }
     }
 
@@ -135,11 +136,11 @@ internal class WindowSubmenuRenderer
       // Apply foreground opacity change immediately
       if (OpacityManager.SetForegroundOpacityFromPercentage(newFgOpacityPercent))
       {
-        // Console.WriteLine($"TerminalController: Foreground opacity set to {newFgOpacityPercent}%");
+        // ModLog.Log.Debug($"TerminalController: Foreground opacity set to {newFgOpacityPercent}%");
       }
       else
       {
-        Console.WriteLine($"TerminalController: Failed to set foreground opacity to {newFgOpacityPercent}%");
+        ModLog.Log.Debug($"TerminalController: Failed to set foreground opacity to {newFgOpacityPercent}%");
       }
     }
 
@@ -156,7 +157,7 @@ internal class WindowSubmenuRenderer
     {
       if (OpacityManager.ResetForegroundOpacity())
       {
-        Console.WriteLine("TerminalController: Foreground opacity reset to default");
+        ModLog.Log.Debug("TerminalController: Foreground opacity reset to default");
       }
     }
 
@@ -171,7 +172,7 @@ internal class WindowSubmenuRenderer
     {
       if (OpacityManager.ResetOpacity())
       {
-        Console.WriteLine("TerminalController: All opacity values reset to default");
+        ModLog.Log.Debug("TerminalController: All opacity values reset to default");
       }
     }
 

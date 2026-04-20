@@ -72,7 +72,7 @@ public class SpecialKeyHandler
         // In GameMod, F12 is reserved for terminal visibility toggle
         if (keyString == "F12")
         {
-          // Console.WriteLine($"DEBUG: F12 pressed in GameMod context, skipping F12 processing to avoid conflict");
+          // ModLog.Log.Debug($"DEBUG: F12 pressed in GameMod context, skipping F12 processing to avoid conflict");
           return false; // Let F12 be handled by GameMod
         }
 

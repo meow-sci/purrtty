@@ -1,5 +1,6 @@
 using System;
 using purrTTY.Core.Terminal;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Resize;
 
@@ -44,13 +45,13 @@ internal class SessionResizeApplicator
             }
             catch (Exception ex)
             {
-              Console.WriteLine($"TerminalController: Failed to resize PTY process for session {session.Id}: {ex.Message}");
+              ModLog.Log.Debug($"TerminalController: Failed to resize PTY process for session {session.Id}: {ex.Message}");
             }
           }
         }
         catch (Exception ex)
         {
-          Console.WriteLine($"TerminalController: Error resizing session {session.Id}: {ex.Message}");
+          ModLog.Log.Debug($"TerminalController: Error resizing session {session.Id}: {ex.Message}");
         }
       }
 
@@ -59,7 +60,7 @@ internal class SessionResizeApplicator
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error applying resize to all sessions: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error applying resize to all sessions: {ex.Message}");
     }
   }
 
@@ -86,7 +87,7 @@ internal class SessionResizeApplicator
 
     try
     {
-      // Console.WriteLine($"TerminalController: Manual terminal resize requested: {cols}x{rows}");
+      // ModLog.Log.Debug($"TerminalController: Manual terminal resize requested: {cols}x{rows}");
 
       // Resize the headless terminal emulator
       activeSession.Terminal.Resize(cols, rows);
@@ -99,14 +100,14 @@ internal class SessionResizeApplicator
       if (activeSession.ProcessManager.IsRunning)
       {
         activeSession.ProcessManager.Resize(cols, rows);
-        // Console.WriteLine($"TerminalController: PTY process resized to {cols}x{rows}");
+        // ModLog.Log.Debug($"TerminalController: PTY process resized to {cols}x{rows}");
       }
 
-      // Console.WriteLine($"TerminalController: Manual terminal resize completed successfully");
+      // ModLog.Log.Debug($"TerminalController: Manual terminal resize completed successfully");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"TerminalController: Error during manual terminal resize: {ex.Message}");
+      ModLog.Log.Debug($"TerminalController: Error during manual terminal resize: {ex.Message}");
       throw new InvalidOperationException($"Failed to resize terminal to {cols}x{rows}: {ex.Message}", ex);
     }
   }

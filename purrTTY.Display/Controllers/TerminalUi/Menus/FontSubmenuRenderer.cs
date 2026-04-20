@@ -4,6 +4,7 @@ using purrTTY.Core.Managers;
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Controllers.TerminalUi.Menus;
 
@@ -106,11 +107,11 @@ internal class FontSubmenuRenderer
       // Save font settings to persistent configuration
       _fonts.SaveFontSettings();
 
-      Console.WriteLine($"FontMenuRenderer: Font size set to {fontSize}");
+      ModLog.Log.Debug($"FontMenuRenderer: Font size set to {fontSize}");
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"FontMenuRenderer: Error setting font size: {ex.Message}");
+      ModLog.Log.Debug($"FontMenuRenderer: Error setting font size: {ex.Message}");
     }
   }
 }

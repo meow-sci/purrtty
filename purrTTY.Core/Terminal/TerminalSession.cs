@@ -1,5 +1,7 @@
 
 
+using purrTTY.Logging;
+
 namespace purrTTY.Core.Terminal;
 
 /// <summary>
@@ -268,7 +270,7 @@ public class TerminalSession : IDisposable
         catch (ArgumentException ex)
         {
             // Log error but don't throw - this is called during resize operations
-            Console.WriteLine($"TerminalSession: Invalid dimensions for session {Id}: {ex.Message}");
+            ModLog.Log.Debug($"TerminalSession: Invalid dimensions for session {Id}: {ex.Message}");
         }
     }
 

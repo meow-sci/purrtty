@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using Brutal.Numerics;
 using purrTTY.Core.Types;
+using purrTTY.Logging;
 using Tomlyn;
 using Tomlyn.Model;
 
@@ -59,7 +60,7 @@ public static class TomlThemeLoader
         {
             // Log error and continue with empty theme list
             // In a real implementation, this would use a proper logging framework
-            Console.WriteLine($"Error accessing themes directory '{themesDirectory}': {ex.Message}");
+            ModLog.Log.Debug($"Error accessing themes directory '{themesDirectory}': {ex.Message}");
         }
 
         return themes;
@@ -87,7 +88,7 @@ public static class TomlThemeLoader
             {
                 foreach (var diagnostic in diagnostics)
                 {
-                    // Console.WriteLine($"TOML parsing error in {filePath}: {diagnostic}");
+                    // ModLog.Log.Debug($"TOML parsing error in {filePath}: {diagnostic}");
                 }
                 return null;
             }
@@ -95,7 +96,7 @@ public static class TomlThemeLoader
             // Validate required structure
             if (!ValidateThemeStructure(tomlTable))
             {
-                // Console.WriteLine($"Invalid theme structure in {filePath}");
+                // ModLog.Log.Debug($"Invalid theme structure in {filePath}");
                 return null;
             }
             
@@ -112,12 +113,12 @@ public static class TomlThemeLoader
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {
-            Console.WriteLine($"Error reading theme file '{filePath}': {ex.Message}");
+            ModLog.Log.Debug($"Error reading theme file '{filePath}': {ex.Message}");
             return null;
         }
         catch (Exception ex) when (ex is ArgumentException || ex is FormatException)
         {
-            Console.WriteLine($"Error parsing theme file '{filePath}': {ex.Message}");
+            ModLog.Log.Debug($"Error parsing theme file '{filePath}': {ex.Message}");
             return null;
         }
     }
@@ -141,7 +142,7 @@ public static class TomlThemeLoader
         {
             if (!colorsTable.ContainsKey(section) || !(colorsTable[section] is TomlTable))
             {
-                // Console.WriteLine($"Missing required color section: colors.{section}");
+                // ModLog.Log.Debug($"Missing required color section: colors.{section}");
                 return false;
             }
         }

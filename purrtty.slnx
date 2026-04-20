@@ -4,8 +4,9 @@
         <Platform Name="x64" />
         <Platform Name="x86" />
     </Configurations>
-    <Project Path="purrTTY.Core.Tests/purrTTY.Core.Tests.csproj" />
+    <Project Path="purrTTY.Logging/purrTTY.Logging.csproj" />
     <Project Path="purrTTY.Core/purrTTY.Core.csproj" />
+    <Project Path="purrTTY.Core.Tests/purrTTY.Core.Tests.csproj" />
     <Project Path="purrTTY.CustomShellContract.Tests/purrTTY.CustomShellContract.Tests.csproj" />
     <Project Path="purrTTY.CustomShellContract/purrTTY.CustomShellContract.csproj" />
     <Project Path="purrTTY.CustomShells.Tests/purrTTY.CustomShells.Tests.csproj" />

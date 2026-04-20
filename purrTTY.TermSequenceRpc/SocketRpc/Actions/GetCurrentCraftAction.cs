@@ -2,6 +2,7 @@ using System.Text.Json;
 using purrTTY.Core.Rpc.Socket;
 using KSA;
 using Microsoft.Extensions.Logging;
+using purrTTY.Logging;
 
 namespace purrTTY.TermSequenceRpc.SocketRpc.Actions;
 
@@ -24,7 +25,7 @@ public class GetCurrentCraftAction : ISocketRpcAction
     {
         try
         {
-            Console.WriteLine("Executing get-current-craft action");
+            ModLog.Log.Debug("Executing get-current-craft action");
             var vehicle = Program.ControlledVehicle;
             if (vehicle == null)
             {

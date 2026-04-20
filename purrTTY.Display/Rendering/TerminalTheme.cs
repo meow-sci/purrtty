@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Brutal.Numerics;
+using purrTTY.Core;
 using purrTTY.Core.Types;
 using purrTTY.Display.Configuration;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Rendering;
 
@@ -305,13 +307,13 @@ public static class ThemeManager
             try
             {
                 var tomlThemes = TomlThemeLoader.LoadThemesFromDirectory();
-                Console.WriteLine($"THEMES LOADED: {tomlThemes.ToArray()}");
+                ModLog.Log.Debug($"Terminal themes loaded: {tomlThemes.ToArray()}");
                 _availableThemes.AddRange(tomlThemes);
             }
             catch (Exception ex)
             {
                 // Log error but continue with built-in themes
-                Console.WriteLine($"Error loading TOML themes: {ex.Message}");
+                ModLog.Log.Error($"Error loading TOML themes: {ex.Message}");
             }
 
             // Set initial theme - try to load saved preference, otherwise use default
@@ -353,7 +355,7 @@ public static class ThemeManager
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error refreshing TOML themes: {ex.Message}");
+                ModLog.Log.Debug($"Error refreshing TOML themes: {ex.Message}");
             }
 
             // Try to maintain current theme if it still exists
@@ -445,7 +447,7 @@ public static class ThemeManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error saving theme preference: {ex.Message}");
+            ModLog.Log.Debug($"Error saving theme preference: {ex.Message}");
         }
     }
 
@@ -462,7 +464,7 @@ public static class ThemeManager
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading theme preference: {ex.Message}");
+            ModLog.Log.Debug($"Error loading theme preference: {ex.Message}");
             return null;
         }
     }

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using purrTTY.Logging;
 
 namespace purrTTY.Core.Rpc.Socket;
 
@@ -52,7 +53,7 @@ public static class SocketRpcServerFactory
     {
         var bindHost = host ?? DefaultHost;
         var bindPort = port ?? DefaultPort;
-        Console.WriteLine($"[purrTTY] Creating TCP RPC server: bind={bindHost}:{bindPort}, client endpoint=localhost:{bindPort}");
+        ModLog.Log.Debug($"[purrTTY] Creating TCP RPC server: bind={bindHost}:{bindPort}, client endpoint=localhost:{bindPort}");
 
         return new SocketRpcServer(
             bindHost,
