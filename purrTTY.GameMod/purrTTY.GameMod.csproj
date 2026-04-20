@@ -18,6 +18,7 @@
 
     <!-- Copies files for mod deployment -->
     <Target Name="CopyCustomContent" AfterTargets="AfterBuild">
+      
         <MakeDir Directories="$(DistDir)"/>
 
         <Copy SourceFiles="$(TargetDir)mod.toml" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetDir)mod.toml')"/>
@@ -35,6 +36,13 @@
         <Copy SourceFiles="$(TargetDir)purrTTY.TermSequenceRpc.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.TermSequenceRpc.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)Tomlyn.dll" DestinationFolder="$(DistDir)"/>
+
+        <!-- licenses -->
+        <Copy SourceFiles="$(MSBuildThisFileDirectory)..\LICENSE" DestinationFolder="$(DistDir)"/>
+        <ItemGroup>
+            <ThirdPartyLicenses Include="$(MSBuildThisFileDirectory)..\third-party-licenses\*" />
+        </ItemGroup>
+        <Copy SourceFiles="@(ThirdPartyLicenses)" DestinationFolder="$(DistDir)third-party-licenses" Condition="'@(ThirdPartyLicenses)' != ''" />
 
         <!-- Copy Fonts folder to the build dir-->
         <ItemGroup>
