@@ -169,7 +169,7 @@ public static class ThemeManager
     public static int Version { get; private set; } = 1;
 
     /// <summary>
-    /// Default theme using Adventure.toml color values as the baseline.
+    /// Default theme using Monokai Vivid.toml color values as the baseline.
     /// This serves as the fallback when no TOML themes are available.
     /// </summary>
     public static readonly TerminalTheme DefaultTheme = new(
@@ -177,30 +177,30 @@ public static class ThemeManager
         ThemeType.Dark,
         new TerminalColorPalette(
             // Standard ANSI colors from Adventure.toml
-            black: TomlThemeLoader.ParseHexColor("#040404"),
-            red: TomlThemeLoader.ParseHexColor("#d84a33"),
-            green: TomlThemeLoader.ParseHexColor("#5da602"),
-            yellow: TomlThemeLoader.ParseHexColor("#eebb6e"),
-            blue: TomlThemeLoader.ParseHexColor("#417ab3"),
-            magenta: TomlThemeLoader.ParseHexColor("#e5c499"),
-            cyan: TomlThemeLoader.ParseHexColor("#bdcfe5"),
-            white: TomlThemeLoader.ParseHexColor("#dbded8"),
+            black: TomlThemeLoader.ParseHexColor("#121212"),
+            red: TomlThemeLoader.ParseHexColor("#fa2934"),
+            green: TomlThemeLoader.ParseHexColor("#98e123"),
+            yellow: TomlThemeLoader.ParseHexColor("#fff30a"),
+            blue: TomlThemeLoader.ParseHexColor("#0443ff"),
+            magenta: TomlThemeLoader.ParseHexColor("#f800f8"),
+            cyan: TomlThemeLoader.ParseHexColor("#01b6ed"),
+            white: TomlThemeLoader.ParseHexColor("#ffffff"),
 
             // Bright ANSI colors from Adventure.toml
-            brightBlack: TomlThemeLoader.ParseHexColor("#685656"),
-            brightRed: TomlThemeLoader.ParseHexColor("#d76b42"),
-            brightGreen: TomlThemeLoader.ParseHexColor("#99b52c"),
-            brightYellow: TomlThemeLoader.ParseHexColor("#ffb670"),
-            brightBlue: TomlThemeLoader.ParseHexColor("#97d7ef"),
-            brightMagenta: TomlThemeLoader.ParseHexColor("#aa7900"),
-            brightCyan: TomlThemeLoader.ParseHexColor("#bdcfe5"),
-            brightWhite: TomlThemeLoader.ParseHexColor("#e4d5c7"),
+            brightBlack: TomlThemeLoader.ParseHexColor("#838383"),
+            brightRed: TomlThemeLoader.ParseHexColor("#f6669d"),
+            brightGreen: TomlThemeLoader.ParseHexColor("#b1e05f"),
+            brightYellow: TomlThemeLoader.ParseHexColor("#fff26d"),
+            brightBlue: TomlThemeLoader.ParseHexColor("#0443ff"),
+            brightMagenta: TomlThemeLoader.ParseHexColor("#f200f6"),
+            brightCyan: TomlThemeLoader.ParseHexColor("#51ceff"),
+            brightWhite: TomlThemeLoader.ParseHexColor("#ffffff"),
 
             // Terminal UI colors from Adventure.toml
-            foreground: TomlThemeLoader.ParseHexColor("#feffff"),
-            background: TomlThemeLoader.ParseHexColor("#040404"),
-            cursor: TomlThemeLoader.ParseHexColor("#feffff"),
-            selection: TomlThemeLoader.ParseHexColor("#606060")
+            foreground: TomlThemeLoader.ParseHexColor("#f9f9f9"),
+            background: TomlThemeLoader.ParseHexColor("#121212"),
+            cursor: TomlThemeLoader.ParseHexColor("#fb0007"),
+            selection: TomlThemeLoader.ParseHexColor("#ffffff")
         ),
         new CursorConfig(CursorStyle.BlinkingBlock, true, 500),
         ThemeSource.BuiltIn

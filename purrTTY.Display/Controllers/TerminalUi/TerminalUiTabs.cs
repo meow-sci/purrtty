@@ -105,21 +105,18 @@ internal class TerminalUiTabs
 
           // Add button on the left with fixed width
           float addButtonWidth = LayoutConstants.ADD_BUTTON_WIDTH;
+          bool canLaunchDefault = ShellAvailabilityChecker.IsDefaultShellAvailable(_sessionManager.DefaultLaunchOptions.ShellType);
+          ImGui.BeginDisabled(!canLaunchDefault);
           if (ImGui.Button("+##add_terminal", new float2(addButtonWidth, tabHeight - 5.0f)))
           {
-            ImGui.OpenPopup("new_terminal_popup");
+            _ = Task.Run(async () => await _sessionManager.CreateSessionAsync());
+            _controller.ForceFocus();
           }
+          ImGui.EndDisabled();
 
-          // Render popup menu for shell selection
-          if (ImGui.BeginPopup("new_terminal_popup"))
+          if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
           {
-            RenderNewTerminalPopup();
-            ImGui.EndPopup();
-          }
-
-          if (ImGui.IsItemHovered())
-          {
-            ImGui.SetTooltip("Add new terminal session");
+            ImGui.SetTooltip(canLaunchDefault ? "Add new terminal session" : "Default shell is not available");
           }
 
           // Only show tabs if we have sessions

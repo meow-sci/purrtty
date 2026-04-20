@@ -48,30 +48,6 @@ internal class ShellsSubmenuRenderer
     // Check if current shell is available
     bool currentShellAvailable = ShellAvailabilityChecker.IsShellAvailable(config.DefaultShellType);
 
-    // Current shell display with availability indicator
-    if (currentShellAvailable)
-    {
-      ImGui.Text($"Current Default Shell: {config.GetShellDisplayName()}");
-    }
-    else
-    {
-      ImGui.TextColored(new float4(1.0f, 0.6f, 0.0f, 1.0f), $"Current Default Shell: {config.GetShellDisplayName()} (Not Available)");
-      if (ImGui.IsItemHovered())
-      {
-        ImGui.SetTooltip("The currently configured shell is not available on this system. Please select an available shell below.");
-      }
-    }
-
-    if (ImGui.IsItemHovered() && currentShellAvailable)
-    {
-      ImGui.SetTooltip("This shell will be used for new terminal sessions");
-    }
-
-    ImGui.Spacing();
-
-    // Shell type selection - only show available shells
-    ImGui.Text("Select Default Shell:");
-
     var availableShells = ShellAvailabilityChecker.GetAvailableShellsWithNames();
 
     // Show message if no shells are available (shouldn't happen, but defensive programming)
@@ -122,10 +98,6 @@ internal class ShellsSubmenuRenderer
         ImGui.SetTooltip(tooltip);
       }
     }
-
-    // Show current configuration status
-    ImGui.Spacing();
-    ImGui.Text("Settings are applied automatically to new terminal sessions.");
   }
 
   /// <summary>

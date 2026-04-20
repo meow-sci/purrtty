@@ -65,7 +65,7 @@ internal class SettingsMenuRenderer
         }
 
         // Shells submenu
-        if (ImGui.BeginMenu("Shells"))
+        if (ImGui.BeginMenu("Default Shell"))
         {
           _shellsSubmenu.RenderContent();
           ImGui.EndMenu();

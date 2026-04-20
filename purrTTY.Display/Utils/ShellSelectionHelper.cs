@@ -44,10 +44,27 @@ public static class ShellSelectionHelper
     }
 
     /// <summary>
+    /// Lazily-initialized cache of available shell options.
+    /// Cached once per game instance since available shells do not change at runtime.
+    /// </summary>
+    private static readonly Lazy<List<ShellOption>> CachedShellOptions =
+        new(ComputeAvailableShellOptions);
+
+    /// <summary>
     /// Gets all available shell options on the current system.
+    /// Results are cached for the lifetime of the game instance.
     /// </summary>
     /// <returns>List of available shell options</returns>
     public static List<ShellOption> GetAvailableShellOptions()
+    {
+        return CachedShellOptions.Value;
+    }
+
+    /// <summary>
+    /// Computes all available shell options on the current system.
+    /// Called once and cached; results do not change at runtime.
+    /// </summary>
+    private static List<ShellOption> ComputeAvailableShellOptions()
     {
         var options = new List<ShellOption>();
 

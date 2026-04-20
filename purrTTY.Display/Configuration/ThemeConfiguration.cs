@@ -232,7 +232,7 @@ public class ThemeConfiguration
             baseDirectory = Path.Combine(Path.GetTempPath(), "purrTTY_config_default");
         }
 
-        var configDirectory = Path.Combine(baseDirectory, "purrTTY");
+        var configDirectory = Path.Combine(baseDirectory, ".purrTTY");
         return Path.Combine(configDirectory, "theme-config.json");
     }
 }

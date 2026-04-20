@@ -58,6 +58,30 @@ public static class ShellAvailabilityChecker
         return availableShells;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ShellType, bool> DefaultShellAvailabilityCache = new();
+
+    /// <summary>
+    /// Checks if the specified default shell type is available on the current system.
+    /// For <see cref="ShellType.Auto"/>, checks if at least one real shell is available.
+    /// Results are cached per shell type for the lifetime of the process.
+    /// </summary>
+    /// <param name="defaultShellType">The shell type configured as the default</param>
+    /// <returns>True if the default shell can be launched, false otherwise</returns>
+    public static bool IsDefaultShellAvailable(ShellType defaultShellType)
+    {
+        return DefaultShellAvailabilityCache.GetOrAdd(defaultShellType, static shellType =>
+        {
+            if (shellType == ShellType.Auto)
+            {
+                return IsShellAvailable(ShellType.PowerShell) ||
+                       IsShellAvailable(ShellType.PowerShellCore) ||
+                       IsShellAvailable(ShellType.Cmd) ||
+                       IsShellAvailable(ShellType.Wsl);
+            }
+            return IsShellAvailable(shellType);
+        });
+    }
+
     /// <summary>
     /// Gets available shell types with their display names.
     /// </summary>

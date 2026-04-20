@@ -35,15 +35,6 @@ internal class SessionsMenuRenderer
     {
       try
       {
-        // New Session (Default)
-        if (ImGui.MenuItem("New Session (Default)"))
-        {
-          _ = Task.Run(async () => await _sessionManager.CreateSessionAsync());
-        }
-
-        // New Session with Shell submenu
-        ImGui.Separator();
-        ImGui.Text("New Session with Shell:");
 
         var shellOptions = ShellSelectionHelper.GetAvailableShellOptions();
 

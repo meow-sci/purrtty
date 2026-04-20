@@ -179,22 +179,5 @@ internal class WindowSubmenuRenderer
     {
       ImGui.SetTooltip("Reset background, foreground, and cell background opacity to 100%");
     }
-
-    // Show current opacity status
-    ImGui.Separator();
-    var bgOpacity = OpacityManager.CurrentBackgroundOpacity;
-    var fgOpacity = OpacityManager.CurrentForegroundOpacity;
-    var cellBgOpacity = OpacityManager.CurrentCellBackgroundOpacity;
-    var bgIsDefault = OpacityManager.IsDefaultBackgroundOpacity();
-    var fgIsDefault = OpacityManager.IsDefaultForegroundOpacity();
-    var cellBgIsDefault = OpacityManager.IsDefaultCellBackgroundOpacity();
-
-    var bgStatusText = bgIsDefault ? "Default (100%)" : $"{bgOpacity:F2} ({currentBgOpacityPercent}%)";
-    var fgStatusText = fgIsDefault ? "Default (100%)" : $"{fgOpacity:F2} ({currentFgOpacityPercent}%)";
-    var cellBgStatusText = cellBgIsDefault ? "Default (100%)" : $"{cellBgOpacity:F2} ({currentCellBgOpacityPercent}%)";
-
-    ImGui.Text($"Window Background: {bgStatusText}");
-    ImGui.Text($"Cell Background: {cellBgStatusText}");
-    ImGui.Text($"Foreground: {fgStatusText}");
   }
 }

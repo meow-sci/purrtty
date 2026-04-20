@@ -54,7 +54,7 @@ public class ThemeConfigurationTests
         try
         {
             var docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var productionConfigDirectory = Path.Combine(docsPath, "My Games", "Kitten Space Agency", "purrTTY");
+            var productionConfigDirectory = Path.Combine(docsPath, "My Games", "Kitten Space Agency", ".purrTTY");
             var productionConfigFile = Path.Combine(productionConfigDirectory, "theme-config.json");
 
             if (File.Exists(productionConfigFile))
@@ -76,7 +76,7 @@ public class ThemeConfigurationTests
         try
         {
             var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var configDirectory = Path.Combine(appDataPath, "purrTTY");
+            var configDirectory = Path.Combine(appDataPath, ".purrTTY");
             var configFile = Path.Combine(configDirectory, "theme-config.json");
 
             if (File.Exists(configFile))
@@ -147,7 +147,7 @@ public class ThemeConfigurationTests
             // Set override to use temp directory
             ThemeConfiguration.OverrideConfigDirectory = tempDir;
 
-            var configDirectory = Path.Combine(tempDir, "purrTTY");
+            var configDirectory = Path.Combine(tempDir, ".purrTTY");
             var configFile = Path.Combine(configDirectory, "theme-config.json");
 
             // Ensure directory exists
@@ -193,7 +193,7 @@ public class ThemeConfigurationTests
             // Set override to use temp directory
             ThemeConfiguration.OverrideConfigDirectory = tempDir;
 
-            var configDirectory = Path.Combine(tempDir, "purrTTY");
+            var configDirectory = Path.Combine(tempDir, ".purrTTY");
             var configFile = Path.Combine(configDirectory, "theme-config.json");
 
             Directory.CreateDirectory(configDirectory);
@@ -254,7 +254,7 @@ public class ThemeConfigurationTests
         // Ensure directory doesn't exist initially
         var appDataPath = Path.GetTempPath();
         ThemeConfiguration.OverrideConfigDirectory = appDataPath;
-        var configDirectory = Path.Combine(appDataPath, "purrTTY");
+        var configDirectory = Path.Combine(appDataPath, ".purrTTY");
         var configFile = Path.Combine(configDirectory, "theme-config.json");
 
         if (Directory.Exists(configDirectory))
@@ -310,7 +310,7 @@ public class ThemeConfigurationTests
             ForegroundOpacity = 0.75f
         };
 
-        var configFile = Path.Combine(_tempConfigDirectory, "purrTTY", "theme-config.json");
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
 
         try
         {
@@ -352,7 +352,7 @@ public class ThemeConfigurationTests
             ForegroundOpacity = 0.6f
         };
 
-        var configFile = Path.Combine(_tempConfigDirectory, "purrTTY", "theme-config.json");
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
 
         try
         {
@@ -386,7 +386,7 @@ public class ThemeConfigurationTests
         ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
 
         var edgeCases = new[] { 0.0f, 1.0f, 0.001f, 0.999f };
-        var configFile = Path.Combine(_tempConfigDirectory, "purrTTY", "theme-config.json");
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
 
         try
         {
@@ -432,7 +432,7 @@ public class ThemeConfigurationTests
         ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
 
         var productionDocsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var productionConfigDirectory = Path.Combine(productionDocsPath, "My Games", "Kitten Space Agency", "purrTTY");
+        var productionConfigDirectory = Path.Combine(productionDocsPath, "My Games", "Kitten Space Agency", ".purrTTY");
         var productionConfigFile = Path.Combine(productionConfigDirectory, "theme-config.json");
 
         // Record the modification time of the production file before the test (if it exists)
@@ -455,7 +455,7 @@ public class ThemeConfigurationTests
             config.Save();
 
             // Assert - Verify file was saved to temp directory, not production path
-            var tempConfigFile = Path.Combine(_tempConfigDirectory, "purrTTY", "theme-config.json");
+            var tempConfigFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
 
             Assert.That(File.Exists(tempConfigFile), Is.True,
                 "Configuration should be saved to temp directory when override is set");
@@ -481,7 +481,7 @@ public class ThemeConfigurationTests
             ThemeConfiguration.OverrideConfigDirectory = originalOverride;
 
             // Verify temp directory is cleaned up after test
-            var tempConfigFile = Path.Combine(_tempConfigDirectory, "purrTTY", "theme-config.json");
+            var tempConfigFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
             if (File.Exists(tempConfigFile))
             {
                 File.Delete(tempConfigFile);

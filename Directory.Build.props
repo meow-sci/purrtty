@@ -24,23 +24,20 @@
 
     <!-- KSA Game Installation Path -->
     <PropertyGroup>
-        <!-- windows -->
-        <!--
-        <KSAFolder Condition="'$(KSAFolder)' == ''">C:\Program Files\Kitten Space Agency\</KSAFolder>
-        <KSAUserDir Condition="'$(KSAUserDir)' == ''">$(USERPROFILE)\Documents\My Games\Kitten Space Agency\</KSAUserDir>
-        -->
+        <!-- Windows paths -->
+        <KSAFolder Condition="'$(OS)' == 'Windows_NT' AND '$(KSAFolder)' == ''">C:\Program Files\Kitten Space Agency\</KSAFolder>
+        <KSAUserDir Condition="'$(OS)' == 'Windows_NT' AND '$(KSAUserDir)' == ''">$(USERPROFILE)\Documents\My Games\Kitten Space Agency\</KSAUserDir>
 
-        <!-- mac -->
-        <!-- <KSAFolder Condition="'$(KSAFolder)' == ''">$(USERPROFILE)/repos/meow-sci/ksa-game-assemblies/current/dll/</KSAFolder> -->
-        <KSAFolder Condition="'$(KSAFolder)' == ''">/Users/asherwin/repos/meow-sci/ksa-game-assemblies/current/dll/</KSAFolder>
-        <KSAUserDir Condition="'$(KSAUserDir)' == ''">$(HOME)/repos/meow-sci/mods/</KSAUserDir>
+        <!-- macOS paths -->
+        <KSAFolder Condition="'$(OS)' != 'Windows_NT' AND '$(KSAFolder)' == ''">$(HOME)/repos/meow-sci/ksa-game-assemblies/current/dll/</KSAFolder>
+        <KSAUserDir Condition="'$(OS)' != 'Windows_NT' AND '$(KSAUserDir)' == ''">$(HOME)/repos/meow-sci/mods/</KSAUserDir>
         
         <!-- mods -->
-        <KSAUserModDir>$(KSAUserDir)</KSAUserModDir>
+        <KSAUserModDir>$(KSAUserDir)mods\</KSAUserModDir>
         <KSAProgramFilesModDir>$(KSAFolder)Content\</KSAProgramFilesModDir>
         <!-- <SelectedDistModDir>$(KSAProgramFilesModDir)</SelectedDistModDir> -->
-        <!-- <SelectedDistModDir>$(KSAUserModDir)</SelectedDistModDir> -->
-        <SelectedDistModDir>$(SolutionDir)dist\</SelectedDistModDir>
+        <SelectedDistModDir>$(KSAUserModDir)</SelectedDistModDir>
+        <!-- <SelectedDistModDir>$(SolutionDir)dist\</SelectedDistModDir> -->
         
     </PropertyGroup>
 </Project>

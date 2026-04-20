@@ -25,9 +25,6 @@ internal class GameShellSubmenuRenderer
     /// </summary>
     public void RenderContent()
     {
-        ImGui.Text("Game Shell Settings");
-        ImGui.Separator();
-
         ImGui.Text($"Current Prompt: {_themeConfig.GameShellPrompt}");
 
         if (ImGui.IsItemHovered())
@@ -62,7 +59,6 @@ internal class GameShellSubmenuRenderer
         ImGui.NewLine();
 
         ImGui.Spacing();
-        ImGui.TextColored(new Brutal.Numerics.float4(0.7f, 0.7f, 0.7f, 1.0f), "Note: Changes apply to new Game Console Shell sessions");
         ImGui.TextColored(new Brutal.Numerics.float4(0.7f, 0.7f, 0.7f, 1.0f), "Tip: Manually edit theme-config.json for custom prompts");
     }
 }
