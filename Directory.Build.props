@@ -39,7 +39,8 @@
         <KSAUserModDir>$(KSAUserDir)</KSAUserModDir>
         <KSAProgramFilesModDir>$(KSAFolder)Content\</KSAProgramFilesModDir>
         <!-- <SelectedDistModDir>$(KSAProgramFilesModDir)</SelectedDistModDir> -->
-        <SelectedDistModDir>$(KSAUserModDir)</SelectedDistModDir>
+        <!-- <SelectedDistModDir>$(KSAUserModDir)</SelectedDistModDir> -->
+        <SelectedDistModDir>$(SolutionDir)dist\</SelectedDistModDir>
         
     </PropertyGroup>
 </Project>

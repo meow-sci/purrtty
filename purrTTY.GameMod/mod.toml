@@ -1,9 +1,7 @@
 name = "purrTTY"
 description = "A terminal emulator for KSA with full VT100/xterm compatibility"
-version = "1.0.0"
+version = "0.1.0"
 author = "purrTTY Project"
 
-# Once https://github.com/StarMapLoader/StarMap/tree/feature/mod-dependencies/StarMap.API
-# (the mod-dependencies) branch is merged, we can re-enable this.
-# [StarMap]
-# EntryAssembly = "purrTTY.GameMod"
+[StarMap]
+EntryAssembly = "purrTTY.GameMod"
