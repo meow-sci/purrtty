@@ -26,6 +26,16 @@ public class TerminalMod
     private bool _terminalVisible;
     private ISocketRpcServer? _socketRpcServer;
 
+    /// <summary>
+    ///     Shared toggle action used by both F12 keybind and the game menu bar entry.
+    /// </summary>
+    internal static Action? Toggle;
+
+    /// <summary>
+    ///     Returns the current terminal visibility state. Used by the game menu bar to show a checkmark.
+    /// </summary>
+    internal static Func<bool>? GetIsVisible;
+
 
     /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
@@ -230,6 +240,9 @@ public class TerminalMod
             // The shell (whether CustomGame, PowerShell, WSL, etc.) is started when CreateSessionAsync() is called above.
             // Do NOT start a separate shell process here - that would result in two shells running simultaneously.
 
+            Toggle = ToggleTerminal;
+            GetIsVisible = () => _terminalVisible;
+
             _isInitialized = true;
             Console.WriteLine("purrTTY GameMod: Terminal initialized successfully. Press F12 to toggle.");
         }
@@ -314,6 +327,9 @@ public class TerminalMod
                     Console.WriteLine($"[purrTTY GameMod] Error stopping socket RPC server: {ex.Message}");
                 }
             }
+
+            Toggle = null;
+            GetIsVisible = null;
 
             _isInitialized = false;
             _isDisposed = true;
