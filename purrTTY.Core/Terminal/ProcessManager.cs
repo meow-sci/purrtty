@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using purrTTY.Core.Rpc.Socket;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using AttributeListBuilder = purrTTY.Core.Terminal.Process.AttributeListBuilder;
@@ -129,14 +128,6 @@ public class ProcessManager : IProcessManager
             {
                 CleanupPseudoConsole();
                 throw;
-            }
-
-            // Query if socket RPC server is available and add endpoint to environment
-            var endpoint = SocketRpcServerFactory.GetActiveEndpoint();
-            if (endpoint != null)
-            {
-                options.EnvironmentVariables[SocketRpcServerFactory.EndpointEnvVar] = endpoint;
-                _logger.LogDebug("Socket RPC endpoint {Endpoint} added to child process environment", endpoint);
             }
 
             // Create environment block from options (includes socket RPC endpoint if available)

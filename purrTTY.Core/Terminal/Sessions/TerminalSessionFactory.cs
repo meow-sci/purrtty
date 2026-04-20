@@ -1,5 +1,3 @@
-using purrTTY.Core.Rpc;
-using purrTTY.Core.Rpc.Socket;
 using Microsoft.Extensions.Logging.Abstractions;
 using purrTTY.Logging;
 
@@ -33,11 +31,9 @@ internal class TerminalSessionFactory
         EventHandler<SessionStateChangedEventArgs> onStateChanged,
         EventHandler<SessionTitleChangedEventArgs> onTitleChanged,
         EventHandler<SessionProcessExitedEventArgs> onProcessExited,
-        IRpcHandler? rpcHandler = null,
-        IOscRpcHandler? oscRpcHandler = null,
         ProcessLaunchOptions? launchOptions = null)
     {
-        var terminal = TerminalEmulator.Create(initialWidth, initialHeight, 2500, NullLogger.Instance, rpcHandler, oscRpcHandler);
+        var terminal = TerminalEmulator.Create(initialWidth, initialHeight, 2500, NullLogger.Instance);
 
         // Conditional process manager creation based on shell type
         IProcessManager processManager;

@@ -1,6 +1,5 @@
 using System.Text;
 using purrTTY.Core.Parsing;
-using purrTTY.Core.Rpc;
 using purrTTY.Core.Types;
 using FsCheck;
 using Microsoft.Extensions.Logging;
@@ -89,27 +88,20 @@ public class CoreEmulatorCompatibilityProperties
             // Arrange: Create two parsers - one with RPC enabled, one without
             var handlersWithRpc = new TestParserHandlers();
             var handlersWithoutRpc = new TestParserHandlers();
-            var rpcHandler = new TestRpcHandler();
             var logger = new TestLogger();
 
             // Parser with RPC enabled
             var parserWithRpc = new Parser(new ParserOptions
             {
                 Handlers = handlersWithRpc,
-                Logger = logger,
-                RpcSequenceDetector = new RpcSequenceDetector(),
-                RpcSequenceParser = new RpcSequenceParser(),
-                RpcHandler = rpcHandler
+                Logger = logger
             });
 
             // Parser without RPC (null RPC components)
             var parserWithoutRpc = new Parser(new ParserOptions
             {
                 Handlers = handlersWithoutRpc,
-                Logger = logger,
-                RpcSequenceDetector = null,
-                RpcSequenceParser = null,
-                RpcHandler = null
+                Logger = logger
             });
 
             // Act: Process the same sequence with both parsers
@@ -130,162 +122,10 @@ public class CoreEmulatorCompatibilityProperties
                 handlersWithRpc.CarriageReturnCalled == handlersWithoutRpc.CarriageReturnCalled;
             bool identicalNormalBytes = handlersWithRpc.NormalBytes.SequenceEqual(handlersWithoutRpc.NormalBytes);
 
-            // RPC handler should not receive standard sequences
-            bool noRpcInterference = rpcHandler.ReceivedMessages.Count == 0;
 
             return identicalCsiHandling && identicalSgrHandling && identicalEscHandling && 
                    identicalOscHandling && identicalDcsHandling && identicalControlHandling && 
-                   identicalNormalBytes && noRpcInterference;
-        });
-    }
-
-    /// <summary>
-    /// **Feature: term-sequence-rpc, Property 3a: RPC Sequence Delegation**
-    /// **Validates: Requirements 1.4, 4.1**
-    /// Property: For any valid RPC sequence, the core emulator should delegate 
-    /// processing to RPC handlers without affecting standard terminal handlers.
-    /// </summary>
-    [FsCheck.NUnit.Property(MaxTest = 100, QuietOnSuccess = true)]
-    public FsCheck.Property RpcSequenceDelegation()
-    {
-        return Prop.ForAll(ValidRpcSequenceArb, (byte[] rpcSequence) =>
-        {
-            // Arrange
-            var handlers = new TestParserHandlers();
-            var rpcHandler = new TestRpcHandler();
-            var logger = new TestLogger();
-
-            var parser = new Parser(new ParserOptions
-            {
-                Handlers = handlers,
-                Logger = logger,
-                RpcSequenceDetector = new RpcSequenceDetector(),
-                RpcSequenceParser = new RpcSequenceParser(),
-                RpcHandler = rpcHandler
-            });
-
-            // Act
-            parser.PushBytes(rpcSequence);
-
-            // Assert: RPC sequence should be handled by RPC handler, not standard handlers
-            bool rpcHandlerReceived = rpcHandler.ReceivedMessages.Count > 0 || rpcHandler.MalformedSequences.Count > 0;
-            bool standardHandlersNotCalled = 
-                handlers.CsiMessages.Count == 0 &&
-                handlers.SgrSequences.Count == 0 &&
-                handlers.EscMessages.Count == 0;
-
-            return rpcHandlerReceived && standardHandlersNotCalled;
-        });
-    }
-
-    /// <summary>
-    /// **Feature: term-sequence-rpc, Property 3b: RPC Disabled Compatibility**
-    /// **Validates: Requirements 4.2**
-    /// Property: For any sequence, when RPC is disabled, the parser should handle 
-    /// all sequences (including RPC-formatted ones) as standard terminal sequences.
-    /// </summary>
-    [FsCheck.NUnit.Property(MaxTest = 100, QuietOnSuccess = true)]
-    public FsCheck.Property RpcDisabledCompatibility()
-    {
-        return Prop.ForAll(ValidRpcSequenceArb, (byte[] rpcSequence) =>
-        {
-            // Arrange: Create parsers with RPC enabled vs disabled
-            var handlersRpcEnabled = new TestParserHandlers();
-            var handlersRpcDisabled = new TestParserHandlers();
-            var rpcHandler = new TestRpcHandler { IsEnabled = false }; // Disabled
-            var logger = new TestLogger();
-
-            // Parser with RPC components but disabled
-            var parserRpcDisabled = new Parser(new ParserOptions
-            {
-                Handlers = handlersRpcDisabled,
-                Logger = logger,
-                RpcSequenceDetector = new RpcSequenceDetector(),
-                RpcSequenceParser = new RpcSequenceParser(),
-                RpcHandler = rpcHandler // Disabled
-            });
-
-            // Parser without RPC components at all
-            var parserNoRpc = new Parser(new ParserOptions
-            {
-                Handlers = handlersRpcEnabled,
-                Logger = logger,
-                RpcSequenceDetector = null,
-                RpcSequenceParser = null,
-                RpcHandler = null
-            });
-
-            // Act
-            parserRpcDisabled.PushBytes(rpcSequence);
-            parserNoRpc.PushBytes(rpcSequence);
-
-            // Assert: Both should handle the sequence identically as standard CSI
-            bool identicalCsiHandling = handlersRpcDisabled.CsiMessages.Count == handlersRpcEnabled.CsiMessages.Count;
-            bool noRpcHandling = rpcHandler.ReceivedMessages.Count == 0;
-
-            return identicalCsiHandling && noRpcHandling;
-        });
-    }
-
-    /// <summary>
-    /// **Feature: term-sequence-rpc, Property 3c: Mixed Sequence Processing**
-    /// **Validates: Requirements 1.4, 4.1, 4.2**
-    /// Property: For any mixed sequence of standard and RPC sequences, each should 
-    /// be processed by the appropriate handler without cross-contamination.
-    /// </summary>
-    [FsCheck.NUnit.Property(MaxTest = 100, QuietOnSuccess = true)]
-    public FsCheck.Property MixedSequenceProcessing()
-    {
-        return Prop.ForAll(MixedSequenceArb, (byte[][] sequences) =>
-        {
-            // Arrange
-            var handlers = new TestParserHandlers();
-            var rpcHandler = new TestRpcHandler();
-            var logger = new TestLogger();
-            var detector = new RpcSequenceDetector();
-
-            var parser = new Parser(new ParserOptions
-            {
-                Handlers = handlers,
-                Logger = logger,
-                RpcSequenceDetector = detector,
-                RpcSequenceParser = new RpcSequenceParser(),
-                RpcHandler = rpcHandler
-            });
-
-            // Count expected RPC vs standard sequences
-            int expectedRpcCount = 0;
-            int expectedStandardCount = 0;
-
-            foreach (var sequence in sequences)
-            {
-                if (detector.IsRpcSequence(sequence))
-                {
-                    expectedRpcCount++;
-                }
-                else
-                {
-                    expectedStandardCount++;
-                }
-            }
-
-            // Act: Process all sequences
-            foreach (var sequence in sequences)
-            {
-                parser.PushBytes(sequence);
-            }
-
-            // Assert: Each sequence type should be handled appropriately
-            int actualRpcCount = rpcHandler.ReceivedMessages.Count + rpcHandler.MalformedSequences.Count;
-            int actualStandardCount = handlers.CsiMessages.Count + handlers.SgrSequences.Count + 
-                                    handlers.EscMessages.Count + handlers.OscMessages.Count + 
-                                    handlers.DcsMessages.Count;
-
-            // Allow for some flexibility in standard count due to text sequences
-            bool rpcCountCorrect = actualRpcCount == expectedRpcCount;
-            bool standardCountReasonable = actualStandardCount >= 0; // At least no negative
-
-            return rpcCountCorrect && standardCountReasonable;
+                   identicalNormalBytes;
         });
     }
 
@@ -326,26 +166,6 @@ public class CoreEmulatorCompatibilityProperties
         public void HandleDcs(DcsMessage message) => DcsMessages.Add(message);
         public void HandleSgr(SgrSequence sequence) => SgrSequences.Add(sequence);
         public void HandleXtermOsc(XtermOscMessage message) => XtermOscMessages.Add(message);
-    }
-
-    /// <summary>
-    /// Test implementation of IRpcHandler for capturing RPC events.
-    /// </summary>
-    private class TestRpcHandler : IRpcHandler
-    {
-        public List<RpcMessage> ReceivedMessages { get; } = new();
-        public List<(byte[] Sequence, RpcSequenceType Type)> MalformedSequences { get; } = new();
-        public bool IsEnabled { get; set; } = true;
-
-        public void HandleRpcMessage(RpcMessage message)
-        {
-            ReceivedMessages.Add(message);
-        }
-
-        public void HandleMalformedRpcSequence(ReadOnlySpan<byte> rawSequence, RpcSequenceType sequenceType)
-        {
-            MalformedSequences.Add((rawSequence.ToArray(), sequenceType));
-        }
     }
 
     /// <summary>

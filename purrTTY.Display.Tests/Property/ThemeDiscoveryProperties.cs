@@ -84,37 +84,37 @@ public class ThemeDiscoveryProperties
     private static string CreateValidTomlContent()
     {
         return @"
-[colors.normal]
-black = '#040404'
-red = '#d84a33'
-green = '#5da602'
-yellow = '#eebb6e'
-blue = '#417ab3'
-magenta = '#e5c499'
-cyan = '#bdcfe5'
-white = '#dbded8'
-
 [colors.bright]
-black = '#685656'
-red = '#d76b42'
-green = '#99b52c'
-yellow = '#ffb670'
-blue = '#97d7ef'
-magenta = '#aa7900'
-cyan = '#bdcfe5'
-white = '#e4d5c7'
-
-[colors.primary]
-background = '#040404'
-foreground = '#feffff'
+black = '#838383'
+blue = '#0443ff'
+cyan = '#51ceff'
+green = '#b1e05f'
+magenta = '#f200f6'
+red = '#f6669d'
+white = '#ffffff'
+yellow = '#fff26d'
 
 [colors.cursor]
-cursor = '#feffff'
-text = '#000000'
+cursor = '#fb0007'
+text = '#ff8c95'
+
+[colors.normal]
+black = '#121212'
+blue = '#0443ff'
+cyan = '#01b6ed'
+green = '#98e123'
+magenta = '#f800f8'
+red = '#fa2934'
+white = '#ffffff'
+yellow = '#fff30a'
+
+[colors.primary]
+background = '#121212'
+foreground = '#f9f9f9'
 
 [colors.selection]
-background = '#606060'
-text = '#ffffff'
+background = '#ffffff'
+text = '#000000'
 ";
     }
 

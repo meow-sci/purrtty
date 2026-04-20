@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using purrTTY.Core.Rpc;
-using purrTTY.Core.Rpc.Socket;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace purrTTY.Core.Terminal;
@@ -20,8 +18,6 @@ public class SessionManager : IDisposable
     // Configuration
     private readonly int _maxSessions;
     private readonly SessionDimensionTracker _dimensionTracker;
-    private readonly IRpcHandler? _rpcHandler;
-    private readonly IOscRpcHandler? _oscRpcHandler;
 
     /// <summary>
     ///     Creates a new session manager with the specified configuration.
@@ -32,16 +28,12 @@ public class SessionManager : IDisposable
     /// <param name="oscRpcHandler">Optional OSC RPC handler for OSC-based RPC commands (null disables OSC RPC)</param>
     public SessionManager(
         int maxSessions = 20,
-        ProcessLaunchOptions? defaultLaunchOptions = null,
-        IRpcHandler? rpcHandler = null,
-        IOscRpcHandler? oscRpcHandler = null)
+        ProcessLaunchOptions? defaultLaunchOptions = null)
     {
         SessionValidator.ValidateMaxSessions(maxSessions);
 
         _maxSessions = maxSessions;
         _dimensionTracker = new SessionDimensionTracker(defaultLaunchOptions ?? ProcessLaunchOptions.CreateDefault());
-        _rpcHandler = rpcHandler;
-        _oscRpcHandler = oscRpcHandler;
     }
 
     /// <summary>
@@ -174,8 +166,6 @@ public class SessionManager : IDisposable
                 OnSessionStateChanged,
                 OnSessionTitleChanged,
                 OnSessionProcessExited,
-                _rpcHandler,
-                _oscRpcHandler,
                 cancellationToken);
 
             // Add session to manager and switch active session

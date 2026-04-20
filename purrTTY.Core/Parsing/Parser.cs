@@ -1,7 +1,6 @@
 using System.Text;
 using purrTTY.Core.Types;
 using purrTTY.Core.Tracing;
-using purrTTY.Core.Rpc;
 using purrTTY.Core.Parsing.Engine;
 using Microsoft.Extensions.Logging;
 
@@ -38,7 +37,6 @@ public class Parser
     private readonly OscStateHandler _oscStateHandler;
     private readonly DcsStateHandler _dcsStateHandler;
     private readonly ControlStringStateHandler _controlStringStateHandler;
-    private readonly RpcSequenceHandler _rpcSequenceHandler;
 
     // Parser engine
     private readonly ParserEngine _engine;
@@ -61,12 +59,6 @@ public class Parser
         _oscParser = options.OscParser ?? new OscParser(_logger, options.CursorPositionProvider);
         _sgrParser = options.SgrParser ?? new SgrParser(_logger, options.CursorPositionProvider);
 
-        // Initialize RPC sequence handler with optional RPC components
-        _rpcSequenceHandler = new RpcSequenceHandler(
-            options.RpcSequenceDetector,
-            options.RpcSequenceParser,
-            options.RpcHandler);
-
         // Initialize state handlers
         _normalStateHandler = new NormalStateHandler(
             _cursorPositionProvider,
@@ -87,8 +79,6 @@ public class Parser
             _handlers,
             HandleC0ExceptEscape,
             MaybeEmitNormalByteDuringEscapeSequence,
-            IsRpcHandlingEnabled,
-            TryHandleRpcSequence,
             ResetEscapeState);
 
         _oscStateHandler = new OscStateHandler(
@@ -416,23 +406,4 @@ public class Parser
         }
     }
 
-    /// <summary>
-    ///     Checks if RPC handling is enabled and all required components are available.
-    ///     Delegates to RpcSequenceHandler.
-    /// </summary>
-    /// <returns>True if RPC handling is enabled</returns>
-    private bool IsRpcHandlingEnabled()
-    {
-        return _rpcSequenceHandler.IsRpcHandlingEnabled();
-    }
-
-    /// <summary>
-    ///     Attempts to handle the current escape sequence as an RPC sequence.
-    ///     Delegates to RpcSequenceHandler.
-    /// </summary>
-    /// <returns>True if the sequence was handled as an RPC sequence</returns>
-    private bool TryHandleRpcSequence()
-    {
-        return _rpcSequenceHandler.TryHandleRpcSequence(_context.EscapeSequence);
-    }
 }

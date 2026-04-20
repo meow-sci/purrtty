@@ -1,5 +1,4 @@
 using purrTTY.Core.Parsing;
-using purrTTY.Core.Rpc;
 using purrTTY.Core.Terminal.ParserHandlers;
 using purrTTY.Core.Types;
 using purrTTY.Core.Tracing;
@@ -15,7 +14,6 @@ internal class TerminalParserHandlers : IParserHandlers
 {
     private readonly ILogger _logger;
     private readonly TerminalEmulator _terminal;
-    private readonly IRpcHandler? _rpcHandler;
     private readonly SgrHandler _sgrHandler;
     private readonly DcsHandler _dcsHandler;
     private readonly OscHandler _oscHandler;
@@ -29,17 +27,14 @@ internal class TerminalParserHandlers : IParserHandlers
     private readonly CsiDispatcher _csiDispatcher;
     private readonly C0Handler _c0Handler;
     private readonly EscHandler _escHandler;
-    private readonly IOscRpcHandler _oscRpcHandler;
 
-    public TerminalParserHandlers(TerminalEmulator terminal, ILogger logger, IRpcHandler? rpcHandler = null, IOscRpcHandler? oscRpcHandler = null)
+    public TerminalParserHandlers(TerminalEmulator terminal, ILogger logger)
     {
         _terminal = terminal;
         _logger = logger;
-        _rpcHandler = rpcHandler;
-        _oscRpcHandler = oscRpcHandler ?? new NullOscRpcHandler();
         _sgrHandler = new SgrHandler(terminal, logger);
         _dcsHandler = new DcsHandler(terminal, logger);
-        _oscHandler = new OscHandler(terminal, logger, _oscRpcHandler);
+        _oscHandler = new OscHandler(terminal, logger);
         _csiCursorHandler = new CsiCursorHandler(terminal, logger);
         _csiEraseHandler = new CsiEraseHandler(terminal);
         _csiScrollHandler = new CsiScrollHandler(terminal);
@@ -51,11 +46,6 @@ internal class TerminalParserHandlers : IParserHandlers
         _c0Handler = new C0Handler(terminal);
         _escHandler = new EscHandler(terminal, logger);
     }
-
-    /// <summary>
-    /// Gets whether RPC handling is currently enabled.
-    /// </summary>
-    public bool IsRpcEnabled => _rpcHandler?.IsEnabled ?? false;
 
     public void HandleBell()
     {
@@ -144,14 +134,4 @@ internal class TerminalParserHandlers : IParserHandlers
         _oscHandler.HandleXtermOsc(message);
     }
 
-}
-
-/// <summary>
-/// No-op implementation of IOscRpcHandler for when RPC is disabled.
-/// Used as default fallback when no OSC RPC handler is provided.
-/// </summary>
-internal class NullOscRpcHandler : IOscRpcHandler
-{
-    public bool IsPrivateCommand(int command) => false;
-    public void HandleCommand(int command, string? payload) { }
 }

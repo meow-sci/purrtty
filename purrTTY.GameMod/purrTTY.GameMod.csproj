@@ -35,8 +35,6 @@
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Display.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Display.pdb" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.TermSequenceRpc.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.TermSequenceRpc.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)Tomlyn.dll" DestinationFolder="$(DistDir)"/>
 
         <!-- licenses -->
@@ -64,7 +62,6 @@
     <ItemGroup>
         <ProjectReference Include="..\purrTTY.CustomShells\purrTTY.CustomShells.csproj"/>
         <ProjectReference Include="..\purrTTY.Display\purrTTY.Display.csproj"/>
-        <ProjectReference Include="..\purrTTY.TermSequenceRpc\purrTTY.TermSequenceRpc.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

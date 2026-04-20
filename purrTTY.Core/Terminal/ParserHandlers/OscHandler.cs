@@ -1,4 +1,3 @@
-using purrTTY.Core.Rpc;
 using purrTTY.Core.Types;
 using Microsoft.Extensions.Logging;
 
@@ -13,13 +12,11 @@ internal class OscHandler
 {
     private readonly ILogger _logger;
     private readonly TerminalEmulator _terminal;
-    private readonly IOscRpcHandler? _oscRpcHandler;
 
-    public OscHandler(TerminalEmulator terminal, ILogger logger, IOscRpcHandler? oscRpcHandler = null)
+    public OscHandler(TerminalEmulator terminal, ILogger logger)
     {
         _terminal = terminal;
         _logger = logger;
-        _oscRpcHandler = oscRpcHandler;
     }
 
     public void HandleOsc(OscMessage message)
@@ -103,15 +100,8 @@ internal class OscHandler
 
             default:
                 // Check if this is a private-use command (1000+) for RPC handling
-                if (_oscRpcHandler != null && message.Command >= 1000)
-                {
-                    _oscRpcHandler.HandleCommand(message.Command, message.Payload);
-                }
-                else
-                {
-                    // Log unhandled xterm OSC sequences for debugging
-                    _logger.LogDebug("Xterm OSC: {Type} - {Raw}", message.Type, message.Raw);
-                }
+                // Log unhandled xterm OSC sequences for debugging
+                _logger.LogDebug("Xterm OSC: {Type} - {Raw}", message.Type, message.Raw);
                 break;
         }
     }

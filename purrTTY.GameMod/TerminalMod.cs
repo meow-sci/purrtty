@@ -1,12 +1,8 @@
 using Brutal.ImGuiApi;
-using purrTTY.Core.Rpc;
-using purrTTY.Core.Rpc.Socket;
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Rendering;
-using purrTTY.TermSequenceRpc;
-using purrTTY.TermSequenceRpc.SocketRpc;
 using Microsoft.Extensions.Logging.Abstractions;
 using StarMap.API;
 using purrTTY.Logging;
@@ -25,7 +21,6 @@ public class TerminalMod
     private bool _isInitialized;
     private ITerminalEmulator? _terminal;
     private bool _terminalVisible;
-    private ISocketRpcServer? _socketRpcServer;
 
     /// <summary>
     ///     Shared toggle action used by both F12 keybind and the game menu bar entry.
@@ -188,38 +183,16 @@ public class TerminalMod
             PurrTTYFontManager.LoadFonts();
 
             var _outputBuffer = new List<byte[]>();
-            var (rpcHandler, oscRpcHandler, socketRpcHandler) = RpcBootstrapper.CreateAllKsaRpcHandlers(
-                NullLogger.Instance,
-                bytes => _outputBuffer.Add(bytes));
-
-            // Start singleton socket RPC server at mod level (BEFORE creating sessions)
-            try
-            {
-                _socketRpcServer = SocketRpcServerFactory.Create(socketRpcHandler, NullLogger.Instance);
-                _socketRpcServer.StartAsync().Wait();
-
-                // Register endpoint with factory for ProcessManager to query
-                SocketRpcServerFactory.RegisterEndpoint(_socketRpcServer.Endpoint);
-
-                ModLog.Log.Debug($"[purrTTY GameMod] Socket RPC server started at {_socketRpcServer.Endpoint}");
-            }
-            catch (Exception ex)
-            {
-                ModLog.Log.Debug($"[purrTTY GameMod] Failed to start socket RPC server: {ex.Message}");
-                _socketRpcServer = null;
-                SocketRpcServerFactory.ClearEndpoint();
-            }
+            
 
             // Create session manager with persisted shell configuration and RPC handlers (CSI, OSC)
             var sessionManager = SessionManagerFactory.CreateWithPersistedConfiguration(
-                maxSessions: 20,
-                rpcHandler: rpcHandler,
-                oscRpcHandler: oscRpcHandler);
+                maxSessions: 20);
             var session = sessionManager.CreateSessionAsync().Result;
 
             _terminal = session.Terminal;
 
-            ModLog.Log.Debug($"TerminalMod: rpc enabled={_terminal.IsRpcEnabled}");
+            ModLog.Log.Debug($"purrTTY online");
 
             var fontConfig = TerminalFontConfig.CreateForGameMod();
             ModLog.Log.Debug(
@@ -308,26 +281,6 @@ public class TerminalMod
 
             _terminal?.Dispose();
             _terminal = null;
-
-            // Stop and dispose singleton socket RPC server
-            if (_socketRpcServer != null)
-            {
-                try
-                {
-                    _socketRpcServer.StopAsync().Wait(1000);
-                    _socketRpcServer.Dispose();
-                    _socketRpcServer = null;
-
-                    // Clear endpoint registration
-                    SocketRpcServerFactory.ClearEndpoint();
-
-                    ModLog.Log.Debug("[purrTTY GameMod] Socket RPC server stopped");
-                }
-                catch (Exception ex)
-                {
-                    ModLog.Log.Debug($"[purrTTY GameMod] Error stopping socket RPC server: {ex.Message}");
-                }
-            }
 
             Toggle = null;
             GetIsVisible = null;

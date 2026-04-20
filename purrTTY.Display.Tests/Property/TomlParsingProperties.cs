@@ -45,37 +45,37 @@ public class TomlParsingProperties
             var selection = ValidHexColors().Generator.Sample(0, 1).First();
 
             return $@"
-[colors.normal]
-black = '{normalColors[0]}'
-red = '{normalColors[1]}'
-green = '{normalColors[2]}'
-yellow = '{normalColors[3]}'
-blue = '{normalColors[4]}'
-magenta = '{normalColors[5]}'
-cyan = '{normalColors[6]}'
-white = '{normalColors[7]}'
-
 [colors.bright]
-black = '{brightColors[0]}'
-red = '{brightColors[1]}'
-green = '{brightColors[2]}'
-yellow = '{brightColors[3]}'
-blue = '{brightColors[4]}'
-magenta = '{brightColors[5]}'
-cyan = '{brightColors[6]}'
-white = '{brightColors[7]}'
-
-[colors.primary]
-background = '{background}'
-foreground = '{foreground}'
+black = '#838383'
+blue = '#0443ff'
+cyan = '#51ceff'
+green = '#b1e05f'
+magenta = '#f200f6'
+red = '#f6669d'
+white = '#ffffff'
+yellow = '#fff26d'
 
 [colors.cursor]
-cursor = '{cursor}'
-text = '#000000'
+cursor = '#fb0007'
+text = '#ff8c95'
+
+[colors.normal]
+black = '#121212'
+blue = '#0443ff'
+cyan = '#01b6ed'
+green = '#98e123'
+magenta = '#f800f8'
+red = '#fa2934'
+white = '#ffffff'
+yellow = '#fff30a'
+
+[colors.primary]
+background = '#121212'
+foreground = '#f9f9f9'
 
 [colors.selection]
-background = '{selection}'
-text = '#ffffff'
+background = '#ffffff'
+text = '#000000'
 ";
         }).ToArbitrary();
     }
@@ -90,37 +90,37 @@ text = '#ffffff'
             var missingSection = Gen.Elements("colors.normal", "colors.bright", "colors.primary", "colors.cursor", "colors.selection").Sample(0, 1).First();
 
             var baseContent = @"
-[colors.normal]
-black = '#040404'
-red = '#d84a33'
-green = '#5da602'
-yellow = '#eebb6e'
-blue = '#417ab3'
-magenta = '#e5c499'
-cyan = '#bdcfe5'
-white = '#dbded8'
-
 [colors.bright]
-black = '#685656'
-red = '#d76b42'
-green = '#99b52c'
-yellow = '#ffb670'
-blue = '#97d7ef'
-magenta = '#aa7900'
-cyan = '#bdcfe5'
-white = '#e4d5c7'
-
-[colors.primary]
-background = '#040404'
-foreground = '#feffff'
+black = '#838383'
+blue = '#0443ff'
+cyan = '#51ceff'
+green = '#b1e05f'
+magenta = '#f200f6'
+red = '#f6669d'
+white = '#ffffff'
+yellow = '#fff26d'
 
 [colors.cursor]
-cursor = '#feffff'
-text = '#000000'
+cursor = '#fb0007'
+text = '#ff8c95'
+
+[colors.normal]
+black = '#121212'
+blue = '#0443ff'
+cyan = '#01b6ed'
+green = '#98e123'
+magenta = '#f800f8'
+red = '#fa2934'
+white = '#ffffff'
+yellow = '#fff30a'
+
+[colors.primary]
+background = '#121212'
+foreground = '#f9f9f9'
 
 [colors.selection]
-background = '#606060'
-text = '#ffffff'
+background = '#ffffff'
+text = '#000000'
 ";
 
             // Remove the specified section

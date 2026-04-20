@@ -17,8 +17,6 @@ public class CsiStateHandler
     private readonly IParserHandlers _handlers;
     private readonly Func<byte, bool> _handleC0ExceptEscape;
     private readonly Action<byte> _maybeEmitNormalByteDuringEscapeSequence;
-    private readonly Func<bool> _isRpcHandlingEnabled;
-    private readonly Func<bool> _tryHandleRpcSequence;
     private readonly Action _resetEscapeState;
 
     /// <summary>
@@ -31,8 +29,6 @@ public class CsiStateHandler
     /// <param name="handlers">Parser handlers for dispatching parsed sequences</param>
     /// <param name="handleC0ExceptEscape">Delegate to handle C0 control characters (except ESC), returns true if handled</param>
     /// <param name="maybeEmitNormalByteDuringEscapeSequence">Delegate to optionally emit normal bytes during escape sequences</param>
-    /// <param name="isRpcHandlingEnabled">Delegate to check if RPC handling is enabled</param>
-    /// <param name="tryHandleRpcSequence">Delegate to try handling RPC sequences</param>
     /// <param name="resetEscapeState">Delegate to reset the escape state</param>
     public CsiStateHandler(
         ILogger logger,
@@ -42,8 +38,6 @@ public class CsiStateHandler
         IParserHandlers handlers,
         Func<byte, bool> handleC0ExceptEscape,
         Action<byte> maybeEmitNormalByteDuringEscapeSequence,
-        Func<bool> isRpcHandlingEnabled,
-        Func<bool> tryHandleRpcSequence,
         Action resetEscapeState)
     {
         _logger = logger;
@@ -53,8 +47,6 @@ public class CsiStateHandler
         _handlers = handlers;
         _handleC0ExceptEscape = handleC0ExceptEscape;
         _maybeEmitNormalByteDuringEscapeSequence = maybeEmitNormalByteDuringEscapeSequence;
-        _isRpcHandlingEnabled = isRpcHandlingEnabled;
-        _tryHandleRpcSequence = tryHandleRpcSequence;
         _resetEscapeState = resetEscapeState;
     }
 
@@ -103,13 +95,6 @@ public class CsiStateHandler
     {
         string raw = BytesToString(context.EscapeSequence);
         byte finalByte = context.EscapeSequence[^1];
-
-        // Check for RPC sequences first (ESC [ > format) if RPC handling is enabled
-        if (_isRpcHandlingEnabled() && _tryHandleRpcSequence())
-        {
-            _resetEscapeState();
-            return;
-        }
 
         // CSI SGR: parse using the dedicated SGR parser
         if (finalByte == 0x6d) // 'm'

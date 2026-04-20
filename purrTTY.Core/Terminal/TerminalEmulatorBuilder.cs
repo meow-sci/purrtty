@@ -2,7 +2,6 @@ using purrTTY.Core.Parsing;
 using purrTTY.Core.Types;
 using purrTTY.Core.Managers;
 using purrTTY.Core.Tracing;
-using purrTTY.Core.Rpc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,7 +17,7 @@ internal static class TerminalEmulatorBuilder
     ///     Builds and returns a fully initialized TerminalEmulator.
     ///     This method contains all the initialization logic previously in the constructor.
     /// </summary>
-    public static TerminalEmulator Build(int width, int height, int scrollbackLines, ILogger? logger, IRpcHandler? rpcHandler, IOscRpcHandler? oscRpcHandler = null)
+    public static TerminalEmulator Build(int width, int height, int scrollbackLines, ILogger? logger)
     {
         if (width < 1 || width > 1000)
         {
@@ -79,7 +78,7 @@ internal static class TerminalEmulatorBuilder
         var (charsetDesignationOps, charsetTranslationOps, lineFeedOps, indexOps, carriageReturnOps, bellOps, backspaceOps, tabOps, responseOps, inputOps, resetOps) = BuildMiscOps(emulator, cursorManager, screenBufferManager, attributeManager, modeManager, characterSetManager, state, screenBuffer, cursor, effectiveLogger);
 
         // Initialize parser with terminal handlers and optional RPC components
-        var handlers = new TerminalParserHandlers(emulator, effectiveLogger, rpcHandler, oscRpcHandler);
+        var handlers = new TerminalParserHandlers(emulator, effectiveLogger);
         var parserOptions = new ParserOptions
         {
             Handlers = handlers,
@@ -88,25 +87,6 @@ internal static class TerminalEmulatorBuilder
             ProcessC0ControlsDuringEscapeSequence = true,
             CursorPositionProvider = emulator
         };
-
-        // Wire RPC components if RPC handler is provided
-        if (rpcHandler != null)
-        {
-            // Create RPC components for integration
-            // Note: These would typically be injected, but for clean integration we create them here
-            var rpcSequenceDetector = new RpcSequenceDetector();
-            var rpcSequenceParser = new RpcSequenceParser();
-
-            parserOptions.RpcSequenceDetector = rpcSequenceDetector;
-            parserOptions.RpcSequenceParser = rpcSequenceParser;
-            parserOptions.RpcHandler = rpcHandler;
-
-            effectiveLogger.LogDebug("RPC functionality enabled for terminal emulator");
-        }
-        else
-        {
-            effectiveLogger.LogDebug("RPC functionality disabled - no RPC handler provided");
-        }
 
         var parser = new Parser(parserOptions);
 
@@ -163,7 +143,6 @@ internal static class TerminalEmulatorBuilder
             inputOps,
             resetOps,
             parser,
-            rpcHandler,
             effectiveLogger
         );
 

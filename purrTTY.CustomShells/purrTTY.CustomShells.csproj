@@ -23,6 +23,10 @@
       <HintPath>$(KSAFolder)/Brutal.ImGui.Abstractions.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+      <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Brutal.ImGui" Condition="Exists('$(KSAFolder)/Brutal.ImGui.dll')">
       <HintPath>$(KSAFolder)/Brutal.ImGui.dll</HintPath>
       <Private>false</Private>

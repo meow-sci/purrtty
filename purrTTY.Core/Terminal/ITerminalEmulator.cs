@@ -14,12 +14,6 @@ public interface ITerminalEmulator : IDisposable
     /// </summary>
     int Width { get; }
 
-
-    /// <summary>
-    ///     Gets whether RPC functionality is enabled for this terminal emulator.
-    /// </summary>
-    bool IsRpcEnabled { get; }
-
     /// <summary>
     ///     Gets the height of the terminal in rows.
     /// </summary>

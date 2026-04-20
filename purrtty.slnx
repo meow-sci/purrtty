@@ -15,7 +15,5 @@
     <Project Path="purrTTY.Display.Playground/purrTTY.Display.Playground.csproj" />
     <Project Path="purrTTY.Display.Tests/purrTTY.Display.Tests.csproj" />
     <Project Path="purrTTY.Display/purrTTY.Display.csproj" />
-    <Project Path="purrTTY.TermSequenceRpc.Tests/purrTTY.TermSequenceRpc.Tests.csproj" />
-    <Project Path="purrTTY.TermSequenceRpc/purrTTY.TermSequenceRpc.csproj" />
     <Project Path="purrTTY.TestApp/purrTTY.TestApp.csproj" />
 </Solution>
