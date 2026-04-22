@@ -24,18 +24,19 @@
         <Copy SourceFiles="$(TargetDir)mod.toml" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetDir)mod.toml')"/>
         <Copy SourceFiles="$(ProjectDepsFilePath)" DestinationFolder="$(DistDir)" Condition="Exists('$(ProjectDepsFilePath)')"/>
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetPath)')"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.GameMod.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Logging.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.Logging.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Core.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.Core.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.pdb" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Display.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.Display.pdb" DestinationFolder="$(DistDir)"/>
+        <Copy SourceFiles="$(TargetDir)ModMenu.Attributes.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)Tomlyn.dll" DestinationFolder="$(DistDir)"/>
+        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.GameMod.pdb" DestinationFolder="$(DistDir)"/> -->
+        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Logging.pdb" DestinationFolder="$(DistDir)"/> -->
+        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Core.pdb" DestinationFolder="$(DistDir)"/> -->
+        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.pdb" DestinationFolder="$(DistDir)"/> -->
+        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.pdb" DestinationFolder="$(DistDir)"/> -->
+        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Display.pdb" DestinationFolder="$(DistDir)"/> -->
 
         <!-- licenses -->
         <Copy SourceFiles="$(MSBuildThisFileDirectory)..\LICENSE" DestinationFolder="$(DistDir)"/>
@@ -75,6 +76,10 @@
         <None Update="TerminalThemes\**\*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="ModMenu.Attributes" Version="1.0.1" />
     </ItemGroup>
 
     <ItemGroup>
