@@ -30,6 +30,8 @@ internal static class Patcher
 [HarmonyPatch(typeof(KSA.Program), "DrawMenuBar")]
 static class Patch02
 {
+  private static bool? s_isModMenuEnabled;
+
     [HarmonyTranspiler]
     public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
     {
@@ -58,15 +60,23 @@ static class Patch02
         return codes;
     }
 
+  private static bool IsModMenuEnabled()
+  {
+    return s_isModMenuEnabled ??= ModLibrary.Find("ModMenu") is not null;
+  }
+
     private static void DrawPurrTtyMenu(Viewport viewport)
     {
+    if (IsModMenuEnabled())
+    {
+      return;
+    }
+
         if (ImGui.BeginMenu("purrTTY"))
         {
             viewport.MenuBarInUse = true;
 
-            bool isVisible = TerminalMod.GetIsVisible?.Invoke() ?? false;
-            if (ImGui.MenuItem("Toggle Terminal", "F12", isVisible))
-                TerminalMod.Toggle?.Invoke();
+      TerminalMod.DrawToggleMenuItem();
 
             ImGui.EndMenu();
         }

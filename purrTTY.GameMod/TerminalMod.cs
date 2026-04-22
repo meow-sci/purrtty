@@ -6,6 +6,7 @@ using purrTTY.Display.Rendering;
 using Microsoft.Extensions.Logging.Abstractions;
 using StarMap.API;
 using purrTTY.Logging;
+using ModMenu;
 
 namespace purrTTY.GameMod;
 
@@ -32,11 +33,29 @@ public class TerminalMod
     /// </summary>
     internal static Func<bool>? GetIsVisible;
 
-
     /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
     /// </summary>
     public bool ImmediateUnload => false;
+
+    [ModMenuEntry("purrTTY")]
+    public static void DrawMenu()
+    {
+        DrawToggleMenuItem();
+    }
+
+    /// <summary>
+    ///     Draws the shared menu item used by both ModMenu and the fallback injected menu.
+    /// </summary>
+    internal static void DrawToggleMenuItem()
+    {
+        var isVisible = GetIsVisible?.Invoke() ?? false;
+        if (ImGui.MenuItem("Toggle Terminal", "F12", isVisible))
+        {
+            Toggle?.Invoke();
+        }
+    }
+
 
     /// <summary>
     ///     Called after the GUI is rendered.
