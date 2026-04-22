@@ -1,0 +1,8 @@
+.claude/
+purrTTY.Core.Tests/
+purrTTY.Display.Playground/
+purrTTY.Display.Tests/
+purrTTY.Display.TestApp/
+purrTTY.Display.TestGameMod/
+purrTTY.Display.TestGameMod.Display/
+scripts/

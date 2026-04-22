@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>purrTTY.CustomShells</RootNamespace>
+    <AssemblyName>purrTTY.CustomShells</AssemblyName>
+    <Description>KSA-specific custom shell implementations for purrTTY terminal emulator</Description>
+    <PackageId>purrTTY.CustomShells</PackageId>
+    <OutputType>Library</OutputType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\purrTTY.CustomShellContract\purrTTY.CustomShellContract.csproj" />
+    <ProjectReference Include="..\purrTTY.Display\purrTTY.Display.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- KSA game DLLs for Harmony coordination and ConsoleWindow types -->
+    <Reference Include="Brutal.ImGui.Abstractions" Condition="Exists('$(KSAFolder)/Brutal.ImGui.Abstractions.dll')">
+      <HintPath>$(KSAFolder)/Brutal.ImGui.Abstractions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+      <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Brutal.ImGui" Condition="Exists('$(KSAFolder)/Brutal.ImGui.dll')">
+      <HintPath>$(KSAFolder)/Brutal.ImGui.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+      <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>purrTTY.CustomShells.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>purrTTY.GameMod</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>

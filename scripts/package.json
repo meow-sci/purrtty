@@ -1,37 +1,14 @@
 {
-  "name": "rpc-client-scripts",
-  "version": "1.0.0",
-  "description": "Terminal Sequence RPC Client Application and Utilities",
-  "private": true,
+  "name": "scripts",
+  "module": "index.ts",
   "type": "module",
-  "main": "dist/rpc-client.js",
-  "bin": {
-    "rpc-client": "./dist/rpc-client.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "build:watch": "tsc --watch",
-    "start": "node dist/rpc-client.js",
-    "dev": "npm run build && npm run start",
-    "test": "bun test",
-    "clean": "rm -rf dist",
-    "demo": "node dist/rpc-demo.js"
-  },
+  "private": true,
   "devDependencies": {
+    "@xmldom/xmldom": "0.8.11",
     "@types/bun": "1.3.5",
-    "@types/node": "^20.0.0"
+    "yaml": "2.8.2"
   },
   "peerDependencies": {
     "typescript": "5.9.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [
-    "terminal",
-    "rpc",
-    "escape-sequences",
-    "cli",
-    "client"
-  ]
+  }
 }

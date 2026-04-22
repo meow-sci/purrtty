@@ -1,0 +1,19 @@
+<Solution>
+    <Configurations>
+        <Platform Name="Any CPU" />
+        <Platform Name="x64" />
+        <Platform Name="x86" />
+    </Configurations>
+    <Project Path="purrTTY.Logging/purrTTY.Logging.csproj" />
+    <Project Path="purrTTY.Core/purrTTY.Core.csproj" />
+    <Project Path="purrTTY.Core.Tests/purrTTY.Core.Tests.csproj" />
+    <Project Path="purrTTY.CustomShellContract.Tests/purrTTY.CustomShellContract.Tests.csproj" />
+    <Project Path="purrTTY.CustomShellContract/purrTTY.CustomShellContract.csproj" />
+    <Project Path="purrTTY.CustomShells.Tests/purrTTY.CustomShells.Tests.csproj" />
+    <Project Path="purrTTY.GameMod/purrTTY.GameMod.csproj" />
+    <Project Path="purrTTY.CustomShells/purrTTY.CustomShells.csproj" />
+    <Project Path="purrTTY.Display.Playground/purrTTY.Display.Playground.csproj" />
+    <Project Path="purrTTY.Display.Tests/purrTTY.Display.Tests.csproj" />
+    <Project Path="purrTTY.Display/purrTTY.Display.csproj" />
+    <Project Path="purrTTY.TestApp/purrTTY.TestApp.csproj" />
+</Solution>

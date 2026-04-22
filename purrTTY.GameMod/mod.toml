@@ -1,0 +1,7 @@
+name = "purrTTY"
+description = "A terminal emulator for KSA with mostly VT100/xterm compatibility"
+version = "0.1.0"
+author = "purrTTY Project"
+
+[StarMap]
+EntryAssembly = "purrTTY.GameMod"
