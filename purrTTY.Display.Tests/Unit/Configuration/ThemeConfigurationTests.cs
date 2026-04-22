@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text.Json;
 using purrTTY.Display.Configuration;
 using NUnit.Framework;
 
@@ -55,7 +54,7 @@ public class ThemeConfigurationTests
         {
             var docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             var productionConfigDirectory = Path.Combine(docsPath, "My Games", "Kitten Space Agency", ".purrTTY");
-            var productionConfigFile = Path.Combine(productionConfigDirectory, "theme-config.json");
+            var productionConfigFile = Path.Combine(productionConfigDirectory, "purrtty.toml");
 
             if (File.Exists(productionConfigFile))
             {
@@ -77,7 +76,7 @@ public class ThemeConfigurationTests
         {
             var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             var configDirectory = Path.Combine(appDataPath, ".purrTTY");
-            var configFile = Path.Combine(configDirectory, "theme-config.json");
+            var configFile = Path.Combine(configDirectory, "purrtty.toml");
 
             if (File.Exists(configFile))
             {
@@ -148,19 +147,19 @@ public class ThemeConfigurationTests
             ThemeConfiguration.OverrideConfigDirectory = tempDir;
 
             var configDirectory = Path.Combine(tempDir, ".purrTTY");
-            var configFile = Path.Combine(configDirectory, "theme-config.json");
+            var configFile = Path.Combine(configDirectory, "purrtty.toml");
 
             // Ensure directory exists
             Directory.CreateDirectory(configDirectory);
 
-            // Write invalid JSON
-            var invalidJsonContent = "{ invalid json content }";
-            File.WriteAllText(configFile, invalidJsonContent);
+            // Write invalid TOML
+            var invalidTomlContent = "SelectedThemeName = ";
+            File.WriteAllText(configFile, invalidTomlContent);
 
             // Load configuration
             var config = ThemeConfiguration.Load();
 
-            // Should return default configuration despite invalid JSON
+            // Should return default configuration despite invalid TOML
             Assert.That(config, Is.Not.Null);
             Assert.That(config.SelectedThemeName, Is.Null);
             Assert.That(config.BackgroundOpacity, Is.EqualTo(1.0f));
@@ -178,11 +177,11 @@ public class ThemeConfigurationTests
     }
 
     /// <summary>
-    /// Test configuration file with malformed JSON structure.
+    /// Test configuration file with malformed TOML structure.
     /// Requirements: 6.2, 6.3
     /// </summary>
     [Test]
-    public void Load_WhenConfigurationFileHasMalformedJson_ShouldReturnDefaultConfiguration()
+    public void Load_WhenConfigurationFileHasMalformedToml_ShouldReturnDefaultConfiguration()
     {
         // Use a temporary directory to isolate test from real config files
         var tempDir = Path.Combine(Path.GetTempPath(), $"purrTTY_test_{Guid.NewGuid():N}");
@@ -194,35 +193,35 @@ public class ThemeConfigurationTests
             ThemeConfiguration.OverrideConfigDirectory = tempDir;
 
             var configDirectory = Path.Combine(tempDir, ".purrTTY");
-            var configFile = Path.Combine(configDirectory, "theme-config.json");
+            var configFile = Path.Combine(configDirectory, "purrtty.toml");
 
             Directory.CreateDirectory(configDirectory);
 
-            // Test various malformed JSON scenarios
-            var malformedJsonCases = new[]
+            // Test various malformed TOML scenarios
+            var malformedTomlCases = new[]
             {
-                "{ \"SelectedThemeName\": \"Test\", }", // Trailing comma
-                "{ \"SelectedThemeName\": \"Test\" \"BackgroundOpacity\": 0.5 }", // Missing comma
-                "{ \"SelectedThemeName\": }", // Missing value
-                "{ \"BackgroundOpacity\": \"not_a_number\" }", // Wrong type
-                "{ \"ForegroundOpacity\": \"not_a_number\" }", // Wrong type
-                "{ \"UnknownProperty\": \"value\" }", // Unknown property only
+                "SelectedThemeName = \"Test\"\nBackgroundOpacity =", // Missing value
+                "SelectedThemeName = \"Test\"\nBackgroundOpacity = [", // Unterminated array
+                "BackgroundOpacity = \"not_a_number\"", // Wrong type
+                "ForegroundOpacity = \"not_a_number\"", // Wrong type
+                "UnknownProperty = \"value\"", // Unknown property only
                 "", // Empty file
-                "null", // Null JSON
-                "[]", // Array instead of object
+                "null", // Invalid TOML
+                "[]", // Invalid TOML root
+                "SelectedThemeName \"Test\"" // Missing equals sign
             };
 
-            foreach (var malformedJson in malformedJsonCases)
+            foreach (var malformedToml in malformedTomlCases)
             {
-                File.WriteAllText(configFile, malformedJson);
+                File.WriteAllText(configFile, malformedToml);
 
                 var config = ThemeConfiguration.Load();
 
                 // Should always return a valid default configuration
-                Assert.That(config, Is.Not.Null, $"Failed for JSON: {malformedJson}");
-                Assert.That(config.SelectedThemeName, Is.Null, $"Failed for JSON: {malformedJson}");
-                Assert.That(config.BackgroundOpacity, Is.EqualTo(1.0f), $"Failed for JSON: {malformedJson}");
-                Assert.That(config.ForegroundOpacity, Is.EqualTo(1.0f), $"Failed for JSON: {malformedJson}");
+                Assert.That(config, Is.Not.Null, $"Failed for TOML: {malformedToml}");
+                Assert.That(config.SelectedThemeName, Is.Null, $"Failed for TOML: {malformedToml}");
+                Assert.That(config.BackgroundOpacity, Is.EqualTo(1.0f), $"Failed for TOML: {malformedToml}");
+                Assert.That(config.ForegroundOpacity, Is.EqualTo(1.0f), $"Failed for TOML: {malformedToml}");
             }
         }
         finally
@@ -255,7 +254,7 @@ public class ThemeConfigurationTests
         var appDataPath = Path.GetTempPath();
         ThemeConfiguration.OverrideConfigDirectory = appDataPath;
         var configDirectory = Path.Combine(appDataPath, ".purrTTY");
-        var configFile = Path.Combine(configDirectory, "theme-config.json");
+        var configFile = Path.Combine(configDirectory, "purrtty.toml");
 
         if (Directory.Exists(configDirectory))
         {
@@ -310,7 +309,7 @@ public class ThemeConfigurationTests
             ForegroundOpacity = 0.75f
         };
 
-        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
 
         try
         {
@@ -352,7 +351,7 @@ public class ThemeConfigurationTests
             ForegroundOpacity = 0.6f
         };
 
-        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
 
         try
         {
@@ -386,7 +385,7 @@ public class ThemeConfigurationTests
         ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
 
         var edgeCases = new[] { 0.0f, 1.0f, 0.001f, 0.999f };
-        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
+    var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
 
         try
         {
@@ -433,7 +432,7 @@ public class ThemeConfigurationTests
 
         var productionDocsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         var productionConfigDirectory = Path.Combine(productionDocsPath, "My Games", "Kitten Space Agency", ".purrTTY");
-        var productionConfigFile = Path.Combine(productionConfigDirectory, "theme-config.json");
+        var productionConfigFile = Path.Combine(productionConfigDirectory, "purrtty.toml");
 
         // Record the modification time of the production file before the test (if it exists)
         DateTime? productionFileModTimeBeforeTest = null;
@@ -455,7 +454,7 @@ public class ThemeConfigurationTests
             config.Save();
 
             // Assert - Verify file was saved to temp directory, not production path
-            var tempConfigFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
+            var tempConfigFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
 
             Assert.That(File.Exists(tempConfigFile), Is.True,
                 "Configuration should be saved to temp directory when override is set");
@@ -481,7 +480,7 @@ public class ThemeConfigurationTests
             ThemeConfiguration.OverrideConfigDirectory = originalOverride;
 
             // Verify temp directory is cleaned up after test
-            var tempConfigFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "theme-config.json");
+            var tempConfigFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
             if (File.Exists(tempConfigFile))
             {
                 File.Delete(tempConfigFile);

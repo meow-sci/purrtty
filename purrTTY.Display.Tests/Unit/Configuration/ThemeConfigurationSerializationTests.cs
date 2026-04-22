@@ -1,17 +1,25 @@
 using NUnit.Framework;
-using System.Text.Json;
 using purrTTY.Display.Configuration;
 using purrTTY.Core.Terminal;
+using Tomlyn;
+using Tomlyn.Serialization;
 
 namespace purrTTY.Display.Tests.Unit.Configuration;
 
 /// <summary>
-/// Tests for ThemeConfiguration JSON serialization, particularly shell type string representation.
+/// Tests for ThemeConfiguration TOML serialization, particularly shell type string representation.
 /// </summary>
 [TestFixture]
 [Category("Unit")]
 public class ThemeConfigurationSerializationTests
 {
+    private static readonly TomlSerializerOptions TomlOptions = new()
+    {
+        WriteIndented = true,
+        IndentSize = 2,
+        DefaultIgnoreCondition = TomlIgnoreCondition.WhenWritingNull
+    };
+
     [Test]
     public void Serialize_WithDifferentShellTypes_ShouldUseStringRepresentation()
     {
@@ -38,11 +46,11 @@ public class ThemeConfigurationSerializationTests
             };
 
             // Act
-            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            var toml = TomlSerializer.Serialize(config, TomlOptions);
 
             // Assert
-            Assert.That(json, Contains.Substring($"\"DefaultShellType\": \"{shellType}\""));
-            Assert.That(json, Does.Not.Contain("\"DefaultShellType\": " + ((int)shellType).ToString()));
+            Assert.That(toml, Contains.Substring($"DefaultShellType = \"{shellType}\""));
+            Assert.That(toml, Does.Not.Contain($"DefaultShellType = {(int)shellType}"));
         }
     }
 
@@ -63,18 +71,16 @@ public class ThemeConfigurationSerializationTests
         foreach (var (shellTypeString, expectedEnum) in testCases)
         {
             // Arrange
-            var json = $@"{{
-                ""SelectedThemeName"": ""TestTheme"",
-                ""BackgroundOpacity"": 0.8,
-                ""ForegroundOpacity"": 0.9,
-                ""DefaultShellType"": ""{shellTypeString}"",
-                ""CustomShellPath"": null,
-                ""DefaultShellArguments"": [],
-                ""WslDistribution"": null
-            }}";
+            var toml = $$"""
+            SelectedThemeName = "TestTheme"
+            BackgroundOpacity = 0.8
+            ForegroundOpacity = 0.9
+            DefaultShellType = "{{shellTypeString}}"
+            DefaultShellArguments = []
+            """;
 
             // Act
-            var config = JsonSerializer.Deserialize<ThemeConfiguration>(json);
+            var config = TomlSerializer.Deserialize<ThemeConfiguration>(toml, TomlOptions);
 
             // Assert
             Assert.That(config, Is.Not.Null);
@@ -85,83 +91,21 @@ public class ThemeConfigurationSerializationTests
     [Test]
     public void Deserialize_WithUnknownShellType_ShouldFallbackToWsl()
     {
-        // Arrange - JSON with unknown shell type (e.g., from future version)
-        var json = @"{
-            ""SelectedThemeName"": ""TestTheme"",
-            ""BackgroundOpacity"": 0.8,
-            ""ForegroundOpacity"": 0.9,
-            ""DefaultShellType"": ""FutureShellType"",
-            ""CustomShellPath"": null,
-            ""DefaultShellArguments"": [],
-            ""WslDistribution"": null
-        }";
+        // Arrange - TOML with unknown shell type (e.g., from future version)
+        var toml = """
+        SelectedThemeName = "TestTheme"
+        BackgroundOpacity = 0.8
+        ForegroundOpacity = 0.9
+        DefaultShellType = "FutureShellType"
+        DefaultShellArguments = []
+        """;
 
         // Act
-        var config = JsonSerializer.Deserialize<ThemeConfiguration>(json);
+        var config = TomlSerializer.Deserialize<ThemeConfiguration>(toml, TomlOptions);
 
         // Assert
         Assert.That(config, Is.Not.Null);
         Assert.That(config!.DefaultShellType, Is.EqualTo(ShellType.Wsl));
-        
-    }
-
-    [Test]
-    public void Deserialize_WithNumericShellType_ShouldConvertCorrectly()
-    {
-        // Test multiple numeric values to ensure backward compatibility
-        var testCases = new[]
-        {
-            (0, ShellType.Auto),
-            (1, ShellType.PowerShell),
-            (2, ShellType.Wsl),
-            (3, ShellType.PowerShellCore),
-            (4, ShellType.Cmd),
-            (5, ShellType.Custom)
-        };
-
-        foreach (var (numericValue, expectedEnum) in testCases)
-        {
-            // Arrange - JSON with old numeric format
-            var json = $@"{{
-                ""SelectedThemeName"": ""TestTheme"",
-                ""BackgroundOpacity"": 0.8,
-                ""ForegroundOpacity"": 0.9,
-                ""DefaultShellType"": {numericValue},
-                ""CustomShellPath"": null,
-                ""DefaultShellArguments"": [],
-                ""WslDistribution"": null
-            }}";
-
-            // Act
-            var config = JsonSerializer.Deserialize<ThemeConfiguration>(json);
-
-            // Assert
-            Assert.That(config, Is.Not.Null);
-            Assert.That(config!.DefaultShellType, Is.EqualTo(expectedEnum));            
-        }
-    }
-
-    [Test]
-    public void Deserialize_WithInvalidNumericShellType_ShouldFallbackToWsl()
-    {
-        // Arrange - JSON with invalid numeric value (e.g., 999)
-        var json = @"{
-            ""SelectedThemeName"": ""TestTheme"",
-            ""BackgroundOpacity"": 0.8,
-            ""ForegroundOpacity"": 0.9,
-            ""DefaultShellType"": 999,
-            ""CustomShellPath"": null,
-            ""DefaultShellArguments"": [],
-            ""WslDistribution"": null
-        }";
-
-        // Act
-        var config = JsonSerializer.Deserialize<ThemeConfiguration>(json);
-
-        // Assert
-        Assert.That(config, Is.Not.Null);
-        Assert.That(config!.DefaultShellType, Is.EqualTo(ShellType.Wsl));
-        
     }
 
     [Test]
@@ -179,8 +123,8 @@ public class ThemeConfigurationSerializationTests
         };
 
         // Act
-        var json = JsonSerializer.Serialize(originalConfig, new JsonSerializerOptions { WriteIndented = true });
-        var deserializedConfig = JsonSerializer.Deserialize<ThemeConfiguration>(json);
+        var toml = TomlSerializer.Serialize(originalConfig, TomlOptions);
+        var deserializedConfig = TomlSerializer.Deserialize<ThemeConfiguration>(toml, TomlOptions);
 
         // Assert
         Assert.That(deserializedConfig, Is.Not.Null);
@@ -194,7 +138,7 @@ public class ThemeConfigurationSerializationTests
     }
 
     [Test]
-    public void Serialize_ShouldProduceReadableJson()
+    public void Serialize_ShouldProduceReadableToml()
     {
         // Arrange
         var config = new ThemeConfiguration
@@ -208,11 +152,11 @@ public class ThemeConfigurationSerializationTests
         };
 
         // Act
-        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+        var toml = TomlSerializer.Serialize(config, TomlOptions);
 
         // Verify it contains human-readable shell type
-        Assert.That(json, Contains.Substring("\"DefaultShellType\": \"PowerShellCore\""));
-        Assert.That(json, Contains.Substring("\"SelectedThemeName\": \"MonokaiPro\""));
-        Assert.That(json, Contains.Substring("\"WslDistribution\": \"Debian\""));
+        Assert.That(toml, Contains.Substring("DefaultShellType = \"PowerShellCore\""));
+        Assert.That(toml, Contains.Substring("SelectedThemeName = \"MonokaiPro\""));
+        Assert.That(toml, Contains.Substring("WslDistribution = \"Debian\""));
     }
 }

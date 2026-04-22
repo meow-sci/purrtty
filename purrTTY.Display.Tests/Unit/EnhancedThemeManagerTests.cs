@@ -18,25 +18,25 @@ public class EnhancedThemeManagerTests
         // Arrange & Act
         var defaultTheme = ThemeManager.DefaultTheme;
 
-        // Assert - Verify Adventure.toml colors are used
+        // Assert - Verify the built-in Adventure-derived colors are used
         Assert.That(defaultTheme.Name, Is.EqualTo("Default"));
         Assert.That(defaultTheme.Type, Is.EqualTo(ThemeType.Dark));
         
-        // Check some key Adventure.toml colors (converted from hex)
-        // Background should be #040404
-        Assert.That(defaultTheme.Colors.Background.X, Is.EqualTo(4f/255f).Within(0.01f));
-        Assert.That(defaultTheme.Colors.Background.Y, Is.EqualTo(4f/255f).Within(0.01f));
-        Assert.That(defaultTheme.Colors.Background.Z, Is.EqualTo(4f/255f).Within(0.01f));
+        // Check some key built-in default theme colors (converted from hex)
+        // Background should be #121212
+        Assert.That(defaultTheme.Colors.Background.X, Is.EqualTo(18f / 255f).Within(0.01f));
+        Assert.That(defaultTheme.Colors.Background.Y, Is.EqualTo(18f / 255f).Within(0.01f));
+        Assert.That(defaultTheme.Colors.Background.Z, Is.EqualTo(18f / 255f).Within(0.01f));
         
-        // Foreground should be #feffff
-        Assert.That(defaultTheme.Colors.Foreground.X, Is.EqualTo(254f/255f).Within(0.01f));
-        Assert.That(defaultTheme.Colors.Foreground.Y, Is.EqualTo(255f/255f).Within(0.01f));
-        Assert.That(defaultTheme.Colors.Foreground.Z, Is.EqualTo(255f/255f).Within(0.01f));
+        // Foreground should be #f9f9f9
+        Assert.That(defaultTheme.Colors.Foreground.X, Is.EqualTo(249f / 255f).Within(0.01f));
+        Assert.That(defaultTheme.Colors.Foreground.Y, Is.EqualTo(249f / 255f).Within(0.01f));
+        Assert.That(defaultTheme.Colors.Foreground.Z, Is.EqualTo(249f / 255f).Within(0.01f));
         
-        // Red should be #d84a33
-        Assert.That(defaultTheme.Colors.Red.X, Is.EqualTo(216f/255f).Within(0.01f));
-        Assert.That(defaultTheme.Colors.Red.Y, Is.EqualTo(74f/255f).Within(0.01f));
-        Assert.That(defaultTheme.Colors.Red.Z, Is.EqualTo(51f/255f).Within(0.01f));
+        // Red should be #fa2934
+        Assert.That(defaultTheme.Colors.Red.X, Is.EqualTo(250f / 255f).Within(0.01f));
+        Assert.That(defaultTheme.Colors.Red.Y, Is.EqualTo(41f / 255f).Within(0.01f));
+        Assert.That(defaultTheme.Colors.Red.Z, Is.EqualTo(52f / 255f).Within(0.01f));
     }
 
     [Test]

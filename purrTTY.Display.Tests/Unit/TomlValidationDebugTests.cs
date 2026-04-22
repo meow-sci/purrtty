@@ -28,16 +28,8 @@ black = '#040404'
         // Act
         try
         {
-            // Use Tomlyn's TryToModel for graceful error handling
-            if (!Toml.TryToModel<TomlTable>(tomlContent, out var tomlTable, out var diagnostics))
-            {
-                // Console.WriteLine("TOML parsing failed:");
-                foreach (var diagnostic in diagnostics)
-                {
-                    // Console.WriteLine($"  {diagnostic}");
-                }
-                return;
-            }
+            var tomlTable = TomlSerializer.Deserialize<TomlTable>(tomlContent);
+            Assert.That(tomlTable, Is.Not.Null);
             
             // Console.WriteLine($"Root table keys: {string.Join(", ", tomlTable.Keys)}");
             

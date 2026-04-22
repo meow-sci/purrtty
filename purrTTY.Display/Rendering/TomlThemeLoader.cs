@@ -82,14 +82,9 @@ public static class TomlThemeLoader
 
   
             var tomlContent = File.ReadAllText(filePath);
-            
-            // Use TryToModel for graceful error handling with Tomlyn
-            if (!Toml.TryToModel<TomlTable>(tomlContent, out var tomlTable, out var diagnostics))
+            var tomlTable = TomlSerializer.Deserialize<TomlTable>(tomlContent);
+            if (tomlTable is null)
             {
-                foreach (var diagnostic in diagnostics)
-                {
-                    // ModLog.Log.Debug($"TOML parsing error in {filePath}: {diagnostic}");
-                }
                 return null;
             }
             
@@ -117,6 +112,11 @@ public static class TomlThemeLoader
             return null;
         }
         catch (Exception ex) when (ex is ArgumentException || ex is FormatException)
+        {
+            ModLog.Log.Debug($"Error parsing theme file '{filePath}': {ex.Message}");
+            return null;
+        }
+        catch (TomlException ex)
         {
             ModLog.Log.Debug($"Error parsing theme file '{filePath}': {ex.Message}");
             return null;

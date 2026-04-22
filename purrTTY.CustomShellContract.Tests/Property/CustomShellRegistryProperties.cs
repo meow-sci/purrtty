@@ -143,10 +143,10 @@ public class CustomShellRegistryProperties
     }
 
     /// <summary>
-    ///     Property: Discovery should handle assemblies gracefully and not throw exceptions.
+    ///     Property: Registry discovery should ignore test-only mock shells and not throw exceptions.
     /// </summary>
     [Test]
-    public void DiscoveryHandlesAssembliesGracefully()
+    public void DiscoveryIgnoresTestAssemblyMocksAndHandlesAssembliesGracefully()
     {
         // Arrange: Create a registry
         var registry = new CustomShellRegistry();
@@ -154,10 +154,10 @@ public class CustomShellRegistryProperties
         // Act: Attempt discovery - should not throw
         var availableShells = registry.GetAvailableShells().ToList();
 
-        // Assert: Should not throw and return a valid collection
+        // Assert: Should not throw and should not discover test-only mock shells from this assembly
         Assert.That(availableShells, Is.Not.Null);
-        // Note: This test assembly contains mock shells, so we expect some shells to be discovered
-        Assert.That(availableShells.Count, Is.GreaterThanOrEqualTo(0));
+        Assert.That(availableShells.Select(shell => shell.Id), Does.Not.Contain(nameof(RegistryMockCustomShell)));
+        Assert.That(availableShells.Select(shell => shell.Id), Does.Not.Contain(nameof(InvalidRegistryMockCustomShell)));
     }
 
     /// <summary>

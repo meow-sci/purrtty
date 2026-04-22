@@ -1,18 +1,25 @@
 using System;
 using System.IO;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using purrTTY.Core.Terminal;
 using purrTTY.Logging;
+using Tomlyn;
+using Tomlyn.Serialization;
 
 namespace purrTTY.Display.Configuration;
 
 /// <summary>
 /// Configuration class for persisting theme and display settings.
-/// Handles serialization to/from JSON configuration files.
+/// Handles serialization to/from TOML configuration files.
 /// </summary>
 public class ThemeConfiguration
 {
+    private static readonly TomlSerializerOptions TomlOptions = new()
+    {
+        WriteIndented = true,
+        IndentSize = 2,
+        DefaultIgnoreCondition = TomlIgnoreCondition.WhenWritingNull
+    };
+
     /// <summary>
     /// Name of the currently selected theme.
     /// </summary>
@@ -52,15 +59,14 @@ public class ThemeConfiguration
     /// <summary>
     /// Default shell type for new terminal sessions.
     /// </summary>
-    [JsonIgnore]
+    [TomlIgnore]
     public ShellType DefaultShellType { get; set; } = ShellType.PowerShell;
 
     /// <summary>
-    /// String representation of DefaultShellType for JSON serialization.
+    /// String representation of DefaultShellType for TOML serialization.
     /// This ensures stability across enum changes.
     /// </summary>
-    [JsonPropertyName("DefaultShellType")]
-    [JsonConverter(typeof(ShellTypeJsonConverter))]
+    [TomlPropertyName("DefaultShellType")]
     public string DefaultShellTypeString
     {
         get => DefaultShellType.ToString();
@@ -171,12 +177,17 @@ public class ThemeConfiguration
                 return new ThemeConfiguration();
             }
 
-            var jsonContent = File.ReadAllText(configPath);
-            var config = JsonSerializer.Deserialize<ThemeConfiguration>(jsonContent);
+            var tomlContent = File.ReadAllText(configPath);
+            if (string.IsNullOrWhiteSpace(tomlContent))
+            {
+                return new ThemeConfiguration();
+            }
+
+            var config = TomlSerializer.Deserialize<ThemeConfiguration>(tomlContent, TomlOptions);
 
             return config ?? new ThemeConfiguration();
         }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is TomlException)
         {
             // Log error and return default configuration
             ModLog.Log.Debug($"Error loading theme configuration: {ex.Message}");
@@ -200,15 +211,10 @@ public class ThemeConfiguration
                 Directory.CreateDirectory(configDirectory);
             }
 
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true
-            };
-
-            var jsonContent = JsonSerializer.Serialize(this, options);
-            File.WriteAllText(configPath, jsonContent);
+            var tomlContent = TomlSerializer.Serialize(this, TomlOptions);
+            File.WriteAllText(configPath, tomlContent);
         }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is JsonException)
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is TomlException)
         {
             ModLog.Log.Debug($"Error saving theme configuration: {ex.Message}");
         }
@@ -234,43 +240,6 @@ public class ThemeConfiguration
         }
 
         var configDirectory = Path.Combine(baseDirectory, ".purrTTY");
-        return Path.Combine(configDirectory, "theme-config.json");
-    }
-}
-
-/// <summary>
-/// Custom JSON converter for ShellType that handles both string and numeric values.
-/// This provides backward compatibility with old numeric enum serialization.
-/// </summary>
-public class ShellTypeJsonConverter : JsonConverter<string>
-{
-    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        switch (reader.TokenType)
-        {
-            case JsonTokenType.String:
-                // New string format - return as-is
-                return reader.GetString() ?? "Wsl";
-                
-            case JsonTokenType.Number:
-                // Old numeric format - convert to string
-                var numericValue = reader.GetInt32();
-                if (Enum.IsDefined(typeof(ShellType), numericValue))
-                {
-                    return ((ShellType)numericValue).ToString();
-                }
-                // Unknown numeric value - fallback to WSL
-                return "Wsl";
-                
-            default:
-                // Invalid format - fallback to WSL
-                return "Wsl";
-        }
-    }
-
-    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
-    {
-        // Always write as string
-        writer.WriteStringValue(value);
+        return Path.Combine(configDirectory, "purrtty.toml");
     }
 }

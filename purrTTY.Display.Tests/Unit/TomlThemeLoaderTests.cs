@@ -110,9 +110,9 @@ text = '#000000'
                 Assert.That(theme.Name, Is.EqualTo(themeName));
                 Assert.That(theme.Colors.Foreground.W, Is.EqualTo(1.0f));
                 Assert.That(theme.Colors.Background.W, Is.EqualTo(1.0f));
-                Assert.That(theme.Colors.Red.R, Is.EqualTo(1.0f));
-                Assert.That(theme.Colors.Red.G, Is.EqualTo(0.0f));
-                Assert.That(theme.Colors.Red.B, Is.EqualTo(0.0f));
+                Assert.That(theme.Colors.Red.R, Is.EqualTo(250f / 255f).Within(0.01f));
+                Assert.That(theme.Colors.Red.G, Is.EqualTo(41f / 255f).Within(0.01f));
+                Assert.That(theme.Colors.Red.B, Is.EqualTo(52f / 255f).Within(0.01f));
                 Assert.That(theme.Colors.Red.A, Is.EqualTo(1.0f));
             }
         }

@@ -24,8 +24,7 @@ version = '1.0'";
         try
         {
             // Try Tomlyn parsing approach
-            // Console.WriteLine("Trying Toml.ToModel<TomlTable>...");
-            var tomlTable = Toml.ToModel(tomlContent);
+            var tomlTable = TomlSerializer.Deserialize<TomlTable>(tomlContent);
             // Console.WriteLine($"TomlTable result: {tomlTable != null}");
             if (tomlTable != null)
             {
@@ -33,17 +32,7 @@ version = '1.0'";
                 // Console.WriteLine($"Keys: {string.Join(", ", tomlTable.Keys)}");
             }
 
-            // Try TryToModel for error handling
-            // Console.WriteLine("Trying Toml.TryToModel...");
-            var success = Toml.TryToModel<TomlTable>(tomlContent, out var table, out var diagnostics);
-            // Console.WriteLine($"TryToModel result: {success}");
-            if (!success && diagnostics != null)
-            {
-                foreach (var diagnostic in diagnostics)
-                {
-                    // Console.WriteLine($"Diagnostic: {diagnostic}");
-                }
-            }
+            Assert.That(tomlTable, Is.Not.Null);
 
         }
         catch (Exception ex)
@@ -72,7 +61,7 @@ version = '1.0'";
             // Console.WriteLine($"TOML content length: {tomlContent.Length}");
             // Console.WriteLine($"First 200 chars: {tomlContent.Substring(0, Math.Min(200, tomlContent.Length))}");
             
-            var tomlTable = Toml.ToModel(tomlContent);
+            var tomlTable = TomlSerializer.Deserialize<TomlTable>(tomlContent);
             Assert.That(tomlTable, Is.Not.Null);
             
             // Console.WriteLine($"Root table keys: {string.Join(", ", tomlTable.Keys)}");
