@@ -87,6 +87,10 @@ public class TerminalController : ITerminalController
 
   // Font and rendering settings (now config-based)
   private bool _isVisible = true;
+  private bool _hasAppliedInitialWindowState;
+  private bool _hasObservedWindowState;
+  private float2 _lastKnownWindowPosition;
+  private float2 _lastKnownWindowSize;
 
   // Terminal settings for current instance (preparation for multi-terminal support)
   private TerminalSettings _currentTerminalSettings = new();
@@ -300,6 +304,16 @@ public class TerminalController : ITerminalController
     get => _isVisible;
     set
     {
+      if (_isVisible == value)
+      {
+        return;
+      }
+
+      if (_isVisible && !value)
+      {
+        PersistWindowState();
+      }
+
       _isVisible = value;
       if (value)
       {
@@ -460,6 +474,8 @@ public class TerminalController : ITerminalController
       // This keeps the terminal canvas position stable
       var windowFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.MenuBar;
 
+      ApplySavedWindowStateIfNeeded();
+
       // Snap window size to exactly fit terminal content after resize operations
       if (_resize.ShouldSnapThisFrame)
       {
@@ -472,6 +488,8 @@ public class TerminalController : ITerminalController
 
       ImGui.PopStyleVar();
       ImGui.PopStyleVar();
+
+        UpdateTrackedWindowState();
 
       // Track focus state and detect changes
       bool currentFocus = ImGui.IsWindowFocused();
@@ -608,6 +626,8 @@ public class TerminalController : ITerminalController
   {
     if (!_disposed)
     {
+      PersistWindowState();
+
       // Unsubscribe from session manager events
       if (_sessionManager != null)
       {
@@ -629,6 +649,105 @@ public class TerminalController : ITerminalController
 
       _disposed = true;
     }
+  }
+
+  private void ApplySavedWindowStateIfNeeded()
+  {
+    if (_hasAppliedInitialWindowState)
+    {
+      return;
+    }
+
+    if (_themeConfig.TryGetTerminalWindowState(out float2 savedPosition, out float2 savedSize, out int savedColumns, out int savedRows))
+    {
+      RestoreSavedTerminalDimensions(savedColumns, savedRows);
+      ImGui.SetNextWindowPos(savedPosition, ImGuiCond.Always);
+      ImGui.SetNextWindowSize(savedSize, ImGuiCond.Always);
+      _resize.SkipInitialSnap();
+    }
+    else
+    {
+      if (_themeConfig.TryGetTerminalGridDimensions(out savedColumns, out savedRows))
+      {
+        RestoreSavedTerminalDimensions(savedColumns, savedRows);
+      }
+
+      if (_themeConfig.TryGetTerminalWindowState(out savedPosition, out savedSize))
+      {
+        ImGui.SetNextWindowPos(savedPosition, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(savedSize, ImGuiCond.Always);
+
+        if (_resize.TryCalculateTerminalDimensions(savedSize, out int inferredColumns, out int inferredRows))
+        {
+          RestoreSavedTerminalDimensions(inferredColumns, inferredRows);
+        }
+
+        _resize.SkipInitialSnap();
+      }
+    }
+
+    _hasAppliedInitialWindowState = true;
+  }
+
+  private void UpdateTrackedWindowState()
+  {
+    float2 windowPosition = ImGui.GetWindowPos();
+    float2 windowSize = ImGui.GetWindowSize();
+
+    if (windowSize.X <= 0.0f || windowSize.Y <= 0.0f)
+    {
+      return;
+    }
+
+    _lastKnownWindowPosition = windowPosition;
+    _lastKnownWindowSize = windowSize;
+    _hasObservedWindowState = true;
+  }
+
+  private void PersistWindowState()
+  {
+    if (!_hasObservedWindowState)
+    {
+      return;
+    }
+
+    var (currentColumns, currentRows) = _sessionManager.LastKnownTerminalDimensions;
+
+    if (_themeConfig.TryGetTerminalWindowState(out float2 savedPosition, out float2 savedSize, out int savedColumns, out int savedRows) &&
+        !WindowStateChanged(savedPosition, _lastKnownWindowPosition) &&
+        !WindowStateChanged(savedSize, _lastKnownWindowSize) &&
+        savedColumns == currentColumns &&
+        savedRows == currentRows)
+    {
+      return;
+    }
+
+    _themeConfig.SetTerminalWindowState(_lastKnownWindowPosition, _lastKnownWindowSize, currentColumns, currentRows);
+    _themeConfig.Save();
+  }
+
+  private void RestoreSavedTerminalDimensions(int columns, int rows)
+  {
+    var (currentColumns, currentRows) = _sessionManager.LastKnownTerminalDimensions;
+    if (currentColumns == columns && currentRows == rows)
+    {
+      return;
+    }
+
+    if (_sessionManager.SessionCount == 0)
+    {
+      _sessionManager.UpdateLastKnownTerminalDimensions(columns, rows);
+      return;
+    }
+
+    _resize.ApplyTerminalDimensionsToAllSessions(columns, rows);
+  }
+
+  private static bool WindowStateChanged(float2 first, float2 second)
+  {
+    const float epsilon = 0.5f;
+
+    return Math.Abs(first.X - second.X) > epsilon || Math.Abs(first.Y - second.Y) > epsilon;
   }
 
   /// <summary>

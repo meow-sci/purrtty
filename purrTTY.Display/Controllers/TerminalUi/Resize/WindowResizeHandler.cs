@@ -58,6 +58,17 @@ internal class WindowResizeHandler
   }
 
   /// <summary>
+  ///     Marks the initial startup snap as already handled.
+  ///     Used when restoring a saved window state so the restored size is not overridden.
+  /// </summary>
+  public void SkipInitialSnap()
+  {
+    _initialSnapDone = true;
+    _resizePending = false;
+    _lastSnapTime = DateTime.Now;
+  }
+
+  /// <summary>
   ///     Handles window resize events by detecting size changes and triggering terminal dimension updates.
   ///     Called on every render frame to detect when the ImGui window size has changed.
   ///     Uses ImGui.IsMouseDragging to detect when resize drag operation completes.

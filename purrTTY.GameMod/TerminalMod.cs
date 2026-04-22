@@ -214,6 +214,8 @@ public class TerminalMod
             // The shell (whether CustomGame, PowerShell, WSL, etc.) is started when CreateSessionAsync() is called above.
             // Do NOT start a separate shell process here - that would result in two shells running simultaneously.
 
+            _controller.IsVisible = _terminalVisible;
+
             Toggle = ToggleTerminal;
             GetIsVisible = () => _terminalVisible;
 
@@ -233,15 +235,24 @@ public class TerminalMod
     /// </summary>
     private void ToggleTerminal()
     {
+        SetTerminalVisibility(!_terminalVisible);
+    }
+
+    /// <summary>
+    ///     Synchronizes terminal visibility across the game mod and the controller.
+    /// </summary>
+    /// <param name="isVisible">The desired visibility state.</param>
+    private void SetTerminalVisibility(bool isVisible)
+    {
         if (!_isInitialized || _isDisposed)
         {
             return;
         }
 
         ModLog.Log.Debug(
-            $"DEBUG: ToggleTerminal called, changing _terminalVisible from {_terminalVisible} to {!_terminalVisible}");
+            $"DEBUG: SetTerminalVisibility called, changing _terminalVisible from {_terminalVisible} to {isVisible}");
 
-        _terminalVisible = !_terminalVisible;
+        _terminalVisible = isVisible;
 
         if (_controller != null)
         {
@@ -251,7 +262,6 @@ public class TerminalMod
 
         ModLog.Log.Debug($"purrTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
     }
-
     /// <summary>
     ///     Gets a loaded font by name, or null if not found.
     /// </summary>

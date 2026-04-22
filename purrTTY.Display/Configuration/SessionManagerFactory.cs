@@ -56,8 +56,17 @@ public static class SessionManagerFactory
         ModLog.Log.Debug($"SessionManagerFactory: Created launch options with shell type: {defaultLaunchOptions.ShellType}");
 
         // Set default terminal dimensions and working directory
-        defaultLaunchOptions.InitialWidth = 80;
-        defaultLaunchOptions.InitialHeight = 24;
+        if (themeConfig.TryGetTerminalGridDimensions(out int columns, out int rows))
+        {
+            defaultLaunchOptions.InitialWidth = columns;
+            defaultLaunchOptions.InitialHeight = rows;
+        }
+        else
+        {
+            defaultLaunchOptions.InitialWidth = 80;
+            defaultLaunchOptions.InitialHeight = 24;
+        }
+
         defaultLaunchOptions.WorkingDirectory = Environment.CurrentDirectory;
 
         // Create session manager with persisted shell configuration and RPC handlers

@@ -87,6 +87,14 @@ internal class TerminalUiResize
   }
 
   /// <summary>
+  ///     Skips the one-time initial snap when a persisted window state has already been restored.
+  /// </summary>
+  public void SkipInitialSnap()
+  {
+    _windowResizeHandler.SkipInitialSnap();
+  }
+
+  /// <summary>
   ///     Triggers window size snapping with current terminal dimensions and font metrics.
   /// </summary>
   /// <param name="cols">Terminal width in columns</param>
@@ -111,6 +119,28 @@ internal class TerminalUiResize
   public void HandleWindowResize()
   {
     _windowResizeHandler.HandleWindowResize();
+  }
+
+  /// <summary>
+  ///     Calculates terminal dimensions for a given window size using the current font metrics.
+  /// </summary>
+  /// <param name="windowSize">The window size to evaluate.</param>
+  /// <param name="cols">Calculated width in columns.</param>
+  /// <param name="rows">Calculated height in rows.</param>
+  /// <returns>True when valid terminal dimensions can be calculated.</returns>
+  public bool TryCalculateTerminalDimensions(float2 windowSize, out int cols, out int rows)
+  {
+    cols = 0;
+    rows = 0;
+
+    var dimensions = _dimensionCalculator.CalculateTerminalDimensions(windowSize);
+    if (!dimensions.HasValue)
+    {
+      return false;
+    }
+
+    (cols, rows) = dimensions.Value;
+    return true;
   }
 
   /// <summary>

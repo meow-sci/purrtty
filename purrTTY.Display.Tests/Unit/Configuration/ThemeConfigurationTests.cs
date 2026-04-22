@@ -2,6 +2,10 @@ using System;
 using System.IO;
 using purrTTY.Display.Configuration;
 using NUnit.Framework;
+using Tomlyn;
+using Tomlyn.Model;
+using Tomlyn.Serialization;
+using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Tests.Unit.Configuration;
 
@@ -485,6 +489,184 @@ public class ThemeConfigurationTests
             {
                 File.Delete(tempConfigFile);
             }
+        }
+    }
+
+    [Test]
+    public void TryGetTerminalWindowState_WithPartialWindowState_ShouldReturnFalse()
+    {
+        // Arrange
+        var config = new ThemeConfiguration
+        {
+            TerminalWindowPosX = 42.0f,
+            TerminalWindowPosY = 84.0f,
+            TerminalWindowWidth = null,
+            TerminalWindowHeight = 600.0f
+        };
+
+        // Act
+        var hasWindowState = config.TryGetTerminalWindowState(out _, out _);
+
+        // Assert
+        Assert.That(hasWindowState, Is.False);
+    }
+
+    [Test]
+    public void SaveAndLoad_WithTerminalWindowState_ShouldPreserveWindowBounds()
+    {
+        var originalOverride = ThemeConfiguration.OverrideConfigDirectory;
+        ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
+
+        var originalConfig = new ThemeConfiguration
+        {
+            SelectedThemeName = "Adventure",
+            BackgroundOpacity = 0.85f,
+            ForegroundOpacity = 0.75f
+        };
+        originalConfig.SetTerminalWindowState(new float2(300.0f, 180.0f), new float2(1280.0f, 720.0f), 132, 43);
+
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
+
+        try
+        {
+            // Save configuration
+            originalConfig.Save();
+
+            // Load configuration back
+            var loadedConfig = ThemeConfiguration.Load();
+
+            // All values should be preserved
+            Assert.That(loadedConfig.TryGetTerminalWindowState(out var position, out var size, out int columns, out int rows), Is.True);
+            Assert.That(position.X, Is.EqualTo(300.0f).Within(0.001f));
+            Assert.That(position.Y, Is.EqualTo(180.0f).Within(0.001f));
+            Assert.That(size.X, Is.EqualTo(1280.0f).Within(0.001f));
+            Assert.That(size.Y, Is.EqualTo(720.0f).Within(0.001f));
+            Assert.That(columns, Is.EqualTo(132));
+            Assert.That(rows, Is.EqualTo(43));
+        }
+        finally
+        {
+            ThemeConfiguration.OverrideConfigDirectory = originalOverride;
+            if (File.Exists(configFile))
+            {
+                File.Delete(configFile);
+            }
+        }
+    }
+
+    [Test]
+    public void Save_ShouldWriteSettingsAndDoNotTouchTables()
+    {
+        var originalOverride = ThemeConfiguration.OverrideConfigDirectory;
+        ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
+
+        var config = new ThemeConfiguration
+        {
+            SelectedThemeName = "Adventure",
+            BackgroundOpacity = 0.85f,
+            ForegroundOpacity = 0.75f,
+            DefaultShellType = purrTTY.Core.Terminal.ShellType.PowerShellCore
+        };
+        config.SetTerminalWindowState(new float2(400.0f, 220.0f), new float2(1280.0f, 720.0f), 140, 50);
+
+        var configFile = Path.Combine(_tempConfigDirectory, ".purrTTY", "purrtty.toml");
+
+        try
+        {
+            config.Save();
+
+            var content = File.ReadAllText(configFile);
+            var tomlTable = TomlSerializer.Deserialize<TomlTable>(content);
+
+            Assert.That(content, Contains.Substring("[settings]"));
+            Assert.That(content, Contains.Substring("[do-not-touch]"));
+            Assert.That(tomlTable, Is.Not.Null);
+            Assert.That(tomlTable!.ContainsKey("settings"), Is.True);
+            Assert.That(tomlTable.ContainsKey("do-not-touch"), Is.True);
+        }
+        finally
+        {
+            ThemeConfiguration.OverrideConfigDirectory = originalOverride;
+            if (File.Exists(configFile))
+            {
+                File.Delete(configFile);
+            }
+        }
+    }
+
+    [Test]
+    public void Load_WithLegacyFlatConfiguration_ShouldReadExistingValues()
+    {
+        var originalOverride = ThemeConfiguration.OverrideConfigDirectory;
+        ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
+
+        var configDirectory = Path.Combine(_tempConfigDirectory, ".purrTTY");
+        var configFile = Path.Combine(configDirectory, "purrtty.toml");
+
+        Directory.CreateDirectory(configDirectory);
+        File.WriteAllText(configFile, """
+SelectedThemeName = "LegacyTheme"
+BackgroundOpacity = 0.8
+ForegroundOpacity = 0.9
+DefaultShellType = "PowerShellCore"
+DefaultShellArguments = []
+TerminalWindowPosX = 50.0
+TerminalWindowPosY = 75.0
+TerminalWindowWidth = 900.0
+TerminalWindowHeight = 550.0
+TerminalColumns = 111
+TerminalRows = 37
+""");
+
+        try
+        {
+            var loadedConfig = ThemeConfiguration.Load();
+
+            Assert.That(loadedConfig.SelectedThemeName, Is.EqualTo("LegacyTheme"));
+            Assert.That(loadedConfig.DefaultShellType, Is.EqualTo(purrTTY.Core.Terminal.ShellType.PowerShellCore));
+            Assert.That(loadedConfig.TryGetTerminalWindowState(out var position, out var size, out int columns, out int rows), Is.True);
+            Assert.That(position.X, Is.EqualTo(50.0f));
+            Assert.That(position.Y, Is.EqualTo(75.0f));
+            Assert.That(size.X, Is.EqualTo(900.0f));
+            Assert.That(size.Y, Is.EqualTo(550.0f));
+            Assert.That(columns, Is.EqualTo(111));
+            Assert.That(rows, Is.EqualTo(37));
+        }
+        finally
+        {
+            ThemeConfiguration.OverrideConfigDirectory = originalOverride;
+            if (File.Exists(configFile))
+            {
+                File.Delete(configFile);
+            }
+        }
+    }
+
+    [Test]
+    public void CreateWithPersistedConfiguration_WithSavedGridDimensions_ShouldSeedSessionManagerDimensions()
+    {
+        var originalOverride = ThemeConfiguration.OverrideConfigDirectory;
+        ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
+
+        var config = new ThemeConfiguration
+        {
+            DefaultShellType = purrTTY.Core.Terminal.ShellType.PowerShell
+        };
+        config.SetTerminalWindowState(new float2(320.0f, 160.0f), new float2(1200.0f, 800.0f), 144, 48);
+
+        try
+        {
+            config.Save();
+
+            using var sessionManager = SessionManagerFactory.CreateWithPersistedConfiguration();
+            var (columns, rows) = sessionManager.LastKnownTerminalDimensions;
+
+            Assert.That(columns, Is.EqualTo(144));
+            Assert.That(rows, Is.EqualTo(48));
+        }
+        finally
+        {
+            ThemeConfiguration.OverrideConfigDirectory = originalOverride;
         }
     }
 }
