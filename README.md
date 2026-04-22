@@ -7,7 +7,7 @@ purrTTY is a Kitten Space Agency in-game terminal emulator
 
 ## What does it do?
 
-It runs a (mostly) VT-100 and (somewhat less mostly) xterm compliant terminal emulator in-band inside KSA and renders the terminal UI using the ImGui framework that KSA provides.
+It runs a (mostly) VT100 and (somewhat less mostly) xterm compliant terminal emulator in-band inside KSA and renders the terminal UI using the ImGui framework that KSA provides.
 
 
 
