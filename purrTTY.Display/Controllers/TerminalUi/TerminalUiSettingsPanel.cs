@@ -22,6 +22,7 @@ internal class TerminalUiSettingsPanel
   private readonly ThemeConfiguration _themeConfig;
   private readonly TerminalUiFonts _fonts;
   private readonly SessionsMenuRenderer _sessionsMenuRenderer;
+  private readonly ViewMenuRenderer _viewMenuRenderer;
   private readonly EditMenuRenderer _editMenuRenderer;
   private readonly SettingsMenuRenderer _settingsMenuRenderer;
 
@@ -59,6 +60,7 @@ internal class TerminalUiSettingsPanel
 
     // Create top-level menus
     _sessionsMenuRenderer = new SessionsMenuRenderer(controller, sessionManager);
+    _viewMenuRenderer = new ViewMenuRenderer(controller);
     _editMenuRenderer = new EditMenuRenderer(controller, selection);
     _settingsMenuRenderer = new SettingsMenuRenderer(
       colorThemeSubmenu,
@@ -84,9 +86,10 @@ internal class TerminalUiSettingsPanel
         bool sessionsMenuOpen = _sessionsMenuRenderer.Render();
         bool editMenuOpen = _editMenuRenderer.Render();
         bool settingsMenuOpen = _settingsMenuRenderer.Render();
+        bool viewMenuOpen = _viewMenuRenderer.Render();
 
         // Set IsAnyMenuOpen to true if ANY menu is currently open
-        IsAnyMenuOpen = sessionsMenuOpen || editMenuOpen || settingsMenuOpen;
+        IsAnyMenuOpen = sessionsMenuOpen || viewMenuOpen || editMenuOpen || settingsMenuOpen;
       }
       finally
       {

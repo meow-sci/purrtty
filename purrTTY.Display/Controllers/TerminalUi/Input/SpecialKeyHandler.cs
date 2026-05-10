@@ -13,6 +13,12 @@ public class SpecialKeyHandler
 {
   private readonly Action<string> _sendToProcess;
 
+  /// <summary>
+  ///     Optional delegate used to reserve a global key combination in host contexts (for example, terminal visibility toggle).
+  ///     When this delegate returns true for a key/modifier pair, the key is not sent to the terminal.
+  /// </summary>
+  public static Func<ImGuiKey, KeyModifiers, bool>? ReservedGlobalHotkey { get; set; }
+
   public SpecialKeyHandler(Action<string> sendToProcess)
   {
     _sendToProcess = sendToProcess;
@@ -68,12 +74,9 @@ public class SpecialKeyHandler
     {
       if (ImGui.IsKeyPressed(imguiKey))
       {
-          // Special case: Don't process F12 in GameMod context to avoid conflict with terminal toggle
-        // In GameMod, F12 is reserved for terminal visibility toggle
-        if (keyString == "F12")
+        if (ReservedGlobalHotkey?.Invoke(imguiKey, modifiers) == true)
         {
-          // ModLog.Log.Debug($"DEBUG: F12 pressed in GameMod context, skipping F12 processing to avoid conflict");
-          return false; // Let F12 be handled by GameMod
+          return false;
         }
 
         // Use the keyboard input encoder to get the proper sequence

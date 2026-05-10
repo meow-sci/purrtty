@@ -147,7 +147,7 @@ Lifecycle hooks:
 - `[StarMapUnload]`: unpatch and dispose resources
 
 User interaction:
-- F12 toggles terminal visibility
+- Terminal visibility toggle hotkey defaults to F12 and can be changed from the top-level purrTTY game menu via the Toggle Hotkey modal
 - Mod menu integration calls the same toggle path
 
 ## Code Navigation Guide

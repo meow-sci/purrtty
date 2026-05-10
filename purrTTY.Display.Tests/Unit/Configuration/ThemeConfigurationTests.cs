@@ -340,6 +340,50 @@ public class ThemeConfigurationTests
     }
 
     [Test]
+    public void ToggleHotkey_DefaultSettings_ShouldBeUnsetAndUseDefaultFallback()
+    {
+        var config = new ThemeConfiguration();
+
+        Assert.That(config.ToggleHotkeyKey, Is.Null);
+        Assert.That(config.ToggleHotkeyShift, Is.False);
+        Assert.That(config.ToggleHotkeyCtrl, Is.False);
+        Assert.That(config.ToggleHotkeyAlt, Is.False);
+        Assert.That(config.ToggleHotkeySuper, Is.False);
+    }
+
+    [Test]
+    public void SaveAndLoad_WithToggleHotkeySettings_ShouldPreserveValues()
+    {
+        var originalOverride = ThemeConfiguration.OverrideConfigDirectory;
+        ThemeConfiguration.OverrideConfigDirectory = _tempConfigDirectory;
+
+        var originalConfig = new ThemeConfiguration
+        {
+            ToggleHotkeyKey = "F9",
+            ToggleHotkeyShift = true,
+            ToggleHotkeyCtrl = true,
+            ToggleHotkeyAlt = false,
+            ToggleHotkeySuper = true
+        };
+
+        try
+        {
+            originalConfig.Save();
+            var loadedConfig = ThemeConfiguration.Load();
+
+            Assert.That(loadedConfig.ToggleHotkeyKey, Is.EqualTo("F9"));
+            Assert.That(loadedConfig.ToggleHotkeyShift, Is.True);
+            Assert.That(loadedConfig.ToggleHotkeyCtrl, Is.True);
+            Assert.That(loadedConfig.ToggleHotkeyAlt, Is.False);
+            Assert.That(loadedConfig.ToggleHotkeySuper, Is.True);
+        }
+        finally
+        {
+            ThemeConfiguration.OverrideConfigDirectory = originalOverride;
+        }
+    }
+
+    [Test]
     public void SyncRuntimeDisplaySettings_ShouldUpdateThemeFontAndOpacitySnapshot()
     {
         var config = new ThemeConfiguration

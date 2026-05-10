@@ -237,6 +237,57 @@ public class ThemeConfiguration
     }
 
     /// <summary>
+    /// Optional key name for the terminal visibility toggle hotkey.
+    /// When unset, the default hotkey (F12) is used.
+    /// </summary>
+    [TomlIgnore]
+    public string? ToggleHotkeyKey
+    {
+        get => Settings.ToggleHotkeyKey;
+        set => Settings.ToggleHotkeyKey = value;
+    }
+
+    /// <summary>
+    /// Shift modifier flag for the toggle hotkey.
+    /// </summary>
+    [TomlIgnore]
+    public bool ToggleHotkeyShift
+    {
+        get => Settings.ToggleHotkeyShift;
+        set => Settings.ToggleHotkeyShift = value;
+    }
+
+    /// <summary>
+    /// Ctrl modifier flag for the toggle hotkey.
+    /// </summary>
+    [TomlIgnore]
+    public bool ToggleHotkeyCtrl
+    {
+        get => Settings.ToggleHotkeyCtrl;
+        set => Settings.ToggleHotkeyCtrl = value;
+    }
+
+    /// <summary>
+    /// Alt modifier flag for the toggle hotkey.
+    /// </summary>
+    [TomlIgnore]
+    public bool ToggleHotkeyAlt
+    {
+        get => Settings.ToggleHotkeyAlt;
+        set => Settings.ToggleHotkeyAlt = value;
+    }
+
+    /// <summary>
+    /// Super modifier flag for the toggle hotkey.
+    /// </summary>
+    [TomlIgnore]
+    public bool ToggleHotkeySuper
+    {
+        get => Settings.ToggleHotkeySuper;
+        set => Settings.ToggleHotkeySuper = value;
+    }
+
+    /// <summary>
     /// Attempts to retrieve the persisted terminal window position and size.
     /// </summary>
     /// <param name="position">The saved window position.</param>
@@ -566,6 +617,11 @@ public class ThemeConfiguration
             WslDistribution = legacy.WslDistribution,
             DefaultCustomGameShellId = legacy.DefaultCustomGameShellId,
             GameShellPrompt = legacy.GameShellPrompt,
+            ToggleHotkeyKey = legacy.ToggleHotkeyKey,
+            ToggleHotkeyShift = legacy.ToggleHotkeyShift,
+            ToggleHotkeyCtrl = legacy.ToggleHotkeyCtrl,
+            ToggleHotkeyAlt = legacy.ToggleHotkeyAlt,
+            ToggleHotkeySuper = legacy.ToggleHotkeySuper,
             TerminalWindowPosX = legacy.TerminalWindowPosX,
             TerminalWindowPosY = legacy.TerminalWindowPosY,
             TerminalWindowWidth = legacy.TerminalWindowWidth,
@@ -626,6 +682,16 @@ public class ThemeConfiguration
         public string? DefaultCustomGameShellId { get; set; }
 
         public string GameShellPrompt { get; set; } = "ksa> ";
+
+        public string? ToggleHotkeyKey { get; set; }
+
+        public bool ToggleHotkeyShift { get; set; }
+
+        public bool ToggleHotkeyCtrl { get; set; }
+
+        public bool ToggleHotkeyAlt { get; set; }
+
+        public bool ToggleHotkeySuper { get; set; }
     }
 
     /// <summary>
@@ -703,5 +769,15 @@ public class ThemeConfiguration
         public string? DefaultCustomGameShellId { get; set; }
 
         public string GameShellPrompt { get; set; } = "ksa> ";
+
+        public string? ToggleHotkeyKey { get; set; }
+
+        public bool ToggleHotkeyShift { get; set; }
+
+        public bool ToggleHotkeyCtrl { get; set; }
+
+        public bool ToggleHotkeyAlt { get; set; }
+
+        public bool ToggleHotkeySuper { get; set; }
     }
 }

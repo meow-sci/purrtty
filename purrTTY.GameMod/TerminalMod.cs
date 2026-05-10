@@ -1,30 +1,42 @@
 using Brutal.ImGuiApi;
 using purrTTY.Core.Terminal;
+using purrTTY.Core.Utils;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
+using purrTTY.Display.Controllers.TerminalUi.Input;
 using purrTTY.Display.Rendering;
-using Microsoft.Extensions.Logging.Abstractions;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
+using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.GameMod;
 
 /// <summary>
 ///     KSA game mod for purrTTY terminal emulator.
-///     Provides a terminal window that can be toggled with F12 key.
+///     Provides a terminal window that can be toggled with a configurable hotkey.
 /// </summary>
 [StarMapMod]
 public class TerminalMod
 {
+    private const string ToggleHotkeyPopupId = "purrTTY Hot Key Settings##purrtty_toggle_hotkey_modal";
+
     private ITerminalController? _controller;
     private bool _isDisposed;
     private bool _isInitialized;
     private ITerminalEmulator? _terminal;
     private bool _terminalVisible;
+    private ToggleHotkeyBinding _toggleHotkey = ToggleHotkeyBinding.Default;
+    private ToggleHotkeyBinding _draftToggleHotkey = ToggleHotkeyBinding.Default;
+    private ToggleHotkeyBinding? _lastCapturedToggleHotkey;
+    private bool _isCapturingToggleHotkey;
+    private bool _toggleHotkeyModalOpenRequested;
+    private bool _suppressNextTerminalKeyboardInputFrame;
+
+    private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
     /// <summary>
-    ///     Shared toggle action used by both F12 keybind and the game menu bar entry.
+    ///     Shared toggle action used by both hotkey and game menu bar entry.
     /// </summary>
     internal static Action? Toggle;
 
@@ -32,6 +44,16 @@ public class TerminalMod
     ///     Returns the current terminal visibility state. Used by the game menu bar to show a checkmark.
     /// </summary>
     internal static Func<bool>? GetIsVisible;
+
+    /// <summary>
+    ///     Returns the active toggle hotkey text for menu display.
+    /// </summary>
+    internal static Func<string>? GetToggleHotkeyShortcut;
+
+    /// <summary>
+    ///     Opens the toggle hotkey settings modal.
+    /// </summary>
+    internal static Action? OpenToggleHotkeySettings;
 
     /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
@@ -50,9 +72,16 @@ public class TerminalMod
     internal static void DrawToggleMenuItem()
     {
         var isVisible = GetIsVisible?.Invoke() ?? false;
-        if (ImGui.MenuItem("Toggle Terminal", "F12", isVisible))
+        var hotkeyShortcut = GetToggleHotkeyShortcut?.Invoke() ?? ToggleHotkeyBinding.Default.ToShortcutString();
+
+        if (ImGui.MenuItem("Toggle Terminal", hotkeyShortcut, isVisible))
         {
             Toggle?.Invoke();
+        }
+
+        if (ImGui.MenuItem("Toggle Hotkey"))
+        {
+            OpenToggleHotkeySettings?.Invoke();
         }
     }
 
@@ -72,15 +101,23 @@ public class TerminalMod
 
         try
         {
-            // Handle terminal toggle keybind (F12)
-            if (ImGui.IsKeyPressed(ImGuiKey.F12))
+            bool hotkeyModalVisible = RenderToggleHotkeyModal();
+
+            // Handle terminal toggle keybind (dynamic, defaults to F12)
+            if (!hotkeyModalVisible && IsToggleHotkeyPressed())
             {
-                // ModLog.Log.Debug($"DEBUG: GameMod detected F12 press, current _terminalVisible={_terminalVisible}");
+                bool wasVisible = IsTerminalVisible;
                 ToggleTerminal();
+
+                if (!wasVisible && IsTerminalVisible)
+                {
+                    // Swallow the hotkey press so printable toggle keys do not appear as terminal input when opening.
+                    _suppressNextTerminalKeyboardInputFrame = true;
+                }
             }
 
             // Update and render terminal if visible
-            if (_terminalVisible && _controller != null)
+            if (IsTerminalVisible && _controller != null)
             {
                 _controller.Update((float)dt);
                 _controller.Render();
@@ -197,12 +234,10 @@ public class TerminalMod
         try
         {
             SetProductionConfigPath();
+            LoadToggleHotkeyFromConfiguration();
 
             // Load fonts first
             PurrTTYFontManager.LoadFonts();
-
-            var _outputBuffer = new List<byte[]>();
-            
 
             // Create session manager with persisted shell configuration
             var sessionManager = SessionManagerFactory.CreateWithPersistedConfiguration(
@@ -233,13 +268,19 @@ public class TerminalMod
             // The shell (whether CustomGame, PowerShell, WSL, etc.) is started when CreateSessionAsync() is called above.
             // Do NOT start a separate shell process here - that would result in two shells running simultaneously.
 
-            _controller.IsVisible = _terminalVisible;
+            _controller.IsVisible = IsTerminalVisible;
 
             Toggle = ToggleTerminal;
-            GetIsVisible = () => _terminalVisible;
+            GetIsVisible = () => IsTerminalVisible;
+            GetToggleHotkeyShortcut = () => _toggleHotkey.ToShortcutString();
+            OpenToggleHotkeySettings = RequestOpenToggleHotkeyModal;
+
+            // Keep terminal-side special key handling aligned with the configured global toggle hotkey.
+            SpecialKeyHandler.ReservedGlobalHotkey = IsReservedTerminalHotkey;
+            KeyboardInputHandler.ShouldSuppressKeyboardInputThisFrame = ConsumeKeyboardInputSuppression;
 
             _isInitialized = true;
-            ModLog.Log.Debug("purrTTY GameMod: Terminal initialized successfully. Press F12 to toggle.");
+            ModLog.Log.Debug($"purrTTY GameMod: Terminal initialized successfully. Press {_toggleHotkey.ToDisplayString()} to toggle.");
         }
         catch (Exception ex)
         {
@@ -254,7 +295,7 @@ public class TerminalMod
     /// </summary>
     private void ToggleTerminal()
     {
-        SetTerminalVisibility(!_terminalVisible);
+        SetTerminalVisibility(!IsTerminalVisible);
     }
 
     /// <summary>
@@ -268,19 +309,317 @@ public class TerminalMod
             return;
         }
 
+        bool previousVisibility = IsTerminalVisible;
         ModLog.Log.Debug(
-            $"DEBUG: SetTerminalVisibility called, changing _terminalVisible from {_terminalVisible} to {isVisible}");
+            $"DEBUG: SetTerminalVisibility called, changing visibility from {previousVisibility} to {isVisible}");
 
         _terminalVisible = isVisible;
 
         if (_controller != null)
         {
-            _controller.IsVisible = _terminalVisible;
-            // ModLog.Log.Debug($"DEBUG: Set controller.IsVisible to {_terminalVisible}");
+            _controller.IsVisible = isVisible;
         }
 
-        ModLog.Log.Debug($"purrTTY GameMod: Terminal {(_terminalVisible ? "shown" : "hidden")}");
+        ModLog.Log.Debug($"purrTTY GameMod: Terminal {(IsTerminalVisible ? "shown" : "hidden")}");
     }
+
+    private void LoadToggleHotkeyFromConfiguration()
+    {
+        try
+        {
+            var config = ThemeConfiguration.Load();
+            _toggleHotkey = ToggleHotkeyBinding.FromConfiguration(config);
+            _draftToggleHotkey = _toggleHotkey;
+            _lastCapturedToggleHotkey = _toggleHotkey;
+        }
+        catch (Exception ex)
+        {
+            _toggleHotkey = ToggleHotkeyBinding.Default;
+            _draftToggleHotkey = _toggleHotkey;
+            _lastCapturedToggleHotkey = _toggleHotkey;
+            ModLog.Log.Debug($"purrTTY GameMod: Failed to load toggle hotkey from config, defaulting to F12. Error: {ex.Message}");
+        }
+    }
+
+    private bool IsToggleHotkeyPressed()
+    {
+        return _toggleHotkey.MatchesPress(ImGui.GetIO());
+    }
+
+    private bool IsReservedTerminalHotkey(ImGuiKey key, KeyModifiers modifiers)
+    {
+        return _toggleHotkey.Key == key &&
+               _toggleHotkey.Shift == modifiers.Shift &&
+               _toggleHotkey.Ctrl == modifiers.Ctrl &&
+               _toggleHotkey.Alt == modifiers.Alt &&
+               _toggleHotkey.Super == modifiers.Meta;
+    }
+
+    private void RequestOpenToggleHotkeyModal()
+    {
+        if (!_isInitialized || _isDisposed)
+        {
+            return;
+        }
+
+        _draftToggleHotkey = _toggleHotkey;
+        _lastCapturedToggleHotkey = _toggleHotkey;
+        _isCapturingToggleHotkey = false;
+        _toggleHotkeyModalOpenRequested = true;
+    }
+
+    private bool RenderToggleHotkeyModal()
+    {
+        if (_toggleHotkeyModalOpenRequested)
+        {
+            _toggleHotkeyModalOpenRequested = false;
+            ImGui.OpenPopup(ToggleHotkeyPopupId);
+        }
+
+        bool open = true;
+        ImGui.SetNextWindowSize(new float2(760f, 0f), ImGuiCond.Appearing);
+        if (!ImGui.BeginPopupModal(ToggleHotkeyPopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            return false;
+        }
+
+        if (_isCapturingToggleHotkey)
+        {
+            UpdateToggleHotkeyCapture();
+            RenderCaptureHotkeyModalContent();
+        }
+        else
+        {
+            RenderStandardHotkeyModalContent();
+        }
+
+        RenderHotkeyModalSaveCancelButtons();
+
+        if (!open)
+        {
+            _isCapturingToggleHotkey = false;
+            _draftToggleHotkey = _toggleHotkey;
+            _lastCapturedToggleHotkey = _toggleHotkey;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+        return true;
+    }
+
+    private void RenderStandardHotkeyModalContent()
+    {
+        RenderHotkeySummaryTable("Current Hot Key", GetCurrentHotkeyDisplay());
+
+        ImGui.Spacing();
+
+        float availW = ImGui.GetContentRegionAvail().X;
+        const float gap = 8f;
+        float buttonWidth = (availW - gap) / 2f;
+
+        if (ImGui.Button(" Capture Now ##purrtty_capture_hotkey", new float2(buttonWidth, 0f)))
+        {
+            _isCapturingToggleHotkey = true;
+            _lastCapturedToggleHotkey = null;
+        }
+
+        ImGui.SameLine(0, gap);
+        if (ImGui.Button(" Reset ##purrtty_reset_hotkey", new float2(buttonWidth, 0f)))
+        {
+            _draftToggleHotkey = ToggleHotkeyBinding.Default;
+            _lastCapturedToggleHotkey = ToggleHotkeyBinding.Default;
+        }
+    }
+
+    private void RenderCaptureHotkeyModalContent()
+    {
+        ImGui.Text("Press desired hotkey now");
+        RenderHotkeySummaryTable("Hot Key", GetCaptureHotkeyDisplay());
+
+        ImGui.Spacing();
+
+        float availW = ImGui.GetContentRegionAvail().X;
+        const float gap = 8f;
+        float buttonWidth = (availW - gap) / 2f;
+
+        bool hasCapturedHotkey = _lastCapturedToggleHotkey.HasValue;
+
+        if (!hasCapturedHotkey)
+        {
+            ImGui.BeginDisabled();
+        }
+
+        if (ImGui.Button(" Use This ##purrtty_use_captured_hotkey", new float2(buttonWidth, 0f)) &&
+            _lastCapturedToggleHotkey is ToggleHotkeyBinding capturedHotkey)
+        {
+            _draftToggleHotkey = capturedHotkey;
+            ApplyToggleHotkeySetting(_draftToggleHotkey);
+            _isCapturingToggleHotkey = false;
+        }
+
+        if (!hasCapturedHotkey)
+        {
+            ImGui.EndDisabled();
+        }
+
+        ImGui.SameLine(0, gap);
+        if (ImGui.Button(" Cancel ##purrtty_cancel_capture_hotkey", new float2(buttonWidth, 0f)))
+        {
+            _isCapturingToggleHotkey = false;
+        }
+    }
+
+    private void RenderHotkeyModalSaveCancelButtons()
+    {
+        ImGui.Spacing();
+
+        float availW = ImGui.GetContentRegionAvail().X;
+        const float gap = 8f;
+        float buttonWidth = (availW - gap) / 2f;
+
+        if (_isCapturingToggleHotkey)
+        {
+            ImGui.BeginDisabled();
+        }
+
+        if (ImGui.Button(" Save ##purrtty_save_hotkey", new float2(buttonWidth, 0f)))
+        {
+            ApplyToggleHotkeySetting(_draftToggleHotkey);
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine(0, gap);
+        if (ImGui.Button(" Cancel ##purrtty_cancel_hotkey", new float2(buttonWidth, 0f)))
+        {
+            _draftToggleHotkey = _toggleHotkey;
+            _lastCapturedToggleHotkey = _toggleHotkey;
+            _isCapturingToggleHotkey = false;
+            ImGui.CloseCurrentPopup();
+        }
+
+        if (_isCapturingToggleHotkey)
+        {
+            ImGui.EndDisabled();
+        }
+    }
+
+    private void RenderHotkeySummaryTable(string label, string value)
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, new float2(6f, 6f));
+        if (ImGui.BeginTable("##purrtty_toggle_hotkey_summary", 2,
+                ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoPadOuterX))
+        {
+            ImGui.TableSetupColumn("##hotkey_label", ImGuiTableColumnFlags.WidthFixed, 260f);
+            ImGui.TableSetupColumn("##hotkey_value", ImGuiTableColumnFlags.WidthStretch, 3f);
+
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.Text(label);
+
+            ImGui.TableNextColumn();
+            ImGui.AlignTextToFramePadding();
+            ImGui.Text(value);
+
+            ImGui.EndTable();
+        }
+
+        ImGui.PopStyleVar();
+    }
+
+    private string GetCurrentHotkeyDisplay()
+    {
+        return _draftToggleHotkey.IsDefault
+            ? $"{_draftToggleHotkey.ToDisplayString()} (default)"
+            : _draftToggleHotkey.ToDisplayString();
+    }
+
+    private string GetCaptureHotkeyDisplay()
+    {
+        if (_lastCapturedToggleHotkey is ToggleHotkeyBinding capturedHotkey)
+        {
+            return capturedHotkey.ToDisplayString();
+        }
+
+        var io = ImGui.GetIO();
+        var modifierParts = new List<string>(4);
+
+        if (io.KeyCtrl)
+        {
+            modifierParts.Add("Ctrl");
+        }
+
+        if (io.KeyShift)
+        {
+            modifierParts.Add("Shift");
+        }
+
+        if (io.KeyAlt)
+        {
+            modifierParts.Add("Alt");
+        }
+
+        if (ImGuiHotkeyHelpers.GetSuperModifier(io))
+        {
+            modifierParts.Add("Super");
+        }
+
+        return modifierParts.Count == 0
+            ? "Waiting for key press..."
+            : $"{string.Join(" + ", modifierParts)} + ...";
+    }
+
+    private void UpdateToggleHotkeyCapture()
+    {
+        var io = ImGui.GetIO();
+        bool super = ImGuiHotkeyHelpers.GetSuperModifier(io);
+
+        foreach (ImGuiKey key in ToggleHotkeyBinding.CapturableKeys)
+        {
+            if (!ImGui.IsKeyPressed(key))
+            {
+                continue;
+            }
+
+            _lastCapturedToggleHotkey = new ToggleHotkeyBinding(
+                key,
+                io.KeyShift,
+                io.KeyCtrl,
+                io.KeyAlt,
+                super);
+            break;
+        }
+    }
+
+    private void ApplyToggleHotkeySetting(ToggleHotkeyBinding binding)
+    {
+        _toggleHotkey = binding;
+        _draftToggleHotkey = binding;
+
+        try
+        {
+            var config = ThemeConfiguration.Load();
+            _toggleHotkey.WriteToConfiguration(config);
+            config.Save();
+            ModLog.Log.Debug($"purrTTY GameMod: Toggle hotkey updated to {_toggleHotkey.ToDisplayString()}");
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Debug($"purrTTY GameMod: Failed to persist toggle hotkey: {ex.Message}");
+        }
+    }
+
+    private bool ConsumeKeyboardInputSuppression()
+    {
+        if (!_suppressNextTerminalKeyboardInputFrame)
+        {
+            return false;
+        }
+
+        _suppressNextTerminalKeyboardInputFrame = false;
+        return true;
+    }
+
     /// <summary>
     ///     Gets a loaded font by name, or null if not found.
     /// </summary>
@@ -313,6 +652,10 @@ public class TerminalMod
 
             Toggle = null;
             GetIsVisible = null;
+            GetToggleHotkeyShortcut = null;
+            OpenToggleHotkeySettings = null;
+            SpecialKeyHandler.ReservedGlobalHotkey = null;
+            KeyboardInputHandler.ShouldSuppressKeyboardInputThisFrame = null;
 
             _isInitialized = false;
             _isDisposed = true;

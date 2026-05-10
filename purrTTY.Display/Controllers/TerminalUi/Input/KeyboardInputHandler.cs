@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using Brutal.ImGuiApi;
 using purrTTY.Core.Input;
 using purrTTY.Core.Managers;
@@ -14,6 +15,14 @@ namespace purrTTY.Display.Controllers.TerminalUi.Input;
 /// </summary>
 public class KeyboardInputHandler
 {
+  private static readonly PropertyInfo? KeySuperProperty = typeof(ImGuiIOPtr).GetProperty("KeySuper", BindingFlags.Public | BindingFlags.Instance);
+
+  /// <summary>
+  ///     Optional host-level hook to suppress terminal keyboard input for the current frame.
+  ///     Returning true skips both special key and printable character processing.
+  /// </summary>
+  public static Func<bool>? ShouldSuppressKeyboardInputThisFrame { get; set; }
+
   private readonly SessionManager _sessionManager;
   private readonly CursorRenderer _cursorRenderer;
   private readonly Action<string> _sendToProcess;
@@ -35,6 +44,11 @@ public class KeyboardInputHandler
   /// </summary>
   public void HandleKeyboardInput()
   {
+    if (ShouldSuppressKeyboardInputThisFrame?.Invoke() == true)
+    {
+      return;
+    }
+
     ImGuiIOPtr io = ImGui.GetIO();
 
     // Any user input (typing/keypresses that generate terminal input) should snap to the latest output.
@@ -67,7 +81,7 @@ public class KeyboardInputHandler
         shift: io.KeyShift,
         alt: io.KeyAlt,
         ctrl: io.KeyCtrl,
-        meta: false // ImGui doesn't expose Meta key directly
+      meta: GetSuperModifier(io)
     );
 
     // Handle special keys first (they take priority over text input)
@@ -87,6 +101,21 @@ public class KeyboardInputHandler
         }
       }
     }
+  }
+
+  private static bool GetSuperModifier(ImGuiIOPtr io)
+  {
+    if (KeySuperProperty is null)
+    {
+      return false;
+    }
+
+    if (KeySuperProperty.GetValue(io) is bool keySuper)
+    {
+      return keySuper;
+    }
+
+    return false;
   }
 
 }

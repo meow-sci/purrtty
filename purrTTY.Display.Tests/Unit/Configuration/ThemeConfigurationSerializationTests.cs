@@ -167,6 +167,56 @@ public class ThemeConfigurationSerializationTests
     }
 
     [Test]
+    public void Serialize_WithCustomToggleHotkey_ShouldWriteHotkeySettings()
+    {
+        // Arrange
+        var config = new ThemeConfiguration
+        {
+            ToggleHotkeyKey = "K",
+            ToggleHotkeyCtrl = true,
+            ToggleHotkeyShift = true,
+            ToggleHotkeyAlt = false,
+            ToggleHotkeySuper = true
+        };
+
+        // Act
+        var toml = TomlSerializer.Serialize(config, TomlOptions);
+
+        // Assert
+        Assert.That(toml, Contains.Substring("ToggleHotkeyKey = \"K\""));
+        Assert.That(toml, Contains.Substring("ToggleHotkeyCtrl = true"));
+        Assert.That(toml, Contains.Substring("ToggleHotkeyShift = true"));
+        Assert.That(toml, Contains.Substring("ToggleHotkeyAlt = false"));
+        Assert.That(toml, Contains.Substring("ToggleHotkeySuper = true"));
+    }
+
+    [Test]
+    public void RoundTrip_ToggleHotkeySettings_ShouldPreserveValues()
+    {
+        // Arrange
+        var originalConfig = new ThemeConfiguration
+        {
+            ToggleHotkeyKey = "F10",
+            ToggleHotkeyCtrl = false,
+            ToggleHotkeyShift = true,
+            ToggleHotkeyAlt = true,
+            ToggleHotkeySuper = false
+        };
+
+        // Act
+        var toml = TomlSerializer.Serialize(originalConfig, TomlOptions);
+        var deserializedConfig = TomlSerializer.Deserialize<ThemeConfiguration>(toml, TomlOptions);
+
+        // Assert
+        Assert.That(deserializedConfig, Is.Not.Null);
+        Assert.That(deserializedConfig!.ToggleHotkeyKey, Is.EqualTo("F10"));
+        Assert.That(deserializedConfig.ToggleHotkeyCtrl, Is.False);
+        Assert.That(deserializedConfig.ToggleHotkeyShift, Is.True);
+        Assert.That(deserializedConfig.ToggleHotkeyAlt, Is.True);
+        Assert.That(deserializedConfig.ToggleHotkeySuper, Is.False);
+    }
+
+    [Test]
     public void RoundTrip_WindowState_ShouldPreserveTerminalWindowValues()
     {
         // Arrange
