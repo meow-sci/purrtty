@@ -268,7 +268,7 @@ public class TerminalMod
             // The shell (whether CustomGame, PowerShell, WSL, etc.) is started when CreateSessionAsync() is called above.
             // Do NOT start a separate shell process here - that would result in two shells running simultaneously.
 
-            _controller.IsVisible = IsTerminalVisible;
+            _controller.IsVisible = _terminalVisible;
 
             Toggle = ToggleTerminal;
             GetIsVisible = () => IsTerminalVisible;
