@@ -8,7 +8,7 @@ namespace purrTTY.Core.Terminal;
 
 /// <summary>
 ///     Parser handlers implementation for the terminal emulator.
-///     Bridges parsed sequences to terminal operations and optionally delegates RPC sequences.
+///     Bridges parsed sequences to terminal operations.
 /// </summary>
 internal class TerminalParserHandlers : IParserHandlers
 {

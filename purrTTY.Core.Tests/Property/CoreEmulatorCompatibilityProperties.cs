@@ -8,15 +8,15 @@ using NUnit.Framework;
 namespace purrTTY.Core.Tests.Property;
 
 /// <summary>
-/// Property-based tests for core emulator compatibility with RPC functionality.
-/// These tests verify that RPC integration does not affect standard terminal emulation.
+/// Property-based tests for parser compatibility with private-use escape sequences.
+/// These tests verify that private-use/control sequences do not affect standard terminal handling.
 /// </summary>
 [TestFixture]
 [Category("Property")]
 public class CoreEmulatorCompatibilityProperties
 {
     /// <summary>
-    /// Generator for standard terminal sequences that should not be affected by RPC.
+    /// Generator for standard terminal sequences that should remain stable.
     /// </summary>
     public static Arbitrary<byte[]> StandardTerminalSequenceArb =>
         Arb.From(Gen.OneOf(
@@ -56,9 +56,9 @@ public class CoreEmulatorCompatibilityProperties
         ));
 
     /// <summary>
-    /// Generator for valid RPC sequences.
+    /// Generator for valid private-use CSI sequences.
     /// </summary>
-    public static Arbitrary<byte[]> ValidRpcSequenceArb =>
+    public static Arbitrary<byte[]> ValidPrivateUseSequenceArb =>
         Arb.From(
             from commandId in Gen.Choose(1000, 9999)
             from version in Gen.Choose(1, 99)
@@ -67,60 +67,55 @@ public class CoreEmulatorCompatibilityProperties
         );
 
     /// <summary>
-    /// Generator for mixed sequences containing both standard and RPC sequences.
+    /// Generator for mixed sequences containing both standard and private-use sequences.
     /// </summary>
     public static Arbitrary<byte[][]> MixedSequenceArb =>
-        Arb.From(Gen.ArrayOf(Gen.OneOf(StandardTerminalSequenceArb.Generator, ValidRpcSequenceArb.Generator))
+        Arb.From(Gen.ArrayOf(Gen.OneOf(StandardTerminalSequenceArb.Generator, ValidPrivateUseSequenceArb.Generator))
             .Where(arr => arr.Length > 0 && arr.Length <= 10));
 
     /// <summary>
-    /// **Feature: term-sequence-rpc, Property 3: Core Emulator Compatibility**
-    /// **Validates: Requirements 1.4, 4.1, 4.2**
-    /// Property: For any standard terminal sequence, the core emulator should function 
-    /// identically whether RPC is enabled or disabled, with private sequences being 
-    /// delegated to RPC handlers without affecting VT100/xterm compliance.
+    /// Property: For any standard terminal sequence, parser output should remain stable
+    /// across equivalent parser instances.
     /// </summary>
     [FsCheck.NUnit.Property(MaxTest = 100, QuietOnSuccess = true)]
     public FsCheck.Property CoreEmulatorCompatibility()
     {
         return Prop.ForAll(StandardTerminalSequenceArb, (byte[] sequence) =>
         {
-            // Arrange: Create two parsers - one with RPC enabled, one without
-            var handlersWithRpc = new TestParserHandlers();
-            var handlersWithoutRpc = new TestParserHandlers();
+            // Arrange: Create two equivalent parser instances
+            var handlersA = new TestParserHandlers();
+            var handlersB = new TestParserHandlers();
             var logger = new TestLogger();
 
-            // Parser with RPC enabled
-            var parserWithRpc = new Parser(new ParserOptions
+            var parserA = new Parser(new ParserOptions
             {
-                Handlers = handlersWithRpc,
+                Handlers = handlersA,
                 Logger = logger
             });
 
-            // Parser without RPC (null RPC components)
-            var parserWithoutRpc = new Parser(new ParserOptions
+            var parserB = new Parser(new ParserOptions
             {
-                Handlers = handlersWithoutRpc,
+                Handlers = handlersB,
                 Logger = logger
             });
 
             // Act: Process the same sequence with both parsers
-            parserWithRpc.PushBytes(sequence);
-            parserWithoutRpc.PushBytes(sequence);
+            parserA.PushBytes(sequence);
+            parserB.PushBytes(sequence);
 
             // Assert: Standard terminal handling should be identical
-            bool identicalCsiHandling = handlersWithRpc.CsiMessages.Count == handlersWithoutRpc.CsiMessages.Count;
-            bool identicalSgrHandling = handlersWithRpc.SgrSequences.Count == handlersWithoutRpc.SgrSequences.Count;
-            bool identicalEscHandling = handlersWithRpc.EscMessages.Count == handlersWithoutRpc.EscMessages.Count;
-            bool identicalOscHandling = handlersWithRpc.OscMessages.Count == handlersWithoutRpc.OscMessages.Count;
-            bool identicalDcsHandling = handlersWithRpc.DcsMessages.Count == handlersWithoutRpc.DcsMessages.Count;
+            bool identicalCsiHandling = handlersA.CsiMessages.Count == handlersB.CsiMessages.Count;
+            bool identicalSgrHandling = handlersA.SgrSequences.Count == handlersB.SgrSequences.Count;
+            bool identicalEscHandling = handlersA.EscMessages.Count == handlersB.EscMessages.Count;
+            bool identicalOscHandling = handlersA.OscMessages.Count == handlersB.OscMessages.Count;
+            bool identicalDcsHandling = handlersA.DcsMessages.Count == handlersB.DcsMessages.Count;
             bool identicalControlHandling = 
-                handlersWithRpc.BellCalled == handlersWithoutRpc.BellCalled &&
-                handlersWithRpc.BackspaceCalled == handlersWithoutRpc.BackspaceCalled &&
-                handlersWithRpc.TabCalled == handlersWithoutRpc.TabCalled &&
-                handlersWithRpc.LineFeedCalled == handlersWithoutRpc.LineFeedCalled &&
-                handlersWithRpc.CarriageReturnCalled == handlersWithoutRpc.CarriageReturnCalled;
-            bool identicalNormalBytes = handlersWithRpc.NormalBytes.SequenceEqual(handlersWithoutRpc.NormalBytes);
+                handlersA.BellCalled == handlersB.BellCalled &&
+                handlersA.BackspaceCalled == handlersB.BackspaceCalled &&
+                handlersA.TabCalled == handlersB.TabCalled &&
+                handlersA.LineFeedCalled == handlersB.LineFeedCalled &&
+                handlersA.CarriageReturnCalled == handlersB.CarriageReturnCalled;
+            bool identicalNormalBytes = handlersA.NormalBytes.SequenceEqual(handlersB.NormalBytes);
 
 
             return identicalCsiHandling && identicalSgrHandling && identicalEscHandling && 

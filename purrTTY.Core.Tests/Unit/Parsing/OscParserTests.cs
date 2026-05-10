@@ -492,14 +492,14 @@ public class OscParserTests
     public void ProcessOscByte_PrivateCommandNumber_ReturnsImplementedMessage()
     {
         // Arrange - OSC with private-use command number (1000+)
-        // Commands 1000+ are used for private/application-specific purposes (e.g., RPC)
+        // Commands 1000+ are used for private/application-specific purposes
         var escapeSequence = new List<byte> { 0x1b, 0x5d, 0x31, 0x30, 0x30, 0x30, 0x3b, 0x74, 0x65, 0x73, 0x74 }; // ESC ] 1000;test
         byte b = 0x07; // BEL
 
         // Act
         bool isComplete = _parser.ProcessOscByte(b, escapeSequence, out OscMessage? message);
 
-        // Assert - private commands are implemented and handled by RPC layer
+        // Assert - private commands are parsed as implemented private OSC messages
         Assert.That(isComplete, Is.True);
         Assert.That(message, Is.Not.Null);
         Assert.That(message!.XtermMessage, Is.Not.Null);

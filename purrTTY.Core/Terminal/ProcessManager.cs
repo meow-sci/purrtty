@@ -130,7 +130,7 @@ public class ProcessManager : IProcessManager
                 throw;
             }
 
-            // Create environment block from options (includes socket RPC endpoint if available)
+            // Create environment block from launch options
             IntPtr envBlock = IntPtr.Zero;
             try
             {

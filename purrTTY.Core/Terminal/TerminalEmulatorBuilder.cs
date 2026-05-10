@@ -77,7 +77,7 @@ internal static class TerminalEmulatorBuilder
         var (titleIconEventsOps, oscTitleIconOps, oscWindowManipulationOps, oscClipboardOps, oscHyperlinkOps, oscColorQueryOps) = BuildOscOps(emulator, attributeManager, state, effectiveLogger);
         var (charsetDesignationOps, charsetTranslationOps, lineFeedOps, indexOps, carriageReturnOps, bellOps, backspaceOps, tabOps, responseOps, inputOps, resetOps) = BuildMiscOps(emulator, cursorManager, screenBufferManager, attributeManager, modeManager, characterSetManager, state, screenBuffer, cursor, effectiveLogger);
 
-        // Initialize parser with terminal handlers and optional RPC components
+        // Initialize parser with terminal handlers
         var handlers = new TerminalParserHandlers(emulator, effectiveLogger);
         var parserOptions = new ParserOptions
         {

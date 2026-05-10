@@ -119,7 +119,7 @@ public class TerminalMod
             // Note: GameConsoleShell is automatically discovered via CustomShellRegistry.DiscoverShells()
             // No manual registration needed - it will be found when GetAvailableShells() is called
 
-            // Socket RPC server is a singleton game mod feature, independent of terminal emulation
+            // Reserved for optional game-integration services independent of terminal emulation
 
             InitializeTerminal();
         }
@@ -204,7 +204,7 @@ public class TerminalMod
             var _outputBuffer = new List<byte[]>();
             
 
-            // Create session manager with persisted shell configuration and RPC handlers (CSI, OSC)
+            // Create session manager with persisted shell configuration
             var sessionManager = SessionManagerFactory.CreateWithPersistedConfiguration(
                 maxSessions: 20);
             var session = sessionManager.CreateSessionAsync().Result;

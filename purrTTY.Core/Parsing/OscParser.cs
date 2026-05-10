@@ -316,7 +316,7 @@ public class OscParser : IOscParser
         Implemented = true
       },
       8 => ParseOsc8Hyperlink(raw, terminator, command, textParam),
-      // Private-use OSC commands (1000+) are handled by the RPC layer
+      // Private-use OSC commands (1000+) are implementation-defined
       >= 1000 => new XtermOscMessage
       {
         Type = "osc.private",

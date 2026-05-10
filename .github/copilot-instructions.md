@@ -4,7 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-purrTTY-cs is a C# terminal emulator for the Kitten Space Agency (KSA) game engine, providing full VT100/xterm-compatible terminal emulation. The project is structured as a .NET 10 solution with a headless core library and game-specific display layer.
+purrTTY is a C# VT100/xterm terminal emulator for the Kitten Space Agency (KSA) game engine.
+
+What this project/mod does:
+- Runs real shell sessions (PowerShell/cmd/other configured shells) inside an in-game terminal window.
+- Emulates terminal behavior in a headless core (parsing, cursor state, buffers, modes, OSC/CSI handling).
+- Renders the terminal through ImGui in KSA and exposes game-integrated shell options (including custom game shell support).
+
+How it does it:
+- `purrTTY.Core` implements parsing + emulation + session/process orchestration.
+- `purrTTY.Display` bridges emulator state to ImGui rendering and input handling.
+- `purrTTY.GameMod` hosts lifecycle hooks (`StarMap*` attributes), creates the session manager/controller, and toggles UI visibility.
+- `purrTTY.CustomShellContract` + `purrTTY.CustomShells` provide extensible custom shell integrations (for example, KSA game console shell).
 
 ## Build and Test Commands
 
@@ -17,16 +28,21 @@ dotnet build purrTTY.GameMod      # Build game mod (outputs to purrTTY.GameMod/d
 
 ### Testing
 
-**CRITICAL: Always use the PowerShell test script, never `dotnet test` directly.**
+Use the PowerShell test script by default. It keeps test output manageable and parses failures into a compact summary.
 
-The test suite contains ~1500 tests that produce massive stdout output from subshells that cannot be suppressed. Direct use of `dotnet test` will bloat context with thousands of lines of output.
+If the script is unavailable or fails before the test run starts, fall back to `dotnet test` only for a specific project or filtered subset so output stays narrow.
 
 ```bash
-.\scripts\dotnet-test.ps1                            # Run all tests (REQUIRED METHOD)
-.\scripts\dotnet-test.ps1 -Filter "Category=Unit"    # Run filtered tests
+.\scripts\dotnet-test.ps1                            # Preferred: run all tests
+.\scripts\dotnet-test.ps1 -Filter "Category=Unit"    # Preferred: run filtered tests
+dotnet test purrTTY.Core.Tests --filter "Category=Unit"  # Fallback if the script cannot be used
 ```
 
-The script runs dotnet test, saves results to `.testresults/results.trx`, then automatically parses failures with `test-errors.ts`. It outputs YAML-formatted results showing test counts on success or detailed failure information on error. Exit code 0 = all tests passed, 1 = failures detected.
+The script saves results to `.testresults/results.trx` and parses failures with `test-errors.ts`.
+
+Important:
+- ALWAYS prefer `./scripts/dotnet-test.ps1` over raw `dotnet test` for regular development runs.
+- ALWAYS use bun to run `.ts` scripts in this repo.
 
 ### Running
 ```bash
@@ -39,11 +55,15 @@ dotnet run --project purrTTY.TestApp                   # Run standalone console 
 ```
 purrTTY.Core (headless, no game dependencies)
     ↑
-    ├── purrTTY.TermSequenceRpc (KSA-specific RPC handlers)
-    │       ↑
-    │       └── purrTTY.TermSequenceRpc.Tests
-    ├── purrTTY.TestApp (console app)
     ├── purrTTY.Core.Tests (unit & property tests)
+    ├── purrTTY.TestApp (console app)
+    ├── purrTTY.CustomShellContract (custom shell abstractions)
+    │       ↑
+    │       └── purrTTY.CustomShellContract.Tests
+    ├── purrTTY.CustomShells (custom shell implementations)
+    │       ↑
+    │       └── purrTTY.CustomShells.Tests
+    ├── purrTTY.Logging (shared logging helpers)
     └── purrTTY.Display (ImGui integration, depends on KSA DLLs)
             ↑
             ├── purrTTY.Display.Playground
@@ -53,18 +73,19 @@ purrTTY.Core (headless, no game dependencies)
 
 ### Core Architecture (purrTTY.Core)
 
-The terminal emulator follows a multi-stage parsing and execution pipeline:
+The terminal emulator follows a multi-stage parsing and execution pipeline.
 
 **Parsing Pipeline:**
-- Input bytes → `ParserEngine` → escape sequence parsers (`CsiParser`, `EscParser`, `OscParser`, `DcsParser`)
+- Input bytes -> `Parser` -> escape sequence parsers (`CsiParser`, `EscParser`, `OscParser`, `DcsParser`)
 - Parsers emit typed messages: `CsiMessage`, `EscMessage`, `OscMessage`, `DcsMessage`
-- Messages routed to execution handlers in `TerminalEmulator`
+- Messages routed through terminal parser handlers, then to emulator operations.
 
 **Key Components:**
-- `TerminalEmulator` (2500 LOC): Main orchestrator, handles all escape sequences and terminal state
-  - Currently a large monolith, planned refactor to extract operation classes (see REAFCATOR_PLAN_WITHOUT_PARTIALS_SMALLER_FILES.md)
+- `TerminalEmulator`: Main orchestrator, still large but now delegates heavily to operation classes
+- `TerminalEmulatorBuilder`: Constructs emulator dependencies and operation handlers
 - `ProcessManager`: Manages Windows ConPTY shell processes (PowerShell, cmd)
 - `CustomShellPtyBridge`: Adapter for custom shell implementations via `ICustomShell` interface
+- `SessionManager`: Multi-session lifecycle, switching, restart, and tab ordering
 - `DualScreenBuffer`: Manages primary and alternate screen buffers
 - `ScreenBuffer`: Grid of cells with cursor, scrollback, and scroll regions
 
@@ -72,76 +93,96 @@ The terminal emulator follows a multi-stage parsing and execution pipeline:
 - `Input/`: Keyboard encoding, bracketed paste mode
 - `Parsing/`: Escape sequence parsers (CSI, OSC, ESC, DCS)
 - `Terminal/`: Core terminal logic, process management, custom shell support
-- `Rpc/`: RPC mechanisms for game integration (both CSI and OSC-based)
 - `Tracing/`: SQLite-based logging for debugging (disabled by default, see purrTTY.Core/Tracing/README.md)
 - `Types/`: Data structures (Cell, Cursor, ScreenBuffer, messages)
 - `Utils/`: Character classification, UTF-8 handling
 
-**Custom RPC Mechanisms:**
+### TerminalEmulator Refactor Status
 
-RPC is **optional** and game-agnostic. Core defines interfaces, game projects implement them.
+The major refactor that split emulator behavior into operation classes is complete.
 
-- **CSI RPC**: Command sequences via CSI private-use functions (commands 1000+)
-  - Core infrastructure: `Rpc/IRpcHandler.cs`, `Rpc/RpcCommandRouter.cs`, `Rpc/IRpcCommandHandler.cs`
-  - KSA implementation: `purrTTY.TermSequenceRpc/KsaGameActionRegistry.cs`, `VehicleCommands/`
-  - Format: CSI-based with fire-and-forget (1001-1999) or query (2001-2999) patterns
-
-- **OSC RPC**: Uses OSC sequences in private-use range (1000+) for JSON action dispatch
-  - OSC 1010: JSON action commands (e.g., `ESC ] 1010 ; {"action":"engine_ignite"} BEL`)
-  - Core infrastructure:
-    - `Parsing/OscParser.cs`: Marks OSC ≥1000 as `osc.private` type
-    - `Terminal/ParserHandlers/OscHandler.cs`: Delegates private commands to injected handler
-    - `Rpc/IOscRpcHandler.cs`: RPC interface (abstract)
-    - `Rpc/OscRpcHandler.cs`: Abstract base with JSON parsing infrastructure
-  - KSA implementation: `purrTTY.TermSequenceRpc/KsaOscRpcHandler.cs`
-  - Why OSC instead of DCS: Windows ConPTY filters DCS sequences but passes OSC through
-
-**RPC Integration Pattern:**
-```csharp
-// For KSA game integration (in purrTTY.GameMod):
-using purrTTY.TermSequenceRpc;
-var (rpcHandler, oscRpcHandler) = RpcBootstrapper.CreateKsaRpcHandlers(logger, outputCallback);
-var terminal = TerminalEmulator.Create(80, 24, 2500, logger, rpcHandler, oscRpcHandler);
-
-// Without RPC (in purrTTY.TestApp):
-var terminal = TerminalEmulator.Create(80, 24, 2500, logger);
-
-// With custom RPC implementation:
-var customOscHandler = new MyCustomOscRpcHandler(logger);
-var terminal = TerminalEmulator.Create(80, 24, 2500, logger, null, customOscHandler);
-```
+Navigation: `purrTTY.Core/Terminal/EmulatorOps/`
+- Cursor and positioning: `TerminalCursorMovementOps.cs`, `TerminalCursorSaveRestoreOps.cs`, `TerminalCursorStyleOps.cs`
+- Erase operations: `TerminalEraseInDisplayOps.cs`, `TerminalEraseInLineOps.cs`, selective erase variants
+- Scroll/insert/delete: `TerminalScrollOps.cs`, `TerminalInsertLinesOps.cs`, `TerminalDeleteLinesOps.cs`
+- OSC handling ops: `TerminalOscTitleIconOps.cs`, `TerminalOscClipboardOps.cs`, `TerminalOscHyperlinkOps.cs`, `TerminalOscColorQueryOps.cs`
+- Mode and input behavior: `TerminalDecModeOps.cs`, `TerminalPrivateModesOps.cs`, `TerminalBracketedPasteOps.cs`, `TerminalInputOps.cs`
 
 ### Display Layer (purrTTY.Display)
 
-**Controllers:**
-- `TerminalController`: Bridges `TerminalEmulator` with ImGui rendering
-- Handles input → terminal routing and terminal output → ImGui display
+`TerminalController` has been decomposed into subsystem classes in `purrTTY.Display/Controllers/TerminalUi/`.
 
-**Rendering:**
-- Uses KSA's Brutal.ImGui bindings
-- Manages font rendering, text layout, and ImGui window state
+Key files:
+- `TerminalController.cs` (facade)
+- `TerminalControllerBuilder.cs` (wires dependencies)
+- `TerminalUiRender.cs` (grid rendering)
+- `TerminalUiInput.cs` (input routing)
+- `TerminalUiTabs.cs` (session tab UI)
+- `TerminalUiSelection.cs` (selection/copy behavior)
+- `TerminalUiMouseTracking.cs` (mouse protocol behavior)
+- `TerminalUiResize.cs` (resize and dimensions)
+- `TerminalUiSettingsPanel.cs` (settings and persistence)
+- `TerminalUiFonts.cs` (font loading/switching)
 
-**Dependencies:**
-- KSA game DLLs from `C:\Program Files\Kitten Space Agency\` (configurable via `KSAFolder` in Directory.Build.props)
-- `Brutal.Core.Common.dll`, `Brutal.ImGui.dll`, `KSA.dll`, etc.
+### Custom Shell Architecture
 
-### RPC Layer (purrTTY.TermSequenceRpc)
+Custom shell contract and implementation points:
+- `purrTTY.CustomShellContract/ICustomShell.cs`
+- `purrTTY.CustomShellContract/Base/BaseLineBufferedShell.cs`
+- `purrTTY.Core/Terminal/CustomShellPtyBridge.cs`
+- `purrTTY.CustomShells/GameConsoleShell.cs`
 
-**KSA-specific RPC implementations:**
-- `KsaOscRpcHandler`: OSC RPC implementation with KSA game engine integration
-- `KsaGameActionRegistry`: CSI RPC command registry for vehicle control
-- `VehicleCommands/`: Command handlers (IgniteMainThrottle, ShutdownMainEngine, GetThrottleStatus)
-- `RpcBootstrapper`: Factory that wires all KSA RPC components together
+Important behavior:
+- Shell discovery is reflection-based via `CustomShellRegistry`.
+- `SessionManagerFactory` intentionally forces `purrTTY.CustomShells` assembly load before discovery.
+- `GameConsoleShell` integrates with KSA console output using Harmony patching (`purrTTY.GameMod/Patches/ConsoleWindowPrintPatch.cs`).
 
-**Purpose**: Isolates all game-specific RPC code from Core. Core remains headless and game-agnostic, defining only interfaces.
+### Game Mod Lifecycle (purrTTY.GameMod)
 
-### Game Mod (purrTTY.GameMod)
+Primary file: `purrTTY.GameMod/TerminalMod.cs`
 
-- StarMap.API-based mod with `[StarMapMod]` attribute
-- Lifecycle hooks: `[StarMapAllModsLoaded]`, `[StarMapAfterGui]`, `[StarMapUnload]`
-- F12 keybind toggles terminal window
-- Uses `RpcBootstrapper` from TermSequenceRpc for RPC initialization
-- Outputs to `dist/` with mod.toml
+Lifecycle hooks:
+- `[StarMapAllModsLoaded]`: patch + initialize terminal and controller
+- `[StarMapAfterGui]`: update/render terminal UI each frame
+- `[StarMapUnload]`: unpatch and dispose resources
+
+User interaction:
+- F12 toggles terminal visibility
+- Mod menu integration calls the same toggle path
+
+## Code Navigation Guide
+
+Use this map to quickly find the right place to make changes.
+
+Start here:
+- Solution entry: `purrtty.slnx`
+- Shared build config and game DLL path: `Directory.Build.props`
+- Feature inventory and progress notes: `docs/FEATURE_TRACKING.md`
+
+Core emulator and parsing:
+- Parser state machine: `purrTTY.Core/Parsing/Parser.cs`
+- OSC private-use parsing marker: `purrTTY.Core/Parsing/OscParser.cs`
+- Parser dispatch handlers: `purrTTY.Core/Terminal/TerminalParserHandlers.cs`
+- Main emulator facade: `purrTTY.Core/Terminal/TerminalEmulator.cs`
+- Emulator operation classes: `purrTTY.Core/Terminal/EmulatorOps/`
+- Session lifecycle: `purrTTY.Core/Terminal/SessionManager.cs`
+- Session creation and process/custom-shell branching: `purrTTY.Core/Terminal/Sessions/TerminalSessionFactory.cs`
+- ConPTY process host: `purrTTY.Core/Terminal/ProcessManager.cs`
+
+Display and UI:
+- Controller facade: `purrTTY.Display/Controllers/TerminalController.cs`
+- Controller builder: `purrTTY.Display/Controllers/TerminalControllerBuilder.cs`
+- UI subsystems: `purrTTY.Display/Controllers/TerminalUi/`
+- Session manager factory and persisted shell config: `purrTTY.Display/Configuration/SessionManagerFactory.cs`
+
+Game and integration:
+- Mod entry/lifecycle: `purrTTY.GameMod/TerminalMod.cs`
+- Harmony patch bridge for game console output: `purrTTY.GameMod/Patches/ConsoleWindowPrintPatch.cs`
+- Test app entry point: `purrTTY.TestApp/TerminalTestApp.cs`
+
+Custom shells:
+- Shell interface/metadata: `purrTTY.CustomShellContract/`
+- Built-in game shell: `purrTTY.CustomShells/GameConsoleShell.cs`
 
 ## Development Patterns
 
@@ -151,12 +192,27 @@ var terminal = TerminalEmulator.Create(80, 24, 2500, logger, null, customOscHand
 - **Test organization**: Mirrors source structure (e.g., `purrTTY.Core.Tests/Unit/ProcessManagerTests.cs` → `purrTTY.Core/Terminal/ProcessManager.cs`)
 - **Test execution**: MUST use `.\scripts\dotnet-test.ps1` to avoid massive stdout bloat
 
-### Refactoring Goals
-The codebase is undergoing refactoring to break `TerminalEmulator.cs` (2500 LOC) into smaller operation classes (<500 LOC each). See REAFCATOR_PLAN_WITHOUT_PARTIALS_SMALLER_FILES.md for detailed plan. Key principles:
-- No `partial` classes
-- Feature classes in `Terminal/EmulatorOps/` (e.g., `TerminalCursorMovementOps.cs`, `TerminalEraseOps.cs`)
-- Façade pattern: `TerminalEmulator` delegates to operation classes
-- No business logic changes during refactoring
+### Complex Areas and Callouts
+
+1. `TerminalEmulator` + `EmulatorOps` split:
+- Behavior often spans parser handler -> emulator facade -> op class.
+- When debugging sequence behavior, trace all three layers before changing logic.
+
+2. Parser behavior and OSC private ranges:
+- OSC `>= 1000` is currently parsed as private-use (`osc.private`), but there is no in-tree RPC project or injected handler pipeline.
+- Treat OSC private-use handling as implementation-defined unless and until a concrete in-tree integration is added.
+
+3. Display controller decomposition:
+- Most rendering/input behavior now lives in `TerminalUi/*` subsystems.
+- Avoid re-monolithizing `TerminalController.cs`; add behavior in subsystem files and wire in builder.
+
+4. Session and shell configuration persistence:
+- `SessionManagerFactory` pulls persisted settings and dimensions from theme configuration.
+- Bugs around startup shell selection typically involve theme config loading + custom shell discovery order.
+
+5. Custom shell discovery:
+- Reflection-based discovery depends on assembly load state.
+- `SessionManagerFactory.EnsureCustomShellsAssemblyIsLoaded()` is intentional; do not remove without replacing discovery strategy.
 
 ### Code Standards (from Directory.Build.props)
 - .NET 10 with C# 13
@@ -176,23 +232,20 @@ The codebase is undergoing refactoring to break `TerminalEmulator.cs` (2500 LOC)
 ## Common Workflows
 
 ### Adding a new escape sequence handler
-1. Add parsing logic to appropriate parser (e.g., `CsiParser.cs`)
-2. Define message type if needed (e.g., in `Types/CsiMessage.cs`)
-3. Add handler in `TerminalEmulator.cs` (or appropriate ops class if refactored)
-4. Add unit tests in `purrTTY.Core.Tests/`
-5. Run tests with `.\scripts\dotnet-test.ps1`
+1. Identify sequence family (CSI, OSC, ESC, DCS).
+2. Update parser logic in `purrTTY.Core/Parsing/` (for example `CsiParser.cs`, `OscParser.cs`).
+3. Update/extend dispatch in `purrTTY.Core/Terminal/ParserHandlers/`.
+4. Implement behavior in the appropriate class under `purrTTY.Core/Terminal/EmulatorOps/`.
+5. Add targeted unit/property tests in `purrTTY.Core.Tests/`.
+6. Run tests with `.\scripts\dotnet-test.ps1`.
 
-### Adding a new RPC command (OSC-based)
-1. Add action constant to `purrTTY.TermSequenceRpc/KsaOscRpcHandler.cs` `Actions` class
-2. Add dispatch case in `KsaOscRpcHandler.DispatchAction()`
-3. Add unit tests in `purrTTY.TermSequenceRpc.Tests/Unit/KsaOscRpcHandlerTests.cs`
-4. Use from shell: `echo -ne '\e]1010;{"action":"your_action"}\a'`
-
-### Adding a new RPC command (CSI-based)
-1. Create command handler implementing `IRpcCommandHandler` in `purrTTY.TermSequenceRpc/VehicleCommands/`
-2. Register in `KsaGameActionRegistry.RegisterVehicleCommands()`
-3. Commands 1001-1999 are fire-and-forget, 2001-2999 are queries
-4. Add tests in `purrTTY.TermSequenceRpc.Tests/Unit/`
+### Adding a custom shell implementation
+1. Implement `ICustomShell` in `purrTTY.CustomShellContract` (or inherit `BaseLineBufferedShell`).
+2. Add implementation in `purrTTY.CustomShells` (or another shell assembly).
+3. Ensure metadata is correct and shell ID is stable.
+4. Verify discovery through `CustomShellRegistry` and session launch via `SessionManagerFactory`.
+5. Add unit tests in the corresponding `*.Tests` project.
+6. Run tests with `.\scripts\dotnet-test.ps1`.
 
 ### Testing terminal behavior
 1. Use `purrTTY.TestApp` for quick console testing
@@ -205,11 +258,38 @@ The codebase is undergoing refactoring to break `TerminalEmulator.cs` (2500 LOC)
 2. Copy `purrTTY.GameMod/dist/*` to KSA mods folder
 3. Launch KSA, press F12 to toggle terminal
 
+## Defunct Guidance Removal and Reality Check
+
+The following are NOT present in the current repository and must not be documented as implemented:
+- `purrTTY.TermSequenceRpc` project
+- `RpcBootstrapper`, `IRpcHandler`, `IOscRpcHandler`, `KsaOscRpcHandler`, `KsaGameActionRegistry`
+- `TerminalEmulator.Create(...)` overloads that accept RPC handler arguments
+
+If you see comments or old notes mentioning those APIs, treat them as stale historical context.
+Only document functionality that exists in the current codebase.
+
+## Instruction Maintenance Mandate (MUST)
+
+Whenever you make meaningful repository changes, you MUST evaluate and update this file in the same work item if needed.
+
+You MUST update this file when any of the following change:
+1. Project structure, project dependencies, or renamed/moved key files.
+2. Core architecture or control flow (parser, emulator ops, session lifecycle, controller layering).
+3. Public APIs, constructors, or integration patterns that agents are likely to copy.
+4. Build/test/run commands, required tooling, or deployment steps.
+5. Feature status transitions (implemented, removed, replaced, or deferred).
+
+Rules:
+- Remove defunct guidance immediately; do not leave stale references.
+- Prefer verified code paths over plans/comments when documenting behavior.
+- Keep navigation pointers current so future coding agents can find the right files quickly.
+- If uncertain whether behavior is implemented, verify in code before documenting.
+
 ## Important Files
 
 - `Directory.Build.props`: Shared build configuration, KSA installation path
 - `.editorconfig`: C# formatting rules
-- `FEATURE_TRACKING.md`: VT100/xterm feature implementation status
+- `docs/FEATURE_TRACKING.md`: VT100/xterm feature implementation status
 - `purrTTY.Core/Tracing/README.md`: Tracing system documentation
 - `purrTTY.GameMod/README.md`: Game mod installation and usage guide
 - `scripts/dotnet-test.ps1`: Test runner that suppresses verbose output and auto-parses results (MUST USE THIS)

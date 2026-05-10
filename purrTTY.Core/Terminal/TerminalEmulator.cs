@@ -254,14 +254,13 @@ public class TerminalEmulator : ITerminalEmulator, ICursorPositionProvider
     }
 
     /// <summary>
-    ///     Creates a new terminal emulator with the specified dimensions, scrollback, and optional RPC handler.
+    ///     Creates a new terminal emulator with the specified dimensions and scrollback.
     ///     Uses TerminalEmulatorBuilder for initialization.
     /// </summary>
     /// <param name="width">Width in columns</param>
     /// <param name="height">Height in rows</param>
     /// <param name="scrollbackLines">Maximum number of scrollback lines (default: 1000)</param>
     /// <param name="logger">Optional logger for debugging (uses NullLogger if not provided)</param>
-    /// <param name="rpcHandler">Optional RPC handler for game integration (null disables RPC functionality)</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when dimensions are invalid</exception>
     public static TerminalEmulator Create(int width, int height, int scrollbackLines, ILogger? logger = null)
     {

@@ -24,8 +24,6 @@ public class SessionManager : IDisposable
     /// </summary>
     /// <param name="maxSessions">Maximum number of concurrent sessions (default: 20)</param>
     /// <param name="defaultLaunchOptions">Default options for launching new sessions</param>
-    /// <param name="rpcHandler">Optional RPC handler for CSI RPC commands (null disables CSI RPC)</param>
-    /// <param name="oscRpcHandler">Optional OSC RPC handler for OSC-based RPC commands (null disables OSC RPC)</param>
     public SessionManager(
         int maxSessions = 20,
         ProcessLaunchOptions? defaultLaunchOptions = null)

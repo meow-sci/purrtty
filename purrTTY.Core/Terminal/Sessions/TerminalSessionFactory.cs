@@ -18,8 +18,6 @@ internal class TerminalSessionFactory
     /// <param name="onStateChanged">Event handler for session state changes</param>
     /// <param name="onTitleChanged">Event handler for session title changes</param>
     /// <param name="onProcessExited">Event handler for process exit</param>
-    /// <param name="rpcHandler">Optional RPC handler for game integration (null disables RPC functionality)</param>
-    /// <param name="oscRpcHandler">Optional OSC RPC handler for OSC-based RPC commands (null uses default no-op handler)</param>
     /// <param name="launchOptions">Optional launch options for the session (used to determine shell type)</param>
     /// <returns>A fully configured terminal session</returns>
     /// <exception cref="InvalidOperationException">Thrown if custom game shell cannot be created</exception>

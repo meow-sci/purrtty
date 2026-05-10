@@ -6,7 +6,7 @@ namespace purrTTY.Core.Terminal.ParserHandlers;
 /// <summary>
 ///     Handles OSC (Operating System Command) sequence processing.
 ///     Implements standard ECMA-48/xterm OSC sequences and delegates
-///     private-use commands (1000+) to the RPC layer.
+///     private-use commands (1000+) as implementation-defined sequences.
 /// </summary>
 internal class OscHandler
 {
@@ -99,7 +99,7 @@ internal class OscHandler
                 break;
 
             default:
-                // Check if this is a private-use command (1000+) for RPC handling
+                // Private-use commands (1000+) are implementation-defined
                 // Log unhandled xterm OSC sequences for debugging
                 _logger.LogDebug("Xterm OSC: {Type} - {Raw}", message.Type, message.Raw);
                 break;
