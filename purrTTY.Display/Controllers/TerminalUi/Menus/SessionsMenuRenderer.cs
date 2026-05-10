@@ -37,37 +37,42 @@ internal class SessionsMenuRenderer
       try
       {
 
-        var shellOptions = ShellSelectionHelper.GetAvailableShellOptions();
+        if (ImGui.BeginMenu("New Session"))
+        {
+          var shellOptions = ShellSelectionHelper.GetAvailableShellOptions();
 
-        if (shellOptions.Count == 0)
-        {
-          ImGui.TextDisabled("No shells available");
-        }
-        else
-        {
-          foreach (var option in shellOptions)
+          if (shellOptions.Count == 0)
           {
-            if (ImGui.MenuItem(option.DisplayName))
+            ImGui.TextDisabled("No shells available");
+          }
+          else
+          {
+            foreach (var option in shellOptions)
             {
-              _ = Task.Run(async () =>
+              if (ImGui.MenuItem(option.DisplayName))
               {
-                try
+                _ = Task.Run(async () =>
                 {
-                  await ShellSelectionHelper.CreateSessionWithShell(_sessionManager, option);
-                }
-                catch (Exception ex)
-                {
-                  ModLog.Log.Debug($"Failed to create shell session '{option.DisplayName}': {ex.Message}");
-                  ModLog.Log.Debug($"Stack trace: {ex.StackTrace}");
-                }
-              });
-            }
+                  try
+                  {
+                    await ShellSelectionHelper.CreateSessionWithShell(_sessionManager, option);
+                  }
+                  catch (Exception ex)
+                  {
+                    ModLog.Log.Debug($"Failed to create shell session '{option.DisplayName}': {ex.Message}");
+                    ModLog.Log.Debug($"Stack trace: {ex.StackTrace}");
+                  }
+                });
+              }
 
-            if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(option.Tooltip))
-            {
-              ImGui.SetTooltip(option.Tooltip);
+              if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(option.Tooltip))
+              {
+                ImGui.SetTooltip(option.Tooltip);
+              }
             }
           }
+
+          ImGui.EndMenu();
         }
 
         // Sessions submenu (active session list)
@@ -153,7 +158,7 @@ internal class SessionsMenuRenderer
         }
 
         // Previous Session - enabled when more than one session exists
-        if (ImGui.MenuItem("Previous Session", "", false, canNavigateSessions))
+        if (ImGui.MenuItem("Prev Session", "", false, canNavigateSessions))
         {
           _controller.SwitchToPreviousSessionAndFocus();
         }
