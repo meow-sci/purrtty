@@ -343,6 +343,44 @@ public class ThemeConfiguration
     }
 
     /// <summary>
+    /// Synchronizes live display settings into the in-memory configuration snapshot.
+    /// This keeps later saves for unrelated settings from discarding the current theme, font, or opacity values.
+    /// </summary>
+    /// <param name="selectedThemeName">Current selected theme name.</param>
+    /// <param name="fontFamily">Current font family.</param>
+    /// <param name="fontSize">Current font size.</param>
+    /// <param name="backgroundOpacity">Current background opacity.</param>
+    /// <param name="foregroundOpacity">Current foreground opacity.</param>
+    /// <param name="cellBackgroundOpacity">Current cell background opacity.</param>
+    public void SyncRuntimeDisplaySettings(
+        string? selectedThemeName,
+        string? fontFamily,
+        float? fontSize,
+        float backgroundOpacity,
+        float foregroundOpacity,
+        float cellBackgroundOpacity)
+    {
+        if (!string.IsNullOrWhiteSpace(selectedThemeName))
+        {
+            SelectedThemeName = selectedThemeName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fontFamily))
+        {
+            FontFamily = fontFamily;
+        }
+
+        if (fontSize.HasValue && fontSize.Value > 0.0f)
+        {
+            FontSize = fontSize.Value;
+        }
+
+        BackgroundOpacity = backgroundOpacity;
+        ForegroundOpacity = foregroundOpacity;
+        CellBackgroundOpacity = cellBackgroundOpacity;
+    }
+
+    /// <summary>
     /// Creates ProcessLaunchOptions based on the current configuration.
     /// </summary>
     /// <returns>ProcessLaunchOptions configured according to current settings</returns>

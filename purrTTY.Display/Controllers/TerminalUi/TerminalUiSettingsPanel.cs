@@ -20,6 +20,7 @@ internal class TerminalUiSettingsPanel
 {
   private readonly SessionManager _sessionManager;
   private readonly ThemeConfiguration _themeConfig;
+  private readonly TerminalUiFonts _fonts;
   private readonly SessionsMenuRenderer _sessionsMenuRenderer;
   private readonly EditMenuRenderer _editMenuRenderer;
   private readonly SettingsMenuRenderer _settingsMenuRenderer;
@@ -46,13 +47,14 @@ internal class TerminalUiSettingsPanel
 
     _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
     _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
+    _fonts = fonts;
 
     // Create submenu renderers first
-    var colorThemeSubmenu = new ColorThemeSubmenuRenderer(themeConfig);
+    var colorThemeSubmenu = new ColorThemeSubmenuRenderer(themeConfig, fonts);
     var fontSubmenu = new FontSubmenuRenderer(fonts, sessionManager, triggerTerminalResizeForAllSessions);
-    var windowSubmenu = new WindowSubmenuRenderer(themeConfig);
-    var shellsSubmenu = new ShellsSubmenuRenderer(themeConfig, sessionManager);
-    var gameShellSubmenu = new GameShellSubmenuRenderer(themeConfig);
+    var windowSubmenu = new WindowSubmenuRenderer(themeConfig, PersistThemeConfigurationSnapshot);
+    var shellsSubmenu = new ShellsSubmenuRenderer(themeConfig, sessionManager, PersistThemeConfigurationSnapshot);
+    var gameShellSubmenu = new GameShellSubmenuRenderer(themeConfig, PersistThemeConfigurationSnapshot);
     var performanceSubmenu = new PerformanceSubmenuRenderer(perfWatch);
 
     // Create top-level menus
@@ -136,7 +138,7 @@ internal class TerminalUiSettingsPanel
           }
 
           _themeConfig.DefaultShellType = fallbackShell;
-          _themeConfig.Save(); // Save the fallback choice
+          PersistThemeConfigurationSnapshot(); // Save the fallback choice
         }
       }
 
@@ -156,5 +158,18 @@ internal class TerminalUiSettingsPanel
       ModLog.Log.Debug($"Error loading shell configuration: {ex.Message}");
       // Continue with default shell configuration
     }
+  }
+
+  private void PersistThemeConfigurationSnapshot()
+  {
+    _themeConfig.SyncRuntimeDisplaySettings(
+      ThemeManager.CurrentTheme.Name,
+      _fonts.CurrentFontFamily,
+      _fonts.CurrentFontConfig.FontSize,
+      OpacityManager.CurrentBackgroundOpacity,
+      OpacityManager.CurrentForegroundOpacity,
+      OpacityManager.CurrentCellBackgroundOpacity);
+
+    _themeConfig.Save();
   }
 }

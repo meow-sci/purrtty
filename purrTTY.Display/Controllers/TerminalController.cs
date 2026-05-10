@@ -723,7 +723,19 @@ public class TerminalController : ITerminalController
     }
 
     _themeConfig.SetTerminalWindowState(_lastKnownWindowPosition, _lastKnownWindowSize, currentColumns, currentRows);
+    SyncThemeConfigurationFromRuntime();
     _themeConfig.Save();
+  }
+
+  private void SyncThemeConfigurationFromRuntime()
+  {
+    _themeConfig.SyncRuntimeDisplaySettings(
+      ThemeManager.CurrentTheme.Name,
+      _fonts.CurrentFontFamily,
+      _fonts.CurrentFontConfig.FontSize,
+      OpacityManager.CurrentBackgroundOpacity,
+      OpacityManager.CurrentForegroundOpacity,
+      OpacityManager.CurrentCellBackgroundOpacity);
   }
 
   private void RestoreSavedTerminalDimensions(int columns, int rows)

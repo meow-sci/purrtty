@@ -36,7 +36,7 @@ internal class TerminalUiFonts
   public float CurrentLineHeight => _metricsCalculator.CurrentLineHeight;
   public float CurrentFontSize { get; private set; }
 
-  public TerminalUiFonts(TerminalRenderingConfig config, TerminalFontConfig fontConfig, string currentFontFamily, Performance.PerformanceStopwatch perfWatch)
+  public TerminalUiFonts(TerminalRenderingConfig config, TerminalFontConfig fontConfig, ThemeConfiguration themeConfig, string currentFontFamily, Performance.PerformanceStopwatch perfWatch)
   {
     _config = config ?? throw new ArgumentNullException(nameof(config));
     _fontConfig = fontConfig ?? throw new ArgumentNullException(nameof(fontConfig));
@@ -52,7 +52,7 @@ internal class TerminalUiFonts
     _familySelector = new FontFamilySelector(_fontConfig, currentFontFamily ?? throw new ArgumentNullException(nameof(currentFontFamily)));
 
     // Initialize config persistence
-    _configPersistence = new FontConfigPersistence();
+    _configPersistence = new FontConfigPersistence(themeConfig);
 
     CurrentFontSize = _fontConfig.FontSize;
   }

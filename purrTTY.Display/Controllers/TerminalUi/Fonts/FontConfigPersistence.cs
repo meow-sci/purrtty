@@ -11,6 +11,13 @@ namespace purrTTY.Display.Controllers.TerminalUi.Fonts;
 /// </summary>
 internal class FontConfigPersistence
 {
+  private readonly ThemeConfiguration _themeConfig;
+
+  public FontConfigPersistence(ThemeConfiguration themeConfig)
+  {
+    _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
+  }
+
   /// <summary>
   ///     Loads font settings from persistent configuration during initialization.
   /// </summary>
@@ -189,14 +196,15 @@ internal class FontConfigPersistence
   {
     try
     {
-      var config = ThemeConfiguration.Load();
+      _themeConfig.SyncRuntimeDisplaySettings(
+        ThemeManager.CurrentTheme.Name,
+        familySelector.GetFontFamilyForSaving(),
+        fontConfig.FontSize,
+        OpacityManager.CurrentBackgroundOpacity,
+        OpacityManager.CurrentForegroundOpacity,
+        OpacityManager.CurrentCellBackgroundOpacity);
 
-      // Update font settings from family selector
-      config.FontFamily = familySelector.GetFontFamilyForSaving();
-      config.FontSize = fontConfig.FontSize;
-
-      // Save configuration
-      config.Save();
+      _themeConfig.Save();
 
       ModLog.Log.Debug($"FontConfigPersistence: Saved font settings - Family: {familySelector.CurrentFontFamily}, Size: {fontConfig.FontSize}");
     }

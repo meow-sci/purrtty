@@ -73,7 +73,7 @@ internal class TerminalControllerBuilder
   public TerminalControllerBuilder BuildUiSubsystems(TerminalController controller)
   {
     // Initialize font subsystem
-    _fonts = new TerminalUiFonts(_config, _fontConfig, "Hack", controller.PerfWatch);
+    _fonts = new TerminalUiFonts(_config, _fontConfig, _themeConfig, "Hack", controller.PerfWatch);
     _fonts.LoadFontSettingsInConstructor();
     _fonts.InitializeCurrentFontFamily();
 

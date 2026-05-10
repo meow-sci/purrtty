@@ -19,13 +19,16 @@ internal class ShellsSubmenuRenderer
 {
   private readonly ThemeConfiguration _themeConfig;
   private readonly SessionManager _sessionManager;
+  private readonly Action _persistThemeConfiguration;
 
   public ShellsSubmenuRenderer(
     ThemeConfiguration themeConfig,
-    SessionManager sessionManager)
+    SessionManager sessionManager,
+    Action persistThemeConfiguration)
   {
     _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
     _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+    _persistThemeConfiguration = persistThemeConfiguration ?? throw new ArgumentNullException(nameof(persistThemeConfiguration));
   }
 
   /// <summary>
@@ -114,13 +117,7 @@ internal class ShellsSubmenuRenderer
       // Update session manager with new default launch options
       _sessionManager.UpdateDefaultLaunchOptions(launchOptions);
 
-      // Sync current opacity values from OpacityManager before saving
-      // This ensures global opacity settings are preserved when shell type changes
-      _themeConfig.BackgroundOpacity = OpacityManager.CurrentBackgroundOpacity;
-      _themeConfig.ForegroundOpacity = OpacityManager.CurrentForegroundOpacity;
-
-      // Save configuration to disk
-      _themeConfig.Save();
+      _persistThemeConfiguration();
 
       ModLog.Log.Debug($"Shell configuration applied: {_themeConfig.GetShellDisplayName()}");
     }

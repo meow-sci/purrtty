@@ -11,11 +11,13 @@ namespace purrTTY.Display.Controllers.TerminalUi.Menus;
 internal class GameShellSubmenuRenderer
 {
     private readonly ThemeConfiguration _themeConfig;
+    private readonly Action _persistThemeConfiguration;
     private string _promptBuffer;
 
-    public GameShellSubmenuRenderer(ThemeConfiguration themeConfig)
+    public GameShellSubmenuRenderer(ThemeConfiguration themeConfig, Action persistThemeConfiguration)
     {
         _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
+        _persistThemeConfiguration = persistThemeConfiguration ?? throw new ArgumentNullException(nameof(persistThemeConfiguration));
         _promptBuffer = _themeConfig.GameShellPrompt;
     }
 
@@ -45,7 +47,7 @@ internal class GameShellSubmenuRenderer
             {
                 _promptBuffer = preset;
                 _themeConfig.GameShellPrompt = preset;
-                _themeConfig.Save();
+                _persistThemeConfiguration();
             }
 
             if (ImGui.IsItemHovered())

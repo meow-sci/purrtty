@@ -339,6 +339,47 @@ public class ThemeConfigurationTests
         }
     }
 
+    [Test]
+    public void SyncRuntimeDisplaySettings_ShouldUpdateThemeFontAndOpacitySnapshot()
+    {
+        var config = new ThemeConfiguration
+        {
+            SelectedThemeName = "Default",
+            BackgroundOpacity = 1.0f,
+            ForegroundOpacity = 1.0f,
+            CellBackgroundOpacity = 1.0f
+        };
+
+        config.SyncRuntimeDisplaySettings("Adventure", "Jet Brains Mono", 28.0f, 0.34f, 0.9f, 0.7f);
+
+        Assert.That(config.SelectedThemeName, Is.EqualTo("Adventure"));
+        Assert.That(config.FontFamily, Is.EqualTo("Jet Brains Mono"));
+        Assert.That(config.FontSize, Is.EqualTo(28.0f));
+        Assert.That(config.BackgroundOpacity, Is.EqualTo(0.34f));
+        Assert.That(config.ForegroundOpacity, Is.EqualTo(0.9f));
+        Assert.That(config.CellBackgroundOpacity, Is.EqualTo(0.7f));
+    }
+
+    [Test]
+    public void SyncRuntimeDisplaySettings_WithBlankThemeOrFont_ShouldPreserveExistingValues()
+    {
+        var config = new ThemeConfiguration
+        {
+            SelectedThemeName = "Adventure",
+            FontFamily = "Space Mono",
+            FontSize = 30.0f
+        };
+
+        config.SyncRuntimeDisplaySettings(null, "", null, 0.5f, 0.6f, 0.7f);
+
+        Assert.That(config.SelectedThemeName, Is.EqualTo("Adventure"));
+        Assert.That(config.FontFamily, Is.EqualTo("Space Mono"));
+        Assert.That(config.FontSize, Is.EqualTo(30.0f));
+        Assert.That(config.BackgroundOpacity, Is.EqualTo(0.5f));
+        Assert.That(config.ForegroundOpacity, Is.EqualTo(0.6f));
+        Assert.That(config.CellBackgroundOpacity, Is.EqualTo(0.7f));
+    }
+
     /// <summary>
     /// Test configuration with null theme name.
     /// </summary>

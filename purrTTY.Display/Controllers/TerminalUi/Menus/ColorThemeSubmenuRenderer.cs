@@ -15,10 +15,12 @@ namespace purrTTY.Display.Controllers.TerminalUi.Menus;
 internal class ColorThemeSubmenuRenderer
 {
   private readonly ThemeConfiguration _themeConfig;
+  private readonly TerminalUiFonts _fonts;
 
-  public ColorThemeSubmenuRenderer(ThemeConfiguration themeConfig)
+  public ColorThemeSubmenuRenderer(ThemeConfiguration themeConfig, TerminalUiFonts fonts)
   {
     _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
+    _fonts = fonts ?? throw new ArgumentNullException(nameof(fonts));
   }
 
   /// <summary>
@@ -130,6 +132,14 @@ internal class ColorThemeSubmenuRenderer
     try
     {
       ModLog.Log.Debug($"TerminalController: Applying theme: {theme.Name}");
+
+      _themeConfig.SyncRuntimeDisplaySettings(
+        theme.Name,
+        _fonts.CurrentFontFamily,
+        _fonts.CurrentFontConfig.FontSize,
+        OpacityManager.CurrentBackgroundOpacity,
+        OpacityManager.CurrentForegroundOpacity,
+        OpacityManager.CurrentCellBackgroundOpacity);
 
       // Apply the theme through ThemeManager
       ThemeManager.ApplyTheme(theme);

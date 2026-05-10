@@ -15,10 +15,12 @@ namespace purrTTY.Display.Controllers.TerminalUi.Menus;
 internal class WindowSubmenuRenderer
 {
   private readonly ThemeConfiguration _themeConfig;
+  private readonly Action _persistThemeConfiguration;
 
-  public WindowSubmenuRenderer(ThemeConfiguration themeConfig)
+  public WindowSubmenuRenderer(ThemeConfiguration themeConfig, Action persistThemeConfiguration)
   {
     _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
+    _persistThemeConfiguration = persistThemeConfiguration ?? throw new ArgumentNullException(nameof(persistThemeConfiguration));
   }
 
   /// <summary>
@@ -36,7 +38,7 @@ internal class WindowSubmenuRenderer
     if (ImGui.Checkbox("Hide UI when not hovered", ref hideUi))
     {
       _themeConfig.HideUiWhenNotHovered = hideUi;
-      _themeConfig.Save();
+      _persistThemeConfiguration();
     }
 
     if (ImGui.IsItemHovered())
