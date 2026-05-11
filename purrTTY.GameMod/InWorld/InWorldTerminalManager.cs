@@ -1,4 +1,6 @@
 using System;
+using Brutal.VulkanApi;
+using KSA;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.Logging;
 
@@ -6,12 +8,13 @@ namespace purrTTY.GameMod.InWorld;
 
 /// <summary>
 ///     Top-level coordinator for the in-world (render-to-texture) terminal feature.
-///     Phase 1: pure scaffolding — constructed, hot-keyed, and gated behind
-///     <see cref="InWorldSettings.Enabled"/>, but performs no rendering.
+///     Phase 2: owns an <see cref="OffscreenRenderTarget"/> (render pass + framebuffer
+///     + sampler) but still does not render anything into it.
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
 {
     private readonly InWorldSettings _settings;
+    private OffscreenRenderTarget? _target;
     private bool _initialized;
     private bool _disposed;
 
@@ -25,8 +28,33 @@ public sealed class InWorldTerminalManager : IDisposable
     /// </summary>
     public void Initialize()
     {
-        // phase 2+ populates this
-        _initialized = true;
+        try
+        {
+            var renderer = Program.GetRenderer();
+            if (renderer == null)
+            {
+                ModLog.Log.Error("purrTTY in-world: Program.GetRenderer() returned null; disabling in-world terminal");
+                _settings.Enabled = false;
+                return;
+            }
+
+            _target = new OffscreenRenderTarget(
+                renderer,
+                "purrTTY-Offscreen",
+                _settings.TextureWidth,
+                _settings.TextureHeight,
+                VkFormat.R8G8B8A8SRGB,
+                renderer.DepthFormat);
+
+            _initialized = true;
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world: failed to create OffscreenRenderTarget; disabling in-world terminal: {ex}");
+            _settings.Enabled = false;
+            _target?.Dispose();
+            _target = null;
+        }
     }
 
     /// <summary>
@@ -58,6 +86,7 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
         _disposed = true;
-        // phase 2+ disposes resources
+        _target?.Dispose();
+        _target = null;
     }
 }
