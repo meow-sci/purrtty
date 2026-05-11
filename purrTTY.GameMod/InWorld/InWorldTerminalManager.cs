@@ -22,6 +22,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private OffscreenImGuiBackend? _backend;
     private PerFrameRenderer? _frame;
     private QuadDisplay? _quad;
+    private SubPartMaterialOverride? _override;
     private bool _initialized;
     private bool _disposed;
 
@@ -155,9 +156,20 @@ public sealed class InWorldTerminalManager : IDisposable
     ///         current forward/up. Anchoring requires a live camera (the player
     ///         must be in flight, not on a loading screen); if none exists we
     ///         revert the toggle so the patch never fires against an un-anchored
-    ///         quad. The patch enable bit (FramePatches.IsActive) and the live
-    ///         quad pointer (FramePatches.Display) are updated last so the
-    ///         postfix never sees a half-initialized state.
+    ///         quad.
+    ///     </para>
+    ///     <para>
+    ///         Phase 6B: when enabling and <see cref="InWorldSettings.TargetPartName"/>
+    ///         is set, also try to construct a <see cref="SubPartMaterialOverride"/>
+    ///         that swaps the chosen part's diffuse + emissive bindless handles for
+    ///         our off-screen texture. Failure here is non-fatal: the quad still
+    ///         renders. When the target name is empty we log all available part Ids
+    ///         on the active vessel as a one-shot hint to the user.
+    ///     </para>
+    ///     <para>
+    ///         The patch enable bits (<see cref="FramePatches.IsActive"/>,
+    ///         <see cref="FramePatches.Display"/>, <see cref="FramePatches.Override"/>)
+    ///         are updated last so the postfixes never see half-initialized state.
     ///     </para>
     /// </summary>
     public void Toggle()
@@ -173,13 +185,92 @@ public sealed class InWorldTerminalManager : IDisposable
                 return;
             }
             _quad.Anchor(camera);
+
+            TrySetupSubPartOverride();
+        }
+
+        if (!newState)
+        {
+            // Detach the patches first so the override teardown can't race with
+            // a postfix that still holds the old reference.
+            FramePatches.IsActive = false;
+            FramePatches.Override = null;
+            try { _override?.Dispose(); } catch { /* best-effort */ }
+            _override = null;
         }
 
         _settings.Enabled = newState;
         FramePatches.Display  = (_settings.Enabled && _quad != null) ? _quad : null;
+        FramePatches.Override = _settings.Enabled ? _override : null;
         FramePatches.IsActive = _settings.Enabled && _quad != null;
 
         ModLog.Log.Debug($"purrTTY in-world terminal {(_settings.Enabled ? "enabled" : "disabled")}");
+    }
+
+    private void TrySetupSubPartOverride()
+    {
+        if (_target == null) return;
+
+        var renderer = Program.GetRenderer();
+        if (renderer == null) return;
+
+        Vehicle? vehicle = Program.ControlledVehicle;
+        if (vehicle == null)
+        {
+            ModLog.Log.Debug("purrTTY in-world: no controlled vehicle; subpart override skipped (quad-only).");
+            return;
+        }
+
+        // Empty target name: log every visible part Id on the vessel so the user
+        // can pick one. This is a one-shot diagnostic emitted at toggle-on.
+        if (string.IsNullOrEmpty(_settings.TargetPartName))
+        {
+            var ids = new System.Text.StringBuilder();
+            foreach (Part p in vehicle.Parts.Parts)
+            {
+                if (ids.Length > 0) ids.Append(", ");
+                ids.Append(p.Id);
+                foreach (Part sub in p.SubParts)
+                {
+                    ids.Append(", ");
+                    ids.Append(sub.Id);
+                }
+            }
+            ModLog.Log.Debug($"purrTTY in-world: available parts: {ids}");
+            return;
+        }
+
+        Part? hit = FindPart(vehicle, _settings.TargetPartName);
+        if (hit == null)
+        {
+            ModLog.Log.Error(
+                $"purrTTY in-world: TargetPartName '{_settings.TargetPartName}' not found on active vessel; "
+                + "falling back to quad-only.");
+            return;
+        }
+
+        try
+        {
+            _override = new SubPartMaterialOverride(renderer, _target, hit);
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world: subpart override construction failed; quad-only: {ex}");
+            _override = null;
+        }
+    }
+
+    private static Part? FindPart(Vehicle vehicle, string id)
+    {
+        foreach (Part p in vehicle.Parts.Parts)
+        {
+            if (p.Id == id) return p;
+            foreach (Part sub in p.SubParts)
+            {
+                if (sub.Id == id) return sub;
+            }
+        }
+        return null;
     }
 
     public void Dispose()
@@ -190,19 +281,23 @@ public sealed class InWorldTerminalManager : IDisposable
         }
         _disposed = true;
 
-        // Detach the patch before we tear anything down so the postfix can't see
-        // a freed quad mid-shutdown.
+        // Detach the patches before we tear anything down so the postfixes can't
+        // see a freed quad/override mid-shutdown.
         FramePatches.IsActive = false;
         FramePatches.Display  = null;
+        FramePatches.Override = null;
 
         // Tear down in reverse construction order:
-        //   _quad   → owns the in-world pipeline + buffers (pure Vulkan).
-        //   _frame  → drains its fences then frees its cmd buffers + pool
-        //             (pure Vulkan; no ImGui state, so no With() needed).
-        //   _backend→ mutates ImGui state on the secondary context, so MUST
-        //             run with that context current.
-        //   _ctx    → destroys the secondary ImGui context.
-        //   _target → destroys the off-screen render pass + framebuffer.
+        //   _override → frees its bindless texture handle in the shared lib.
+        //   _quad     → owns the in-world pipeline + buffers (pure Vulkan).
+        //   _frame    → drains its fences then frees its cmd buffers + pool
+        //               (pure Vulkan; no ImGui state, so no With() needed).
+        //   _backend  → mutates ImGui state on the secondary context, so MUST
+        //               run with that context current.
+        //   _ctx      → destroys the secondary ImGui context.
+        //   _target   → destroys the off-screen render pass + framebuffer.
+        try { _override?.Dispose(); } catch { /* best-effort */ }
+        _override = null;
         try { _quad?.Dispose(); } catch { /* best-effort */ }
         _quad = null;
         try { _frame?.Dispose(); } catch { /* best-effort */ }
