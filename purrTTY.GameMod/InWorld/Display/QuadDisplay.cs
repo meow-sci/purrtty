@@ -54,6 +54,8 @@ public sealed class QuadDisplay : IDisposable
     private bool     _anchored;
     private bool     _disposed;
 
+    public bool IsAnchored => _anchored;
+
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 1)]
     private struct QuadVertex
     {

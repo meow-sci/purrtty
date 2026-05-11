@@ -60,6 +60,14 @@ public class TerminalMod
     internal static Action? OpenToggleHotkeySettings;
 
     /// <summary>
+    ///     In-world (render-to-texture) toggle action and diagnostic accessors.
+    ///     Wired in OnFullyLoaded; nulled in DisposeResources.
+    /// </summary>
+    internal static Action? ToggleInWorld;
+    internal static Func<InWorldTerminalManager?>? GetInWorldManager;
+    internal static Func<InWorldSettings?>? GetInWorldSettings;
+
+    /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
     /// </summary>
     public bool ImmediateUnload => false;
@@ -68,6 +76,7 @@ public class TerminalMod
     public static void DrawMenu()
     {
         DrawToggleMenuItem();
+        DrawInWorldToggleMenuItem();
     }
 
     /// <summary>
@@ -86,6 +95,73 @@ public class TerminalMod
         if (ImGui.MenuItem("Toggle Hotkey"))
         {
             OpenToggleHotkeySettings?.Invoke();
+        }
+    }
+
+    /// <summary>
+    ///     Draws the in-world (render-to-texture) menu items: a checkable toggle
+    ///     plus a diagnostic submenu showing live state. Mirrors the screen-space
+    ///     toggle's idiom — state is read via static delegates set by the instance.
+    /// </summary>
+    internal static void DrawInWorldToggleMenuItem()
+    {
+        var manager  = GetInWorldManager?.Invoke();
+        var settings = GetInWorldSettings?.Invoke();
+        var available = manager != null && settings != null;
+
+        var hotkey = settings != null ? settings.ToggleKey.ToString() : "F11";
+        var enabled = settings?.Enabled ?? false;
+
+        if (!available)
+        {
+            ImGui.BeginDisabled();
+        }
+        if (ImGui.MenuItem("Toggle In-World Terminal", hotkey, enabled))
+        {
+            ToggleInWorld?.Invoke();
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Renders the terminal to a quad in 3D space. Requires an active vessel camera.");
+        }
+        if (!available)
+        {
+            ImGui.EndDisabled();
+        }
+
+        if (available && ImGui.BeginMenu("In-World Status"))
+        {
+            var hasCamera = KSA.Program.GetMainCamera() != null;
+            var partName = string.IsNullOrEmpty(settings!.TargetPartName) ? "(none — quad only)" : settings.TargetPartName;
+
+            // Pre-format to plain string variables so overload resolution binds
+            // to ImGui.Text(string) rather than the Brutal.Core.Strings String8
+            // overload (which would otherwise pick up interpolated literals).
+            string enabledLine    = "Enabled:        " + (settings.Enabled ? "yes" : "no");
+            string initLine       = "Initialized:    " + (manager!.IsInitialized ? "yes" : "no");
+            string anchoredLine   = "Quad anchored:  " + (manager.IsQuadAnchored ? "yes" : "no");
+            string focusedLine    = "Focused:        " + (manager.IsFocused ? "yes" : "no");
+            string cameraLine     = "Active camera:  " + (hasCamera ? "yes" : "no — F11 will reject");
+            string partLine       = "Target part:    " + partName;
+            string subpartLine    = "SubPart active: " + (manager.HasSubPartOverride ? "yes" : "no");
+            string textureLine    = "Texture:        " + settings.TextureWidth + "×" + settings.TextureHeight;
+            string quadSizeLine   = "Quad size:      " + settings.QuadWidthMeters.ToString("0.0") + "×" + settings.QuadHeightMeters.ToString("0.0") + " m";
+            string quadDistLine   = "Quad distance:  " + settings.QuadDistanceMeters.ToString("0.0") + " m";
+
+            ImGui.Text(enabledLine);
+            ImGui.Text(initLine);
+            ImGui.Text(anchoredLine);
+            ImGui.Text(focusedLine);
+            ImGui.Text(cameraLine);
+            ImGui.Separator();
+            ImGui.Text(partLine);
+            ImGui.Text(subpartLine);
+            ImGui.Separator();
+            ImGui.Text(textureLine);
+            ImGui.Text(quadSizeLine);
+            ImGui.Text(quadDistLine);
+
+            ImGui.EndMenu();
         }
     }
 
@@ -177,6 +253,9 @@ public class TerminalMod
                 _inWorldSettings = InWorldSettings.LoadOrDefault();
                 _inWorld = new InWorldTerminalManager(_inWorldSettings);
                 _inWorld.Initialize();
+                ToggleInWorld     = () => _inWorld?.Toggle();
+                GetInWorldManager = () => _inWorld;
+                GetInWorldSettings = () => _inWorldSettings;
                 ModLog.Log.Debug("purrTTY GameMod: InWorldTerminalManager initialized (Phase 1 scaffold).");
             }
             catch (Exception inWorldEx)
@@ -696,6 +775,9 @@ public class TerminalMod
             GetIsVisible = null;
             GetToggleHotkeyShortcut = null;
             OpenToggleHotkeySettings = null;
+            ToggleInWorld = null;
+            GetInWorldManager = null;
+            GetInWorldSettings = null;
             SpecialKeyHandler.ReservedGlobalHotkey = null;
             KeyboardInputHandler.ShouldSuppressKeyboardInputThisFrame = null;
 

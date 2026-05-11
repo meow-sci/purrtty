@@ -34,6 +34,12 @@ public sealed class InWorldTerminalManager : IDisposable
         _settings = settings;
     }
 
+    public InWorldSettings Settings => _settings;
+    public bool IsInitialized => _initialized;
+    public bool IsQuadAnchored => _quad?.IsAnchored ?? false;
+    public bool IsFocused => _focus.IsFocused;
+    public bool HasSubPartOverride => _override != null;
+
     /// <summary>
     ///     Called once when the game is fully loaded and the renderer is live.
     /// </summary>

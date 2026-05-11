@@ -77,6 +77,7 @@ static class Patch02
             viewport.MenuBarInUse = true;
 
       TerminalMod.DrawToggleMenuItem();
+      TerminalMod.DrawInWorldToggleMenuItem();
 
             ImGui.EndMenu();
         }
