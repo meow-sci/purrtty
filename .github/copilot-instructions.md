@@ -14,7 +14,7 @@ What this project/mod does:
 How it does it:
 - `purrTTY.Core` implements parsing + emulation + session/process orchestration.
 - `purrTTY.Display` bridges emulator state to ImGui rendering and input handling.
-- `purrTTY.GameMod` hosts lifecycle hooks (`StarMap*` attributes), creates the session manager/controller, and toggles UI visibility.
+- `purrTTY.GameMod` hosts lifecycle hooks (`StarMap*` attributes), installs optional KSA render services, creates the session manager/controller, and toggles UI visibility.
 - `purrTTY.CustomShellContract` + `purrTTY.CustomShells` provide extensible custom shell integrations (for example, KSA game console shell).
 
 ## Build and Test Commands
@@ -149,6 +149,7 @@ Lifecycle hooks:
 User interaction:
 - Terminal visibility toggle hotkey defaults to F12 and can be changed from the top-level purrTTY game menu via the Toggle Hotkey modal
 - Mod menu integration calls the same toggle path
+- During `[StarMapAllModsLoaded]`, the mod installs `TerminalRenderServices` from `Program.GetRenderer()` and `Program.Instance` systems when available; unload clears those services.
 
 ## Code Navigation Guide
 
@@ -173,6 +174,7 @@ Display and UI:
 - Controller facade: `purrTTY.Display/Controllers/TerminalController.cs`
 - Controller builder: `purrTTY.Display/Controllers/TerminalControllerBuilder.cs`
 - UI subsystems: `purrTTY.Display/Controllers/TerminalUi/`
+- Optional KSA render services and texture rendering prototypes: `purrTTY.Display/Rendering/TerminalTexture/`
 - Session manager factory and persisted shell config: `purrTTY.Display/Configuration/SessionManagerFactory.cs`
 
 Game and integration:

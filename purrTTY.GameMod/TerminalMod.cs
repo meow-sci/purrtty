@@ -5,6 +5,7 @@ using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Controllers.TerminalUi.Input;
 using purrTTY.Display.Rendering;
+using purrTTY.Display.Rendering.TerminalTexture;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
@@ -157,6 +158,7 @@ public class TerminalMod
             // No manual registration needed - it will be found when GetAvailableShells() is called
 
             // Reserved for optional game-integration services independent of terminal emulation
+            InstallTerminalRenderServices();
 
             InitializeTerminal();
         }
@@ -186,6 +188,7 @@ public class TerminalMod
         try
         {
             Patcher.unload();
+            TerminalRenderServices.Clear();
 
             DisposeResources();
         }
@@ -287,6 +290,35 @@ public class TerminalMod
             ModLog.Log.Debug($"purrTTY GameMod: Terminal initialization failed: {ex.Message}");
             DisposeResources();
             throw;
+        }
+    }
+
+    private static void InstallTerminalRenderServices()
+    {
+        try
+        {
+            var program = KSA.Program.Instance;
+            if (program == null)
+            {
+                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA Program.Instance is null");
+                return;
+            }
+
+            TerminalRenderServices.Install(new TerminalRenderServices
+            {
+                Renderer = KSA.Program.GetRenderer(),
+                TextureSystem = program.TextureSystem,
+                MaterialSystem = program.MaterialSystem,
+                MeshRenderSystem = program.SuperMeshRenderSystem,
+                ImGuiSampler = KSA.Program.LinearClampedSampler
+            });
+
+            ModLog.Log.Debug("purrTTY texture rendering services installed");
+        }
+        catch (Exception ex)
+        {
+            TerminalRenderServices.Clear();
+            ModLog.Log.Debug($"purrTTY texture rendering unavailable: {ex.Message}");
         }
     }
 
