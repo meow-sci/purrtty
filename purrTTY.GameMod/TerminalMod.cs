@@ -148,7 +148,6 @@ public class TerminalMod
         }
 
         InstallTerminalRenderServices();
-        TerminalTextureWorldQuadPresenter.DrawCurrent();
     }
 
     /// <summary>

@@ -19,6 +19,7 @@ internal sealed class TerminalWorldQuad : IDisposable
     private int? _materialBindlessHandle;
     private int _materialGeneration;
     private bool _registered;
+    private bool _loggedSubmission;
     private string? _lastError;
 
     public TerminalWorldQuad(TerminalRenderServices services)
@@ -51,6 +52,7 @@ internal sealed class TerminalWorldQuad : IDisposable
             };
 
             meshBucketSystem.DrawMeshInstance(_meshBucket, instance);
+            LogSubmissionOnce(aspect);
         }
         catch (Exception ex)
         {
@@ -125,13 +127,13 @@ internal sealed class TerminalWorldQuad : IDisposable
             bool created = materialSystem.CreateObject(materialName, new MaterialData
             {
                 AlbedoTexture = bindlessHandle,
-                NormalTexture = textureSystem.DefaultWhiteTexture.BindlessHandle,
-                RoughMetallicAOTexture = textureSystem.DefaultWhiteTexture.BindlessHandle,
+                NormalTexture = meshRenderSystem.GltfSystem.BlankNormalTexture.BindlessHandle,
+                RoughMetallicAOTexture = meshRenderSystem.GltfSystem.BlankMaterialTexture.BindlessHandle,
                 Sampler = textureSystem.SamplerClampHandle,
                 AlbedoColor = float4.One,
-                RoughnessMetalScale = new float4(1f, 0f, 1f, 1f),
+                RoughnessMetalScale = float4.One,
                 ExtraData = float4.Zero,
-                EmissiveTexture = bindlessHandle
+                EmissiveTexture = textureSystem.DefaultBlackTexture.BindlessHandle
             });
 
             if (!created)
@@ -245,6 +247,27 @@ internal sealed class TerminalWorldQuad : IDisposable
             0f, fallbackHeight, 0f, 0f,
             0f, 0f, 1f, 0f,
             0f, 0f, DefaultDistanceMeters, 1f);
+    }
+
+    private void LogSubmissionOnce(float aspect)
+    {
+        if (_loggedSubmission)
+        {
+            return;
+        }
+
+        _loggedSubmission = true;
+        try
+        {
+            var camera = Program.GetMainCamera();
+            var center = camera.GetForward() * DefaultDistanceMeters;
+            var screen = camera.EgoToScreen(center, ignoreBehind: false);
+            ModLog.Log.Debug($"purrTTY world quad submitted: screen=({screen.X:0.0},{screen.Y:0.0}) distance={DefaultDistanceMeters:0.0}m aspect={aspect:0.00} material={_materialHandle}");
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Debug($"purrTTY world quad submitted: distance={DefaultDistanceMeters:0.0}m aspect={aspect:0.00} material={_materialHandle}; screen diagnostic failed: {ex.Message}");
+        }
     }
 
     private void LogOnce(string message)
