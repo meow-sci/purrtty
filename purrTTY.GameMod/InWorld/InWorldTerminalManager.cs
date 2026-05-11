@@ -15,6 +15,7 @@ public sealed class InWorldTerminalManager : IDisposable
 {
     private readonly InWorldSettings _settings;
     private OffscreenRenderTarget? _target;
+    private OffscreenContext? _ctx;
     private bool _initialized;
     private bool _disposed;
 
@@ -46,12 +47,19 @@ public sealed class InWorldTerminalManager : IDisposable
                 VkFormat.R8G8B8A8SRGB,
                 renderer.DepthFormat);
 
+            // Phase 3: secondary ImGui context shares the main font atlas so we
+            // do not duplicate font upload memory. Constructed after the GPU
+            // target so disposal can tear them down in reverse order.
+            _ctx = new OffscreenContext(_settings.TextureWidth, _settings.TextureHeight);
+
             _initialized = true;
         }
         catch (Exception ex)
         {
-            ModLog.Log.Error($"purrTTY in-world: failed to create OffscreenRenderTarget; disabling in-world terminal: {ex}");
+            ModLog.Log.Error($"purrTTY in-world: failed to create off-screen resources; disabling in-world terminal: {ex}");
             _settings.Enabled = false;
+            _ctx?.Dispose();
+            _ctx = null;
             _target?.Dispose();
             _target = null;
         }
@@ -86,6 +94,9 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
         _disposed = true;
+        // Tear down ImGui state first, then GPU resources.
+        _ctx?.Dispose();
+        _ctx = null;
         _target?.Dispose();
         _target = null;
     }
