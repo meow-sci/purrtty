@@ -305,9 +305,16 @@ public class TerminalMod
                 return;
             }
 
+            var renderer = KSA.Program.GetRenderer();
+            if (renderer == null)
+            {
+                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA renderer is null");
+                return;
+            }
+
             TerminalRenderServices.Install(new TerminalRenderServices
             {
-                Renderer = KSA.Program.GetRenderer(),
+                Renderer = renderer,
                 TextureSystem = program.TextureSystem,
                 MaterialSystem = program.MaterialSystem,
                 MeshRenderSystem = program.SuperMeshRenderSystem,

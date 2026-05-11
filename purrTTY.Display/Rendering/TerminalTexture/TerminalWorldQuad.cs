@@ -71,6 +71,18 @@ internal sealed class TerminalWorldQuad : IDisposable
 
     private bool EnsureRegistered(TerminalRenderTexture texture)
     {
+        if (_services.MeshRenderSystem.MeshBucketSystem == null || _services.MeshRenderSystem.MeshRendererStaticPbr == null)
+        {
+            ModLog.Log.Debug("purrTTY world quad unavailable: KSA mesh render systems are not ready");
+            return false;
+        }
+
+        if (_services.TextureSystem.DefaultWhiteTexture == null)
+        {
+            ModLog.Log.Debug("purrTTY world quad unavailable: KSA default white texture is not ready");
+            return false;
+        }
+
         if (!texture.EnsureBindlessTexture() || !texture.BindlessTextureHandle.HasValue)
         {
             return false;
@@ -94,7 +106,7 @@ internal sealed class TerminalWorldQuad : IDisposable
             }
 
             var materialName = new AssetName($"purrTTY.Terminal.WorldQuad.Material.{++_materialGeneration}");
-            _services.MaterialSystem.CreateObject(materialName, new MaterialData
+            bool created = _services.MaterialSystem.CreateObject(materialName, new MaterialData
             {
                 AlbedoTexture = bindlessHandle,
                 NormalTexture = _services.TextureSystem.DefaultWhiteTexture.BindlessHandle,
@@ -105,6 +117,12 @@ internal sealed class TerminalWorldQuad : IDisposable
                 ExtraData = float4.Zero,
                 EmissiveTexture = bindlessHandle
             });
+
+            if (!created)
+            {
+                ModLog.Log.Debug("purrTTY world quad unavailable: failed to create material object");
+                return false;
+            }
 
             _materialHandle = _services.MaterialSystem.GetOrLoad(materialName).Handle;
             _materialBindlessHandle = bindlessHandle;
@@ -174,6 +192,17 @@ internal sealed class TerminalWorldQuad : IDisposable
     private static float4x4 CreateCameraFacingTransform(float aspect)
     {
         var camera = Program.GetMainCamera();
+        if (camera == null)
+        {
+            var fallbackHeight = DefaultHeightMeters;
+            var fallbackWidth = fallbackHeight * aspect;
+            return new float4x4(
+                fallbackWidth, 0f, 0f, 0f,
+                0f, fallbackHeight, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                0f, 0f, DefaultDistanceMeters, 1f);
+        }
+
         var forward = float3.Normalize(float3.Pack(camera.GetForward()));
         var right = float3.Normalize(float3.Pack(camera.GetRight()));
         var up = float3.Normalize(float3.Pack(camera.GetUp()));

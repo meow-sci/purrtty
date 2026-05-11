@@ -6,6 +6,7 @@ using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Rendering.TerminalTexture;
 using purrTTY.Display.Types;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 using float4 = Brutal.Numerics.float4;
 
@@ -24,6 +25,9 @@ internal class TerminalUiRender : IDisposable
   private readonly TerminalGridRenderer _gridRenderer;
   private readonly ThemeConfiguration _themeConfig;
   private readonly TerminalTextureDebugPreview _textureDebugPreview = new();
+  private readonly TerminalTextureSoftwareRenderer _textureSoftwareRenderer = new();
+  private TerminalRenderKey? _lastTerminalTextureKey;
+  private string? _lastTextureRenderError;
 
   public TerminalUiRender(
     TerminalUiFonts fonts,
@@ -145,12 +149,48 @@ internal class TerminalUiRender : IDisposable
       if (showPreview || showWorldQuad)
       {
         var texture = _textureDebugPreview.EnsureTexture(terminalWidth, terminalHeight);
-        if (showPreview)
+        if (texture != null)
+        {
+          var terminalTextureKey = new TerminalRenderKey(
+              activeSession.Terminal.ScreenBuffer.Revision,
+              activeSession.Terminal.ViewportOffset,
+              ThemeManager.Version,
+              _fonts.CurrentFontSize,
+              currentCharacterWidth,
+              currentLineHeight,
+              activeSession.Terminal.Width,
+              activeSession.Terminal.Height,
+              0f,
+              0f,
+              0);
+
+          if (!_lastTerminalTextureKey.HasValue || _lastTerminalTextureKey.Value != terminalTextureKey)
+          {
+            try
+            {
+              _textureSoftwareRenderer.RenderToTexture(texture, activeSession, _gridRenderer, currentCharacterWidth, currentLineHeight);
+              _lastTerminalTextureKey = terminalTextureKey;
+              _lastTextureRenderError = null;
+            }
+            catch (Exception ex)
+            {
+              _lastTerminalTextureKey = null;
+              if (_lastTextureRenderError != ex.Message)
+              {
+                _lastTextureRenderError = ex.Message;
+                ModLog.Log.Debug($"purrTTY terminal texture render failed: {ex.Message}");
+              }
+            }
+          }
+        }
+
+        bool textureContentReady = texture != null && _lastTerminalTextureKey.HasValue;
+        if (showPreview && textureContentReady)
         {
           _textureDebugPreview.RenderPreview(terminalWidth, terminalHeight);
         }
 
-        if (showWorldQuad && texture != null)
+        if (showWorldQuad && texture != null && textureContentReady)
         {
           TerminalTextureWorldQuadPresenter.Enabled = true;
           TerminalTextureWorldQuadPresenter.SetSource(texture, terminalWidth, terminalHeight);
@@ -159,12 +199,16 @@ internal class TerminalUiRender : IDisposable
         {
           TerminalTextureWorldQuadPresenter.Enabled = false;
           TerminalTextureWorldQuadPresenter.ClearSource();
+          _lastTerminalTextureKey = null;
+          _lastTextureRenderError = null;
         }
       }
       else
       {
         TerminalTextureWorldQuadPresenter.Enabled = false;
         TerminalTextureWorldQuadPresenter.ClearSource();
+        _lastTerminalTextureKey = null;
+        _lastTextureRenderError = null;
         _textureDebugPreview.Dispose();
       }
 
@@ -231,6 +275,8 @@ internal class TerminalUiRender : IDisposable
   public void Dispose()
   {
     TerminalTextureWorldQuadPresenter.Dispose();
+    _lastTerminalTextureKey = null;
+    _lastTextureRenderError = null;
     _textureDebugPreview.Dispose();
   }
 }
