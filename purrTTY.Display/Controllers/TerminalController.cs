@@ -1152,6 +1152,84 @@ public class TerminalController : ITerminalController
   }
 
   /// <summary>
+  ///     Renders the terminal cell grid into the currently-bound ImGui context
+  ///     without managing window chrome, menus, focus, or input. Intended for
+  ///     read-only mirroring to a secondary ImGui context (the in-world
+  ///     off-screen target). Safe to call AFTER the main <see cref="Render"/>
+  ///     in the same frame: it reads cursor/scroll/session state but does not
+  ///     advance any per-frame state (cursor blink is advanced in
+  ///     <see cref="Update"/>, not here).
+  /// </summary>
+  /// <param name="size">Target window size in pixels (typically the
+  /// off-screen texture dimensions).</param>
+  public void RenderContentOnly(float2 size)
+  {
+    // Do NOT gate on _isVisible: the in-world terminal is an independent
+    // surface — a user may have the screen-space window hidden but still
+    // expect the in-world quad to keep showing terminal output. The in-world
+    // feature has its own enable gate at InWorldTerminalManager.OnAfterGui.
+    _fonts.EnsureFontsLoaded();
+    _fonts.PushUIFont(out bool uiFontUsed);
+    try
+    {
+      ImGui.SetNextWindowPos(float2.Zero, ImGuiCond.Always);
+      ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+
+      ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0.0f, 0.0f));
+      ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0.0f);
+
+      var flags = ImGuiWindowFlags.NoTitleBar
+                | ImGuiWindowFlags.NoResize
+                | ImGuiWindowFlags.NoMove
+                | ImGuiWindowFlags.NoCollapse
+                | ImGuiWindowFlags.NoScrollbar
+                | ImGuiWindowFlags.NoScrollWithMouse
+                | ImGuiWindowFlags.NoSavedSettings
+                | ImGuiWindowFlags.NoBringToFrontOnFocus;
+
+      ImGui.Begin("##purrTTY_InWorld", flags);
+      ImGui.PopStyleVar();
+      ImGui.PopStyleVar();
+
+      try
+      {
+        // Pop the UI font so the terminal content render pushes/pops its own
+        // monospaced font, matching the screen-space Render path.
+        TerminalUiFonts.MaybePopFont(uiFontUsed);
+        uiFontUsed = false;
+
+        // Throwaway out vars: this mirror MUST NOT clobber the screen-space
+        // terminal's _lastTerminal* fields which feed mouse-coord conversion.
+        float2 scratchOrigin;
+        float2 scratchSize;
+
+        _render.RenderTerminalContent(
+          _sessionManager,
+          CurrentCharacterWidth,
+          CurrentLineHeight,
+          _selection.GetCurrentSelection(),
+          out scratchOrigin,
+          out scratchSize,
+          NoOpAction,
+          NoOpAction,
+          NoOpAction,
+          drawBackground: true
+        );
+      }
+      finally
+      {
+        ImGui.End();
+      }
+    }
+    finally
+    {
+      TerminalUiFonts.MaybePopFont(uiFontUsed);
+    }
+  }
+
+  private static void NoOpAction() { }
+
+  /// <summary>
   /// Renders the right-click context menu for copy/paste operations.
   /// </summary>
   private void RenderContextMenu()

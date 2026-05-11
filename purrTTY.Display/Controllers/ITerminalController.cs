@@ -1,5 +1,6 @@
 using System.Text;
 using purrTTY.Display.Types;
+using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.Display.Controllers;
 
@@ -50,6 +51,15 @@ public interface ITerminalController : IDisposable
     ///     Should be called during the ImGui render phase.
     /// </summary>
     void Render();
+
+    /// <summary>
+    ///     Renders the terminal cell grid into the currently-bound ImGui context
+    ///     without managing window chrome, menus, focus, or input. Intended for
+    ///     read-only mirroring to a secondary ImGui context. Safe to call AFTER
+    ///     <see cref="Render"/> in the same frame.
+    /// </summary>
+    /// <param name="size">Target window size in pixels.</param>
+    void RenderContentOnly(float2 size);
 
     /// <summary>
     ///     Gets the current terminal dimensions.

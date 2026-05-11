@@ -41,6 +41,42 @@ public sealed class InWorldTerminalManager : IDisposable
     public bool HasSubPartOverride => _override != null;
 
     /// <summary>
+    ///     Replaces the per-frame UI builder used inside the secondary ImGui
+    ///     context. Set after <see cref="Initialize"/> to mirror real terminal
+    ///     content into the off-screen target. A null value resets to a no-op.
+    /// </summary>
+    public void SetBuildUi(Action? build)
+    {
+        if (_frame == null) return;
+        _frame.BuildUi = build ?? (() => { });
+    }
+
+    /// <summary>
+    ///     Rebinds the SubPart material override to whichever part is currently
+    ///     named in <see cref="InWorldSettings.TargetPartName"/>. Called from
+    ///     the UI when the user picks a different part. No-op when the feature
+    ///     is disabled (the new name will take effect on the next toggle-on).
+    /// </summary>
+    public void RebindSubPart()
+    {
+        if (_disposed) return;
+
+        // Detach the patch first so a postfix never sees a freed override.
+        FramePatches.Override = null;
+        try { _override?.Dispose(); } catch { /* best-effort */ }
+        _override = null;
+
+        if (!_settings.Enabled || !_initialized)
+        {
+            // Picker still updated TargetPartName; next Toggle-on will pick it up.
+            return;
+        }
+
+        TrySetupSubPartOverride();
+        FramePatches.Override = _override;
+    }
+
+    /// <summary>
     ///     Called once when the game is fully loaded and the renderer is live.
     /// </summary>
     public void Initialize()

@@ -163,6 +163,101 @@ public class TerminalMod
 
             ImGui.EndMenu();
         }
+
+        if (available && ImGui.BeginMenu("Pick Target Part"))
+        {
+            DrawSubPartPickerSubmenu(manager!, settings!);
+            ImGui.EndMenu();
+        }
+    }
+
+    /// <summary>
+    ///     Body of the "Pick Target Part" submenu. Rebuilt each time the
+    ///     submenu is opened so vessel reloads / scene switches are picked up
+    ///     automatically. Selecting an item updates
+    ///     <see cref="InWorldSettings.TargetPartName"/> and triggers a rebind
+    ///     of the SubPart override if the in-world feature is currently on.
+    /// </summary>
+    private static void DrawSubPartPickerSubmenu(InWorldTerminalManager manager, InWorldSettings settings)
+    {
+        var vehicle = KSA.Program.ControlledVehicle;
+        if (vehicle == null)
+        {
+            ImGui.BeginDisabled();
+            ImGui.MenuItem("(no active vessel)");
+            ImGui.EndDisabled();
+            return;
+        }
+
+        // "(none)" entry: clear the SubPart binding, fall back to the quad-only path.
+        bool noneChecked = string.IsNullOrEmpty(settings.TargetPartName);
+        string noneLabel = "(none — quad only)";
+        string noneShortcut = "";
+        if (ImGui.MenuItem(noneLabel, noneShortcut, noneChecked))
+        {
+            if (!noneChecked)
+            {
+                settings.TargetPartName = "";
+                manager.RebindSubPart();
+            }
+        }
+        ImGui.Separator();
+
+        // Top-level parts each get a nested submenu listing their SubParts.
+        // String8 overload pitfall: hold every label in a plain `string` local
+        // before passing to ImGui.MenuItem so overload resolution picks the
+        // String8 ctor with a literal — not the interpolated string overload.
+        foreach (KSA.Part part in vehicle.Parts.Parts)
+        {
+            string topId = part.Id;
+            bool topChecked = settings.TargetPartName == topId;
+            string topShortcut = "";
+
+            // No SubParts → render as a flat selectable item.
+            if (part.SubParts.Length == 0)
+            {
+                if (ImGui.MenuItem(topId, topShortcut, topChecked))
+                {
+                    if (!topChecked)
+                    {
+                        settings.TargetPartName = topId;
+                        manager.RebindSubPart();
+                    }
+                }
+                continue;
+            }
+
+            // Has SubParts → render as a submenu with the top-level part
+            // itself as the first selectable entry, then each SubPart.
+            string topGroupLabel = topId + "  (" + part.SubParts.Length + " sub)";
+            if (ImGui.BeginMenu(topGroupLabel))
+            {
+                if (ImGui.MenuItem(topId, topShortcut, topChecked))
+                {
+                    if (!topChecked)
+                    {
+                        settings.TargetPartName = topId;
+                        manager.RebindSubPart();
+                    }
+                }
+                ImGui.Separator();
+                foreach (KSA.Part sub in part.SubParts)
+                {
+                    string subId = sub.Id;
+                    bool subChecked = settings.TargetPartName == subId;
+                    string subShortcut = "";
+                    if (ImGui.MenuItem(subId, subShortcut, subChecked))
+                    {
+                        if (!subChecked)
+                        {
+                            settings.TargetPartName = subId;
+                            manager.RebindSubPart();
+                        }
+                    }
+                }
+                ImGui.EndMenu();
+            }
+        }
     }
 
 
@@ -256,6 +351,20 @@ public class TerminalMod
                 ToggleInWorld     = () => _inWorld?.Toggle();
                 GetInWorldManager = () => _inWorld;
                 GetInWorldSettings = () => _inWorldSettings;
+
+                // Swap the Phase 5 placeholder for a real terminal mirror. The
+                // controller's heavyweight Render() has already run earlier in
+                // OnAfterUi, so cursor/scroll/session state is settled by the
+                // time this builder fires inside the secondary context.
+                if (_controller != null)
+                {
+                    var ctrl = _controller;
+                    float width  = (float)_inWorldSettings.TextureWidth;
+                    float height = (float)_inWorldSettings.TextureHeight;
+                    var size = new float2(width, height);
+                    _inWorld.SetBuildUi(() => ctrl.RenderContentOnly(size));
+                }
+
                 ModLog.Log.Debug("purrTTY GameMod: InWorldTerminalManager initialized (Phase 1 scaffold).");
             }
             catch (Exception inWorldEx)
