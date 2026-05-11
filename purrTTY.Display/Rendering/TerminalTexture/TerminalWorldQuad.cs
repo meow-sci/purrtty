@@ -29,7 +29,15 @@ internal sealed class TerminalWorldQuad : IDisposable
     {
         try
         {
-            if (!EnsureRegistered(texture))
+            var meshRenderSystem = _services.MeshRenderSystem;
+            var meshBucketSystem = meshRenderSystem?.MeshBucketSystem;
+            if (meshRenderSystem == null || meshBucketSystem == null)
+            {
+                LogOnce("purrTTY world quad unavailable: KSA mesh bucket system is not ready");
+                return;
+            }
+
+            if (!EnsureRegistered(texture, meshRenderSystem, meshBucketSystem))
             {
                 return;
             }
@@ -41,45 +49,50 @@ internal sealed class TerminalWorldQuad : IDisposable
                 data = new float4(_materialHandle, 0f, 0f, 0f)
             };
 
-            _services.MeshRenderSystem.MeshBucketSystem.DrawMeshInstance(_meshBucket, instance);
+            meshBucketSystem.DrawMeshInstance(_meshBucket, instance);
         }
         catch (Exception ex)
         {
-            if (_lastError != ex.Message)
-            {
-                _lastError = ex.Message;
-                ModLog.Log.Debug($"purrTTY world quad draw failed: {ex.Message}");
-            }
+            LogOnce($"purrTTY world quad draw failed: {ex}");
         }
     }
 
     public void Dispose()
     {
-        if (_registered)
+        var meshBucketSystem = _services.MeshRenderSystem?.MeshBucketSystem;
+        if (_registered && meshBucketSystem != null)
         {
-            _services.MeshRenderSystem.MeshBucketSystem.UnregisterMesh(_meshBucket);
-            _registered = false;
+            meshBucketSystem.UnregisterMesh(_meshBucket);
         }
 
-        if (_materialHandle >= 0)
+        _registered = false;
+
+        if (_materialHandle >= 0 && _services.MaterialSystem != null)
         {
             _services.MaterialSystem.Free(_materialHandle);
-            _materialHandle = -1;
-            _materialBindlessHandle = null;
         }
+
+        _materialHandle = -1;
+        _materialBindlessHandle = null;
     }
 
-    private bool EnsureRegistered(TerminalRenderTexture texture)
+    private bool EnsureRegistered(TerminalRenderTexture texture, SuperMeshRenderSystem meshRenderSystem, MeshBucketSystem<InstanceData> meshBucketSystem)
     {
-        if (_services.MeshRenderSystem.MeshBucketSystem == null || _services.MeshRenderSystem.MeshRendererStaticPbr == null)
+        if (meshRenderSystem.MeshRendererStaticPbr == null || meshRenderSystem.MeshIndirectSystem == null)
         {
-            ModLog.Log.Debug("purrTTY world quad unavailable: KSA mesh render systems are not ready");
+            LogOnce("purrTTY world quad unavailable: KSA mesh render systems are not ready");
             return false;
         }
 
-        if (_services.TextureSystem.DefaultWhiteTexture == null)
+        if (_services.TextureSystem == null || _services.TextureSystem.DefaultWhiteTexture == null)
         {
-            ModLog.Log.Debug("purrTTY world quad unavailable: KSA default white texture is not ready");
+            LogOnce("purrTTY world quad unavailable: KSA texture system is not ready");
+            return false;
+        }
+
+        if (_services.MaterialSystem == null)
+        {
+            LogOnce("purrTTY world quad unavailable: KSA material system is not ready");
             return false;
         }
 
@@ -90,10 +103,10 @@ internal sealed class TerminalWorldQuad : IDisposable
 
         if (!_registered)
         {
-            var mesh = CreateOrLoadQuadMesh();
-            _meshBucket = _services.MeshRenderSystem.MeshBucketSystem.RegisterMesh(
+            var mesh = CreateOrLoadQuadMesh(meshRenderSystem);
+            _meshBucket = meshBucketSystem.RegisterMesh(
                 mesh,
-                _services.MeshRenderSystem.MeshRendererStaticPbr);
+                meshRenderSystem.MeshRendererStaticPbr);
             _registered = true;
         }
 
@@ -120,7 +133,7 @@ internal sealed class TerminalWorldQuad : IDisposable
 
             if (!created)
             {
-                ModLog.Log.Debug("purrTTY world quad unavailable: failed to create material object");
+                LogOnce("purrTTY world quad unavailable: failed to create material object");
                 return false;
             }
 
@@ -131,12 +144,12 @@ internal sealed class TerminalWorldQuad : IDisposable
         return true;
     }
 
-    private MeshIndirectRef CreateOrLoadQuadMesh()
+    private MeshIndirectRef CreateOrLoadQuadMesh(SuperMeshRenderSystem meshRenderSystem)
     {
         var meshName = new AssetName("purrTTY.Terminal.WorldQuad.Mesh");
-        if (_services.MeshRenderSystem.MeshIndirectSystem.IsLoaded(meshName))
+        if (meshRenderSystem.MeshIndirectSystem.IsLoaded(meshName))
         {
-            return _services.MeshRenderSystem.MeshIndirectSystem.GetOrLoad(meshName);
+            return meshRenderSystem.MeshIndirectSystem.GetOrLoad(meshName);
         }
 
         using var mesh = new MeshAsset
@@ -180,40 +193,65 @@ internal sealed class TerminalWorldQuad : IDisposable
         mesh.SetIndicesFromData(indices);
         mesh.Update();
 
-        if (!_services.MeshRenderSystem.MeshIndirectSystem.AddMesh(meshName, mesh) &&
-            !_services.MeshRenderSystem.MeshIndirectSystem.IsLoaded(meshName))
+        if (!meshRenderSystem.MeshIndirectSystem.AddMesh(meshName, mesh) &&
+            !meshRenderSystem.MeshIndirectSystem.IsLoaded(meshName))
         {
             throw new InvalidOperationException("Failed to register terminal world quad mesh");
         }
 
-        return _services.MeshRenderSystem.MeshIndirectSystem.GetOrLoad(meshName);
+        return meshRenderSystem.MeshIndirectSystem.GetOrLoad(meshName);
     }
 
-    private static float4x4 CreateCameraFacingTransform(float aspect)
+    private float4x4 CreateCameraFacingTransform(float aspect)
     {
-        var camera = Program.GetMainCamera();
-        if (camera == null)
+        try
         {
-            var fallbackHeight = DefaultHeightMeters;
-            var fallbackWidth = fallbackHeight * aspect;
+            var camera = Program.GetMainCamera();
+            if (camera == null)
+            {
+                LogOnce("purrTTY world quad using fallback transform: KSA main camera is null");
+                return CreateFallbackTransform(aspect);
+            }
+
+            var forward = float3.Normalize(float3.Pack(camera.GetForward()));
+            var right = float3.Normalize(float3.Pack(camera.GetRight()));
+            var up = float3.Normalize(float3.Pack(camera.GetUp()));
+            var height = DefaultHeightMeters;
+            var width = height * aspect;
+            var center = forward * DefaultDistanceMeters;
+
             return new float4x4(
-                fallbackWidth, 0f, 0f, 0f,
-                0f, fallbackHeight, 0f, 0f,
-                0f, 0f, 1f, 0f,
-                0f, 0f, DefaultDistanceMeters, 1f);
+                right.X * width, right.Y * width, right.Z * width, 0f,
+                up.X * height, up.Y * height, up.Z * height, 0f,
+                forward.X, forward.Y, forward.Z, 0f,
+                center.X, center.Y, center.Z, 1f);
+        }
+        catch (Exception ex)
+        {
+            LogOnce($"purrTTY world quad using fallback transform: failed to read KSA main camera: {ex.Message}");
+            return CreateFallbackTransform(aspect);
+        }
+    }
+
+    private static float4x4 CreateFallbackTransform(float aspect)
+    {
+        var fallbackHeight = DefaultHeightMeters;
+        var fallbackWidth = fallbackHeight * aspect;
+        return new float4x4(
+            fallbackWidth, 0f, 0f, 0f,
+            0f, fallbackHeight, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            0f, 0f, DefaultDistanceMeters, 1f);
+    }
+
+    private void LogOnce(string message)
+    {
+        if (_lastError == message)
+        {
+            return;
         }
 
-        var forward = float3.Normalize(float3.Pack(camera.GetForward()));
-        var right = float3.Normalize(float3.Pack(camera.GetRight()));
-        var up = float3.Normalize(float3.Pack(camera.GetUp()));
-        var height = DefaultHeightMeters;
-        var width = height * aspect;
-        var center = forward * DefaultDistanceMeters;
-
-        return new float4x4(
-            right.X * width, right.Y * width, right.Z * width, 0f,
-            up.X * height, up.Y * height, up.Z * height, 0f,
-            forward.X, forward.Y, forward.Z, 0f,
-            center.X, center.Y, center.Z, 1f);
+        _lastError = message;
+        ModLog.Log.Debug(message);
     }
 }

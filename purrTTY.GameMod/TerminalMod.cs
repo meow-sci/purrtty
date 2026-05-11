@@ -312,6 +312,24 @@ public class TerminalMod
                 return;
             }
 
+            if (program.TextureSystem == null)
+            {
+                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA TextureSystem is null");
+                return;
+            }
+
+            if (program.MaterialSystem == null)
+            {
+                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA MaterialSystem is null");
+                return;
+            }
+
+            if (program.SuperMeshRenderSystem == null)
+            {
+                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA SuperMeshRenderSystem is null");
+                return;
+            }
+
             TerminalRenderServices.Install(new TerminalRenderServices
             {
                 Renderer = renderer,
