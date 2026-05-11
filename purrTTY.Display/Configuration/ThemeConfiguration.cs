@@ -288,6 +288,16 @@ public class ThemeConfiguration
     }
 
     /// <summary>
+    /// Whether to show the experimental terminal render texture preview window.
+    /// </summary>
+    [TomlIgnore]
+    public bool ShowTerminalTexturePreview
+    {
+        get => Settings.ShowTerminalTexturePreview;
+        set => Settings.ShowTerminalTexturePreview = value;
+    }
+
+    /// <summary>
     /// Attempts to retrieve the persisted terminal window position and size.
     /// </summary>
     /// <param name="position">The saved window position.</param>
@@ -622,6 +632,7 @@ public class ThemeConfiguration
             ToggleHotkeyCtrl = legacy.ToggleHotkeyCtrl,
             ToggleHotkeyAlt = legacy.ToggleHotkeyAlt,
             ToggleHotkeySuper = legacy.ToggleHotkeySuper,
+            ShowTerminalTexturePreview = legacy.ShowTerminalTexturePreview,
             TerminalWindowPosX = legacy.TerminalWindowPosX,
             TerminalWindowPosY = legacy.TerminalWindowPosY,
             TerminalWindowWidth = legacy.TerminalWindowWidth,
@@ -692,6 +703,8 @@ public class ThemeConfiguration
         public bool ToggleHotkeyAlt { get; set; }
 
         public bool ToggleHotkeySuper { get; set; }
+
+        public bool ShowTerminalTexturePreview { get; set; }
     }
 
     /// <summary>
@@ -779,5 +792,7 @@ public class ThemeConfiguration
         public bool ToggleHotkeyAlt { get; set; }
 
         public bool ToggleHotkeySuper { get; set; }
+
+        public bool ShowTerminalTexturePreview { get; set; }
     }
 }

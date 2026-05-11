@@ -102,7 +102,7 @@ internal class TerminalControllerBuilder
         _renderStrategy = new DirectRenderStrategy(gridRenderer);
     }
 
-    _render = new TerminalUiRender(_fonts, _cursorRenderer, controller.PerfWatch, _renderStrategy, gridRenderer);
+    _render = new TerminalUiRender(_fonts, _cursorRenderer, controller.PerfWatch, _renderStrategy, gridRenderer, _themeConfig);
 
     // Initialize input subsystem
     _input = new TerminalUiInput(controller, _sessionManager, _cursorRenderer, _scrollConfig);

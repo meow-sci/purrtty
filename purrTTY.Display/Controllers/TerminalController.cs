@@ -647,6 +647,8 @@ public class TerminalController : ITerminalController
       // Unsubscribe from theme change events
       ThemeManager.ThemeChanged -= _events.OnThemeChanged;
 
+      _render.Dispose();
+
       _disposed = true;
     }
   }

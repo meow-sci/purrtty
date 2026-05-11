@@ -2,7 +2,9 @@ using System;
 using Brutal.ImGuiApi;
 using purrTTY.Core.Terminal;
 using purrTTY.Core.Types;
+using purrTTY.Display.Configuration;
 using purrTTY.Display.Rendering;
+using purrTTY.Display.Rendering.TerminalTexture;
 using purrTTY.Display.Types;
 using float2 = Brutal.Numerics.float2;
 using float4 = Brutal.Numerics.float4;
@@ -13,26 +15,30 @@ namespace purrTTY.Display.Controllers.TerminalUi;
 ///     Handles rendering of terminal content including cells, cursor, and text decorations.
 ///     Uses strategy pattern to support both direct and cached rendering.
 /// </summary>
-internal class TerminalUiRender
+internal class TerminalUiRender : IDisposable
 {
   private readonly TerminalUiFonts _fonts;
   private readonly CursorRenderer _cursorRenderer;
   private readonly Performance.PerformanceStopwatch _perfWatch;
   private readonly ITerminalRenderStrategy _renderStrategy;
   private readonly TerminalGridRenderer _gridRenderer;
+  private readonly ThemeConfiguration _themeConfig;
+  private readonly TerminalTextureDebugPreview _textureDebugPreview = new();
 
   public TerminalUiRender(
     TerminalUiFonts fonts,
     CursorRenderer cursorRenderer,
     Performance.PerformanceStopwatch perfWatch,
     ITerminalRenderStrategy renderStrategy,
-    TerminalGridRenderer gridRenderer)
+    TerminalGridRenderer gridRenderer,
+    ThemeConfiguration themeConfig)
   {
     _fonts = fonts ?? throw new ArgumentNullException(nameof(fonts));
     _cursorRenderer = cursorRenderer ?? throw new ArgumentNullException(nameof(cursorRenderer));
     _perfWatch = perfWatch ?? throw new ArgumentNullException(nameof(perfWatch));
     _renderStrategy = renderStrategy ?? throw new ArgumentNullException(nameof(renderStrategy));
     _gridRenderer = gridRenderer ?? throw new ArgumentNullException(nameof(gridRenderer));
+    _themeConfig = themeConfig ?? throw new ArgumentNullException(nameof(themeConfig));
   }
 
   /// <summary>
@@ -133,6 +139,15 @@ internal class TerminalUiRender
       _renderStrategy.RenderGrid(activeSession, terminalDrawPos, currentCharacterWidth,
                                 currentLineHeight, currentSelection, context);
 
+      if (_themeConfig.ShowTerminalTexturePreview)
+      {
+        _textureDebugPreview.Render(terminalWidth, terminalHeight);
+      }
+      else
+      {
+        _textureDebugPreview.Dispose();
+      }
+
       // Render cursor
       RenderCursor(drawList, terminalDrawPos, activeSession, currentCharacterWidth, currentLineHeight);
 
@@ -191,5 +206,10 @@ internal class TerminalUiRender
         cursorColor,
         isAtBottom
     );
+  }
+
+  public void Dispose()
+  {
+    _textureDebugPreview.Dispose();
   }
 }

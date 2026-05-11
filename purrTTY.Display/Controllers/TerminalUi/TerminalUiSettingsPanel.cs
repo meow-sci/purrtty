@@ -56,6 +56,7 @@ internal class TerminalUiSettingsPanel
     var windowSubmenu = new WindowSubmenuRenderer(themeConfig, PersistThemeConfigurationSnapshot);
     var shellsSubmenu = new ShellsSubmenuRenderer(themeConfig, sessionManager, PersistThemeConfigurationSnapshot);
     var gameShellSubmenu = new GameShellSubmenuRenderer(themeConfig, PersistThemeConfigurationSnapshot);
+    var terminalTextureSubmenu = new TerminalTextureSubmenuRenderer(themeConfig, PersistThemeConfigurationSnapshot);
     var performanceSubmenu = new PerformanceSubmenuRenderer(perfWatch);
 
     // Create top-level menus
@@ -68,6 +69,7 @@ internal class TerminalUiSettingsPanel
       windowSubmenu,
       shellsSubmenu,
       gameShellSubmenu,
+      terminalTextureSubmenu,
       performanceSubmenu
     );
   }

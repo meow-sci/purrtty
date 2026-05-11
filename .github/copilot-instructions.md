@@ -174,7 +174,7 @@ Display and UI:
 - Controller facade: `purrTTY.Display/Controllers/TerminalController.cs`
 - Controller builder: `purrTTY.Display/Controllers/TerminalControllerBuilder.cs`
 - UI subsystems: `purrTTY.Display/Controllers/TerminalUi/`
-- Optional KSA render services and texture rendering prototypes: `purrTTY.Display/Rendering/TerminalTexture/`
+- Optional KSA render services and texture rendering prototypes: `purrTTY.Display/Rendering/TerminalTexture/`; preview is default-off under Settings > Terminal Texture.
 - Session manager factory and persisted shell config: `purrTTY.Display/Configuration/SessionManagerFactory.cs`
 
 Game and integration:
