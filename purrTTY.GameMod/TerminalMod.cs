@@ -140,7 +140,7 @@ public class TerminalMod
     public void OnBeforeUi(double dt)
     {
         // ModLog.Log.Debug("purrTTY OnBeforeUi");
-        // No pre-UI logic needed currently
+        TerminalTextureWorldQuadPresenter.DrawCurrent();
     }
 
     /// <summary>
@@ -188,6 +188,7 @@ public class TerminalMod
         try
         {
             Patcher.unload();
+            TerminalTextureWorldQuadPresenter.Dispose();
             TerminalRenderServices.Clear();
 
             DisposeResources();
