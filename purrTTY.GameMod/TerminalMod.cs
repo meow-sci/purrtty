@@ -5,6 +5,8 @@ using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Controllers.TerminalUi.Input;
 using purrTTY.Display.Rendering;
+using purrTTY.GameMod.InWorld;
+using purrTTY.GameMod.InWorld.Settings;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
@@ -32,6 +34,8 @@ public class TerminalMod
     private bool _isCapturingToggleHotkey;
     private bool _toggleHotkeyModalOpenRequested;
     private bool _suppressNextTerminalKeyboardInputFrame;
+    private InWorldTerminalManager? _inWorld;
+    private InWorldSettings? _inWorldSettings;
 
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
@@ -122,6 +126,14 @@ public class TerminalMod
                 _controller.Update((float)dt);
                 _controller.Render();
             }
+
+            // In-world (render-to-texture) terminal toggle hotkey (default F11).
+            if (!hotkeyModalVisible && IsInWorldToggleHotkeyPressed())
+            {
+                _inWorld?.Toggle();
+            }
+
+            _inWorld?.OnAfterGui(dt);
         }
         catch (Exception ex)
         {
@@ -159,6 +171,20 @@ public class TerminalMod
             // Reserved for optional game-integration services independent of terminal emulation
 
             InitializeTerminal();
+
+            try
+            {
+                _inWorldSettings = InWorldSettings.LoadOrDefault();
+                _inWorld = new InWorldTerminalManager(_inWorldSettings);
+                _inWorld.Initialize();
+                ModLog.Log.Debug("purrTTY GameMod: InWorldTerminalManager initialized (Phase 1 scaffold).");
+            }
+            catch (Exception inWorldEx)
+            {
+                // Never let a Phase 1 bug break the existing terminal.
+                ModLog.Log.Debug($"purrTTY GameMod: InWorldTerminalManager init failed: {inWorldEx.Message}");
+                _inWorld = null;
+            }
         }
         catch (Exception ex)
         {
@@ -344,6 +370,16 @@ public class TerminalMod
     private bool IsToggleHotkeyPressed()
     {
         return _toggleHotkey.MatchesPress(ImGui.GetIO());
+    }
+
+    private bool IsInWorldToggleHotkeyPressed()
+    {
+        if (_inWorldSettings is null)
+        {
+            return false;
+        }
+
+        return ImGui.IsKeyPressed(_inWorldSettings.ToggleKey);
     }
 
     private bool IsReservedTerminalHotkey(ImGuiKey key, KeyModifiers modifiers)
@@ -643,6 +679,12 @@ public class TerminalMod
 
         try
         {
+            // Dispose the in-world manager first so it can release any frame-loop hooks
+            // before the terminal/controller is torn down.
+            _inWorld?.Dispose();
+            _inWorld = null;
+            _inWorldSettings = null;
+
             // Dispose components (the session manager handles process cleanup)
             _controller?.Dispose();
             _controller = null;
