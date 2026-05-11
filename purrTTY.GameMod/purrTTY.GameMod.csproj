@@ -136,6 +136,20 @@
             <HintPath>$(KSAFolder)/Planet.Render.Core.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <!-- Phase 6A in-world quad: PtrOwner<T>, ByteSize, NativeList<T>, IVmaAllocator
+             surface transitively via the pipeline-state Presets and BufferEx. -->
+        <Reference Include="Brutal.Core.Memory" Condition="Exists('$(KSAFolder)/Brutal.Core.Memory.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Memory.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.Core.Collections" Condition="Exists('$(KSAFolder)/Brutal.Core.Collections.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Collections.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.Vulkan.Vma" Condition="Exists('$(KSAFolder)/Brutal.Vulkan.Vma.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Vulkan.Vma.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
     </ItemGroup>
 
 </Project>

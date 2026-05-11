@@ -2,6 +2,8 @@ using System;
 using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
+using purrTTY.GameMod.InWorld.Display;
+using purrTTY.GameMod.InWorld.Patches;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.Logging;
 
@@ -19,6 +21,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private OffscreenContext? _ctx;
     private OffscreenImGuiBackend? _backend;
     private PerFrameRenderer? _frame;
+    private QuadDisplay? _quad;
     private bool _initialized;
     private bool _disposed;
 
@@ -83,6 +86,11 @@ public sealed class InWorldTerminalManager : IDisposable
                 ImGui.End();
             };
 
+            // Phase 6A: pipeline + quad mesh that samples the off-screen target.
+            // Anchoring (model-matrix compute) happens later in Toggle() when an
+            // active camera exists.
+            _quad = new QuadDisplay(renderer, _target, _settings);
+
             _initialized = true;
         }
         catch (Exception ex)
@@ -96,6 +104,8 @@ public sealed class InWorldTerminalManager : IDisposable
             // _ctx.With(...) — but only if _ctx is still alive (any earlier
             // step in construction can throw before later fields are
             // assigned, in which case there is nothing to dispose for them).
+            try { _quad?.Dispose(); } catch { /* best-effort */ }
+            _quad = null;
             try { _frame?.Dispose(); } catch { /* best-effort */ }
             _frame = null;
             if (_ctx != null && _backend != null)
@@ -140,10 +150,35 @@ public sealed class InWorldTerminalManager : IDisposable
 
     /// <summary>
     ///     Toggles the master enable flag and logs the new state.
+    ///     <para>
+    ///         Phase 6A: when enabling, anchor the quad to the active camera's
+    ///         current forward/up. Anchoring requires a live camera (the player
+    ///         must be in flight, not on a loading screen); if none exists we
+    ///         revert the toggle so the patch never fires against an un-anchored
+    ///         quad. The patch enable bit (FramePatches.IsActive) and the live
+    ///         quad pointer (FramePatches.Display) are updated last so the
+    ///         postfix never sees a half-initialized state.
+    ///     </para>
     /// </summary>
     public void Toggle()
     {
-        _settings.Enabled = !_settings.Enabled;
+        bool newState = !_settings.Enabled;
+
+        if (newState && _quad != null)
+        {
+            var camera = Program.GetMainCamera();
+            if (camera == null)
+            {
+                ModLog.Log.Debug("purrTTY in-world: cannot enable quad — no active camera; toggle rejected");
+                return;
+            }
+            _quad.Anchor(camera);
+        }
+
+        _settings.Enabled = newState;
+        FramePatches.Display  = (_settings.Enabled && _quad != null) ? _quad : null;
+        FramePatches.IsActive = _settings.Enabled && _quad != null;
+
         ModLog.Log.Debug($"purrTTY in-world terminal {(_settings.Enabled ? "enabled" : "disabled")}");
     }
 
@@ -154,13 +189,22 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
         _disposed = true;
+
+        // Detach the patch before we tear anything down so the postfix can't see
+        // a freed quad mid-shutdown.
+        FramePatches.IsActive = false;
+        FramePatches.Display  = null;
+
         // Tear down in reverse construction order:
+        //   _quad   → owns the in-world pipeline + buffers (pure Vulkan).
         //   _frame  → drains its fences then frees its cmd buffers + pool
         //             (pure Vulkan; no ImGui state, so no With() needed).
         //   _backend→ mutates ImGui state on the secondary context, so MUST
         //             run with that context current.
         //   _ctx    → destroys the secondary ImGui context.
         //   _target → destroys the off-screen render pass + framebuffer.
+        try { _quad?.Dispose(); } catch { /* best-effort */ }
+        _quad = null;
         try { _frame?.Dispose(); } catch { /* best-effort */ }
         _frame = null;
         if (_ctx != null && _backend != null)
