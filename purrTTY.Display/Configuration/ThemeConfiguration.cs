@@ -298,6 +298,16 @@ public class ThemeConfiguration
     }
 
     /// <summary>
+    /// Whether to submit the experimental terminal texture world quad.
+    /// </summary>
+    [TomlIgnore]
+    public bool ShowTerminalTextureWorldQuad
+    {
+        get => Settings.ShowTerminalTextureWorldQuad;
+        set => Settings.ShowTerminalTextureWorldQuad = value;
+    }
+
+    /// <summary>
     /// Attempts to retrieve the persisted terminal window position and size.
     /// </summary>
     /// <param name="position">The saved window position.</param>
@@ -633,6 +643,7 @@ public class ThemeConfiguration
             ToggleHotkeyAlt = legacy.ToggleHotkeyAlt,
             ToggleHotkeySuper = legacy.ToggleHotkeySuper,
             ShowTerminalTexturePreview = legacy.ShowTerminalTexturePreview,
+            ShowTerminalTextureWorldQuad = legacy.ShowTerminalTextureWorldQuad,
             TerminalWindowPosX = legacy.TerminalWindowPosX,
             TerminalWindowPosY = legacy.TerminalWindowPosY,
             TerminalWindowWidth = legacy.TerminalWindowWidth,
@@ -705,6 +716,8 @@ public class ThemeConfiguration
         public bool ToggleHotkeySuper { get; set; }
 
         public bool ShowTerminalTexturePreview { get; set; }
+
+        public bool ShowTerminalTextureWorldQuad { get; set; }
     }
 
     /// <summary>
@@ -794,5 +807,7 @@ public class ThemeConfiguration
         public bool ToggleHotkeySuper { get; set; }
 
         public bool ShowTerminalTexturePreview { get; set; }
+
+        public bool ShowTerminalTextureWorldQuad { get; set; }
     }
 }

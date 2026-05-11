@@ -94,6 +94,10 @@
             <HintPath>$(KSAFolder)/Brutal.Render.Common.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <Reference Include="Brutal.Render.Mesh" Condition="Exists('$(KSAFolder)/Brutal.Render.Mesh.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Render.Mesh.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
     </ItemGroup>
 
     <ItemGroup>

@@ -124,6 +124,8 @@ Key files:
 - `TerminalUiSettingsPanel.cs` (settings and persistence)
 - `TerminalUiFonts.cs` (font loading/switching)
 
+Terminal texture prototypes use KSA render assemblies directly, including `Brutal.Render.Mesh` for runtime quad mesh construction.
+
 ### Custom Shell Architecture
 
 Custom shell contract and implementation points:
@@ -174,7 +176,7 @@ Display and UI:
 - Controller facade: `purrTTY.Display/Controllers/TerminalController.cs`
 - Controller builder: `purrTTY.Display/Controllers/TerminalControllerBuilder.cs`
 - UI subsystems: `purrTTY.Display/Controllers/TerminalUi/`
-- Optional KSA render services and texture rendering prototypes: `purrTTY.Display/Rendering/TerminalTexture/`; preview is default-off under Settings > Terminal Texture.
+- Optional KSA render services and texture rendering prototypes: `purrTTY.Display/Rendering/TerminalTexture/`; preview and world quad prototype are default-off under Settings > Terminal Texture.
 - Session manager factory and persisted shell config: `purrTTY.Display/Configuration/SessionManagerFactory.cs`
 
 Game and integration:

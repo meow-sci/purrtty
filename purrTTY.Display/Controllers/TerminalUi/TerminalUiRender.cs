@@ -24,6 +24,7 @@ internal class TerminalUiRender : IDisposable
   private readonly TerminalGridRenderer _gridRenderer;
   private readonly ThemeConfiguration _themeConfig;
   private readonly TerminalTextureDebugPreview _textureDebugPreview = new();
+  private TerminalWorldQuad? _worldQuad;
 
   public TerminalUiRender(
     TerminalUiFonts fonts,
@@ -139,12 +140,32 @@ internal class TerminalUiRender : IDisposable
       _renderStrategy.RenderGrid(activeSession, terminalDrawPos, currentCharacterWidth,
                                 currentLineHeight, currentSelection, context);
 
-      if (_themeConfig.ShowTerminalTexturePreview)
+      bool showPreview = _themeConfig.ShowTerminalTexturePreview;
+      bool showWorldQuad = _themeConfig.ShowTerminalTextureWorldQuad;
+
+      if (showPreview || showWorldQuad)
       {
-        _textureDebugPreview.Render(terminalWidth, terminalHeight);
+        var texture = _textureDebugPreview.EnsureTexture(terminalWidth, terminalHeight);
+        if (showPreview)
+        {
+          _textureDebugPreview.RenderPreview(terminalWidth, terminalHeight);
+        }
+
+        if (showWorldQuad && texture != null && TerminalRenderServices.Current is { } services)
+        {
+          _worldQuad ??= new TerminalWorldQuad(services);
+          _worldQuad.Draw(texture, terminalWidth, terminalHeight);
+        }
+        else
+        {
+          _worldQuad?.Dispose();
+          _worldQuad = null;
+        }
       }
       else
       {
+        _worldQuad?.Dispose();
+        _worldQuad = null;
         _textureDebugPreview.Dispose();
       }
 
@@ -210,6 +231,8 @@ internal class TerminalUiRender : IDisposable
 
   public void Dispose()
   {
+    _worldQuad?.Dispose();
+    _worldQuad = null;
     _textureDebugPreview.Dispose();
   }
 }

@@ -27,5 +27,17 @@ internal sealed class TerminalTextureSubmenuRenderer
         {
             ImGui.SetTooltip("Allocate the experimental terminal render target and show it in a debug preview window.");
         }
+
+        bool showWorldQuad = _themeConfig.ShowTerminalTextureWorldQuad;
+        if (ImGui.Checkbox("Show world quad", ref showWorldQuad))
+        {
+            _themeConfig.ShowTerminalTextureWorldQuad = showWorldQuad;
+            _persistThemeConfiguration();
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Submit the experimental terminal texture as a camera-facing world-space quad.");
+        }
     }
 }
