@@ -67,7 +67,8 @@ public sealed class InWorldTerminalManager : IDisposable
             // context's IO + main viewport, so we must construct it under
             // _ctx.With(...). minImageCount/imageCount = 2 matches typical
             // MaxFramesInFlight and satisfies the backend's MinImageCount >= 2
-            // assertion; descriptorPoolSize = 64 is plenty for a single window.
+            // assertion; descriptorPoolSize = 256 is KSA's hard floor (it asserts
+            // >= 256 in CreateDescriptorPool — anything lower throws at ctor time).
             _ctx.With(() =>
             {
                 _backend = new OffscreenImGuiBackend(
@@ -75,7 +76,7 @@ public sealed class InWorldTerminalManager : IDisposable
                     _target.RenderPass,
                     minImageCount: 2,
                     imageCount: 2,
-                    descriptorPoolSize: 64);
+                    descriptorPoolSize: 256);
             });
 
             // Phase 5: per-frame command buffer + fence ring. framesInFlight: 2

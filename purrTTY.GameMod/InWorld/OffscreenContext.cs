@@ -134,13 +134,24 @@ public sealed class OffscreenContext : IDisposable
 
         if (Native.IsNull()) return;
 
-        // Never destroy a context that is currently bound. Detach to "no
-        // current context" first, then destroy. Callers must not be inside a
-        // With() scope when Dispose runs (documented contract).
+        // Tearing down without leaving the process in a "no current context"
+        // state matters: KSA's GLFW backend calls ImGui.GetIO() every frame in
+        // ImGuiBackendGlfwImpl.NewFrame() and dereferences DisplaySize, which
+        // NREs when no context is current. ImGui itself only forbids destroying
+        // the *currently bound* context, so we swap to default ONLY if ours
+        // happens to be bound (it shouldn't, per the With() contract — but
+        // recover defensively) and otherwise leave the main context as current.
         var ours = Native;
         Native = default;
 
-        ImGui.SetCurrentContext(default);
+        unsafe
+        {
+            var current = ImGui.GetCurrentContext();
+            if (current.Ptr == ours.Ptr)
+            {
+                ImGui.SetCurrentContext(default);
+            }
+        }
         ImGui.DestroyContext(ours);
     }
 }
