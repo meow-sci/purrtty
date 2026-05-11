@@ -91,9 +91,14 @@ class Patch01
   [HarmonyPatch(nameof(KSA.Program.OnKey))]
   static bool Prefix1(GlfwWindow window, GlfwKey key, int scanCode, GlfwKeyAction action, GlfwModifier mods)
   {
-    if (TerminalController.IsAnyTerminalActive)
+    // Suppress game-side OnKey handling whenever a purrTTY surface owns the
+    // keyboard — either the screen-space terminal or (Phase 7A) the in-world
+    // terminal quad. The ImGui backend's own iO.AddKeyEvent + the secondary-
+    // context forwarder still run via the GLFW callback; only the game's
+    // fallthrough handler is skipped.
+    if (TerminalController.IsAnyTerminalActive
+        || purrTTY.GameMod.InWorld.Patches.FramePatches.Focus?.IsFocused == true)
     {
-      // skipping Program.OnKey
       return false;
     }
     return true;

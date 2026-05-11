@@ -3,6 +3,7 @@ using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
 using purrTTY.GameMod.InWorld.Display;
+using purrTTY.GameMod.InWorld.Input;
 using purrTTY.GameMod.InWorld.Patches;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.Logging;
@@ -23,6 +24,8 @@ public sealed class InWorldTerminalManager : IDisposable
     private PerFrameRenderer? _frame;
     private QuadDisplay? _quad;
     private SubPartMaterialOverride? _override;
+    private readonly InWorldFocus _focus = new();
+    private QuadPicker? _picker;
     private bool _initialized;
     private bool _disposed;
 
@@ -92,6 +95,9 @@ public sealed class InWorldTerminalManager : IDisposable
             // active camera exists.
             _quad = new QuadDisplay(renderer, _target, _settings);
 
+            // Phase 7A: per-frame ray-vs-quad pick that flips _focus on click.
+            _picker = new QuadPicker(_quad);
+
             _initialized = true;
         }
         catch (Exception ex)
@@ -146,6 +152,18 @@ public sealed class InWorldTerminalManager : IDisposable
             // the user can re-toggle after addressing the underlying issue.
             ModLog.Log.Error($"purrTTY in-world: per-frame render failed; disabling in-world terminal: {ex}");
             _settings.Enabled = false;
+            return;
+        }
+
+        // Phase 7A: pick + Esc handling. Wrapped separately so a picking failure
+        // does NOT disable the whole feature (unlike a render failure above).
+        try
+        {
+            _picker?.Tick(_focus);
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world picker tick failed: {ex}");
         }
     }
 
@@ -192,9 +210,12 @@ public sealed class InWorldTerminalManager : IDisposable
         if (!newState)
         {
             // Detach the patches first so the override teardown can't race with
-            // a postfix that still holds the old reference.
+            // a postfix that still holds the old reference. Also drop focus so
+            // the GLFW forwarders + game-input prefix stop firing immediately.
             FramePatches.IsActive = false;
             FramePatches.Override = null;
+            FramePatches.Focus = null;
+            FramePatches.SecondaryContext = null;
             try { _override?.Dispose(); } catch { /* best-effort */ }
             _override = null;
         }
@@ -203,6 +224,13 @@ public sealed class InWorldTerminalManager : IDisposable
         FramePatches.Display  = (_settings.Enabled && _quad != null) ? _quad : null;
         FramePatches.Override = _settings.Enabled ? _override : null;
         FramePatches.IsActive = _settings.Enabled && _quad != null;
+
+        // Always reset focus on either edge of the toggle so the in-world
+        // terminal never comes back up already-focused, and so the screen-space
+        // path is restored cleanly on disable.
+        _focus.State = InWorldFocusState.NotFocused;
+        FramePatches.Focus = _settings.Enabled ? _focus : null;
+        FramePatches.SecondaryContext = _settings.Enabled ? _ctx : null;
 
         ModLog.Log.Debug($"purrTTY in-world terminal {(_settings.Enabled ? "enabled" : "disabled")}");
     }
@@ -282,10 +310,13 @@ public sealed class InWorldTerminalManager : IDisposable
         _disposed = true;
 
         // Detach the patches before we tear anything down so the postfixes can't
-        // see a freed quad/override mid-shutdown.
+        // see a freed quad/override/context mid-shutdown.
         FramePatches.IsActive = false;
         FramePatches.Display  = null;
         FramePatches.Override = null;
+        FramePatches.Focus = null;
+        FramePatches.SecondaryContext = null;
+        _focus.State = InWorldFocusState.NotFocused;
 
         // Tear down in reverse construction order:
         //   _override → frees its bindless texture handle in the shared lib.

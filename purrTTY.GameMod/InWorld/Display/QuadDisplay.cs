@@ -290,6 +290,54 @@ public sealed class QuadDisplay : IDisposable
     }
 
     /// <summary>
+    ///     Phase 7A — ego-space ray vs. quad pick. Returns true and the nearer
+    ///     positive <c>t</c> when the ray hits one of the two triangles, false
+    ///     otherwise. No-op if not yet anchored.
+    ///     <para>
+    ///         The local-space verts/indices here MUST match the buffers uploaded
+    ///         in the constructor: 4 corners in the XY plane, two triangles
+    ///         (0,1,2) and (0,2,3) — keep them in sync if either ever changes.
+    ///     </para>
+    /// </summary>
+    public bool TryRaycast(Ray ray, out double t)
+    {
+        t = double.MaxValue;
+        if (_disposed || !_anchored) return false;
+
+        // Local-space corners mirror the QuadVertex array in the ctor. We only
+        // need positions for the raycast; UVs are irrelevant for hit-vs-no-hit.
+        float3 v0Local = new float3(-0.5f, -0.5f, 0f);
+        float3 v1Local = new float3( 0.5f, -0.5f, 0f);
+        float3 v2Local = new float3( 0.5f,  0.5f, 0f);
+        float3 v3Local = new float3(-0.5f,  0.5f, 0f);
+
+        // float3.Transform(p, M) computes M * vec4(p,1) using KSA's mat-vector
+        // convention (same one RecordDraw relies on when it composes the MVP).
+        double3 v0 = ToDouble3(float3.Transform(v0Local, _modelEgo));
+        double3 v1 = ToDouble3(float3.Transform(v1Local, _modelEgo));
+        double3 v2 = ToDouble3(float3.Transform(v2Local, _modelEgo));
+        double3 v3 = ToDouble3(float3.Transform(v3Local, _modelEgo));
+
+        bool any = false;
+        if (ray.RaycastMollerTrumbore(v0, v1, v2, out double t0))
+        {
+            t = t0;
+            any = true;
+        }
+        if (ray.RaycastMollerTrumbore(v0, v2, v3, out double t1))
+        {
+            if (!any || t1 < t)
+            {
+                t = t1;
+            }
+            any = true;
+        }
+        return any;
+    }
+
+    private static double3 ToDouble3(float3 v) => new double3(v.X, v.Y, v.Z);
+
+    /// <summary>
     ///     Record bind + draw commands for the quad into the supplied (live,
     ///     inside-render-pass) command buffer. No-op if not yet anchored.
     /// </summary>
