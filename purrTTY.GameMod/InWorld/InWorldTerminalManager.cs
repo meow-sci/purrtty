@@ -1,4 +1,5 @@
 using System;
+using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
 using purrTTY.GameMod.InWorld.Settings;
@@ -17,6 +18,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private OffscreenRenderTarget? _target;
     private OffscreenContext? _ctx;
     private OffscreenImGuiBackend? _backend;
+    private PerFrameRenderer? _frame;
     private bool _initialized;
     private bool _disposed;
 
@@ -69,17 +71,33 @@ public sealed class InWorldTerminalManager : IDisposable
                     descriptorPoolSize: 64);
             });
 
+            // Phase 5: per-frame command buffer + fence ring. framesInFlight: 2
+            // matches the backend's image count from Phase 4. The default
+            // BuildUi is a no-op; install the Phase 5 sanity stub. Phase 6+
+            // will swap in the real terminal UI.
+            _frame = new PerFrameRenderer(renderer, _target, _ctx, _backend!, framesInFlight: 2);
+            _frame.BuildUi = static () =>
+            {
+                ImGui.Begin("In-World Terminal");
+                ImGui.Text("Hello, in-world terminal (Phase 5)");
+                ImGui.End();
+            };
+
             _initialized = true;
         }
         catch (Exception ex)
         {
             ModLog.Log.Error($"purrTTY in-world: failed to create off-screen resources; disabling in-world terminal: {ex}");
             _settings.Enabled = false;
-            // Tear down in reverse construction order. The backend's Dispose
-            // touches ImGui state on the secondary context, so it must run
-            // under _ctx.With(...) — but only if _ctx is still alive (backend
-            // construction itself can throw before _backend is assigned, in
-            // which case there is nothing to dispose).
+            // Tear down in reverse construction order. The frame ring owns
+            // pure-Vulkan resources (no ImGui state) and disposes safely
+            // outside the secondary context. The backend's Dispose touches
+            // ImGui state on the secondary context, so it must run under
+            // _ctx.With(...) — but only if _ctx is still alive (any earlier
+            // step in construction can throw before later fields are
+            // assigned, in which case there is nothing to dispose for them).
+            try { _frame?.Dispose(); } catch { /* best-effort */ }
+            _frame = null;
             if (_ctx != null && _backend != null)
             {
                 try { _ctx.With(() => { _backend!.Dispose(); }); } catch { /* best-effort */ }
@@ -102,7 +120,22 @@ public sealed class InWorldTerminalManager : IDisposable
         {
             return;
         }
-        // phase 5 populates this
+        if (_frame == null)
+        {
+            return;
+        }
+        try
+        {
+            _frame.Frame(dt);
+        }
+        catch (Exception ex)
+        {
+            // A render-loop exception is fatal for this feature: keep retrying
+            // would just spam the log and may corrupt Vulkan state. Disable so
+            // the user can re-toggle after addressing the underlying issue.
+            ModLog.Log.Error($"purrTTY in-world: per-frame render failed; disabling in-world terminal: {ex}");
+            _settings.Enabled = false;
+        }
     }
 
     /// <summary>
@@ -121,9 +154,15 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
         _disposed = true;
-        // Tear down in reverse construction order. The backend's Dispose
-        // mutates ImGui state on the secondary context, so it must run with
-        // that context current. Then the context itself, then the GPU target.
+        // Tear down in reverse construction order:
+        //   _frame  → drains its fences then frees its cmd buffers + pool
+        //             (pure Vulkan; no ImGui state, so no With() needed).
+        //   _backend→ mutates ImGui state on the secondary context, so MUST
+        //             run with that context current.
+        //   _ctx    → destroys the secondary ImGui context.
+        //   _target → destroys the off-screen render pass + framebuffer.
+        try { _frame?.Dispose(); } catch { /* best-effort */ }
+        _frame = null;
         if (_ctx != null && _backend != null)
         {
             _ctx.With(() => { _backend!.Dispose(); });
