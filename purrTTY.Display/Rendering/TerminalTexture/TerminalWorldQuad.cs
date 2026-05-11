@@ -13,6 +13,7 @@ internal sealed class TerminalWorldQuad : IDisposable
     private const float DefaultHeightMeters = 1.2f;
     private const float DefaultDistanceMeters = 4f;
     private readonly TerminalRenderServices _services;
+    private readonly string _assetPrefix = $"purrTTY/TerminalWorldQuad/{Guid.NewGuid():N}";
     private MeshBucketHandle _meshBucket;
     private int _materialHandle = -1;
     private int? _materialBindlessHandle;
@@ -120,7 +121,7 @@ internal sealed class TerminalWorldQuad : IDisposable
                 materialSystem.Free(_materialHandle);
             }
 
-            var materialName = new AssetName($"purrTTY.Terminal.WorldQuad.Material.{++_materialGeneration}");
+            var materialName = new AssetName($"{_assetPrefix}/Material/{++_materialGeneration}");
             bool created = materialSystem.CreateObject(materialName, new MaterialData
             {
                 AlbedoTexture = bindlessHandle,
@@ -135,7 +136,7 @@ internal sealed class TerminalWorldQuad : IDisposable
 
             if (!created)
             {
-                LogOnce("purrTTY world quad unavailable: failed to create material object");
+                LogOnce($"purrTTY world quad unavailable: failed to create material object {materialName}");
                 return false;
             }
 
