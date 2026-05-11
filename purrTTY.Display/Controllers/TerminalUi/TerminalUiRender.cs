@@ -184,13 +184,12 @@ internal class TerminalUiRender : IDisposable
           }
         }
 
-        bool textureContentReady = texture != null && _lastTerminalTextureKey.HasValue;
-        if (showPreview && textureContentReady)
+        if (showPreview && texture != null)
         {
           _textureDebugPreview.RenderPreview(terminalWidth, terminalHeight);
         }
 
-        if (showWorldQuad && texture != null && textureContentReady)
+        if (showWorldQuad && texture != null)
         {
           TerminalTextureWorldQuadPresenter.Enabled = true;
           TerminalTextureWorldQuadPresenter.SetSource(texture, terminalWidth, terminalHeight);
@@ -199,8 +198,6 @@ internal class TerminalUiRender : IDisposable
         {
           TerminalTextureWorldQuadPresenter.Enabled = false;
           TerminalTextureWorldQuadPresenter.ClearSource();
-          _lastTerminalTextureKey = null;
-          _lastTextureRenderError = null;
         }
       }
       else

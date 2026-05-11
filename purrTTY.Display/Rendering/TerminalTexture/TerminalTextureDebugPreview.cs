@@ -16,6 +16,12 @@ internal sealed class TerminalTextureDebugPreview : IDisposable
         var services = TerminalRenderServices.Current;
         if (services == null)
         {
+            if (_lastError != "services-null")
+            {
+                _lastError = "services-null";
+                ModLog.Log.Debug("purrTTY texture rendering unavailable: render services are not installed");
+            }
+
             Dispose();
             return null;
         }
