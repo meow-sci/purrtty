@@ -16,6 +16,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private readonly InWorldSettings _settings;
     private OffscreenRenderTarget? _target;
     private OffscreenContext? _ctx;
+    private OffscreenImGuiBackend? _backend;
     private bool _initialized;
     private bool _disposed;
 
@@ -52,12 +53,38 @@ public sealed class InWorldTerminalManager : IDisposable
             // target so disposal can tear them down in reverse order.
             _ctx = new OffscreenContext(_settings.TextureWidth, _settings.TextureHeight);
 
+            // Phase 4: secondary Vulkan ImGui backend bound to our off-screen
+            // render pass. The backend's ctor mutates the *current* ImGui
+            // context's IO + main viewport, so we must construct it under
+            // _ctx.With(...). minImageCount/imageCount = 2 matches typical
+            // MaxFramesInFlight and satisfies the backend's MinImageCount >= 2
+            // assertion; descriptorPoolSize = 64 is plenty for a single window.
+            _ctx.With(() =>
+            {
+                _backend = new OffscreenImGuiBackend(
+                    renderer,
+                    _target.RenderPass,
+                    minImageCount: 2,
+                    imageCount: 2,
+                    descriptorPoolSize: 64);
+            });
+
             _initialized = true;
         }
         catch (Exception ex)
         {
             ModLog.Log.Error($"purrTTY in-world: failed to create off-screen resources; disabling in-world terminal: {ex}");
             _settings.Enabled = false;
+            // Tear down in reverse construction order. The backend's Dispose
+            // touches ImGui state on the secondary context, so it must run
+            // under _ctx.With(...) — but only if _ctx is still alive (backend
+            // construction itself can throw before _backend is assigned, in
+            // which case there is nothing to dispose).
+            if (_ctx != null && _backend != null)
+            {
+                try { _ctx.With(() => { _backend!.Dispose(); }); } catch { /* best-effort */ }
+            }
+            _backend = null;
             _ctx?.Dispose();
             _ctx = null;
             _target?.Dispose();
@@ -94,7 +121,14 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
         _disposed = true;
-        // Tear down ImGui state first, then GPU resources.
+        // Tear down in reverse construction order. The backend's Dispose
+        // mutates ImGui state on the secondary context, so it must run with
+        // that context current. Then the context itself, then the GPU target.
+        if (_ctx != null && _backend != null)
+        {
+            _ctx.With(() => { _backend!.Dispose(); });
+        }
+        _backend = null;
         _ctx?.Dispose();
         _ctx = null;
         _target?.Dispose();
