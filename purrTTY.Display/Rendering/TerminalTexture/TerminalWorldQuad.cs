@@ -84,13 +84,15 @@ internal sealed class TerminalWorldQuad : IDisposable
             return false;
         }
 
-        if (_services.TextureSystem == null || _services.TextureSystem.DefaultWhiteTexture == null)
+        var textureSystem = _services.TextureSystem;
+        if (textureSystem == null || textureSystem.DefaultWhiteTexture == null)
         {
             LogOnce("purrTTY world quad unavailable: KSA texture system is not ready");
             return false;
         }
 
-        if (_services.MaterialSystem == null)
+        var materialSystem = _services.MaterialSystem;
+        if (materialSystem == null)
         {
             LogOnce("purrTTY world quad unavailable: KSA material system is not ready");
             return false;
@@ -115,16 +117,16 @@ internal sealed class TerminalWorldQuad : IDisposable
         {
             if (_materialHandle >= 0)
             {
-                _services.MaterialSystem.Free(_materialHandle);
+                materialSystem.Free(_materialHandle);
             }
 
             var materialName = new AssetName($"purrTTY.Terminal.WorldQuad.Material.{++_materialGeneration}");
-            bool created = _services.MaterialSystem.CreateObject(materialName, new MaterialData
+            bool created = materialSystem.CreateObject(materialName, new MaterialData
             {
                 AlbedoTexture = bindlessHandle,
-                NormalTexture = _services.TextureSystem.DefaultWhiteTexture.BindlessHandle,
-                RoughMetallicAOTexture = _services.TextureSystem.DefaultWhiteTexture.BindlessHandle,
-                Sampler = _services.TextureSystem.SamplerClampHandle,
+                NormalTexture = textureSystem.DefaultWhiteTexture.BindlessHandle,
+                RoughMetallicAOTexture = textureSystem.DefaultWhiteTexture.BindlessHandle,
+                Sampler = textureSystem.SamplerClampHandle,
                 AlbedoColor = float4.One,
                 RoughnessMetalScale = new float4(1f, 0f, 1f, 1f),
                 ExtraData = float4.Zero,
@@ -137,7 +139,7 @@ internal sealed class TerminalWorldQuad : IDisposable
                 return false;
             }
 
-            _materialHandle = _services.MaterialSystem.GetOrLoad(materialName).Handle;
+            _materialHandle = materialSystem.GetOrLoad(materialName).Handle;
             _materialBindlessHandle = bindlessHandle;
         }
 

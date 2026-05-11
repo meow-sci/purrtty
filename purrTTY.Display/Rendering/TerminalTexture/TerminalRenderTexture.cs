@@ -177,6 +177,13 @@ internal sealed class TerminalRenderTexture : IDisposable
             return false;
         }
 
+        var textureSystem = _services.TextureSystem;
+        if (textureSystem == null)
+        {
+            ModLog.Log.Debug("purrTTY texture bindless registration unavailable: KSA TextureSystem is not ready");
+            return false;
+        }
+
         var bindlessLibraryField = typeof(GpuTextureSystem).GetField("_bindlessTextureLib", BindingFlags.Instance | BindingFlags.NonPublic);
         if (bindlessLibraryField == null)
         {
@@ -184,7 +191,7 @@ internal sealed class TerminalRenderTexture : IDisposable
             return false;
         }
 
-        var bindlessLibrary = bindlessLibraryField.GetValue(_services.TextureSystem);
+        var bindlessLibrary = bindlessLibraryField.GetValue(textureSystem);
         if (bindlessLibrary == null)
         {
             ModLog.Log.Debug("purrTTY texture bindless registration failed: _bindlessTextureLib is null");
@@ -242,7 +249,7 @@ internal sealed class TerminalRenderTexture : IDisposable
 
         if (_bindlessTextureHandle.HasValue)
         {
-            _services.TextureSystem.Free(_bindlessTextureHandle.Value);
+            _services.TextureSystem?.Free(_bindlessTextureHandle.Value);
             _bindlessTextureHandle = null;
         }
 

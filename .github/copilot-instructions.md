@@ -124,7 +124,7 @@ Key files:
 - `TerminalUiSettingsPanel.cs` (settings and persistence)
 - `TerminalUiFonts.cs` (font loading/switching)
 
-Terminal texture prototypes use KSA render assemblies directly, including `Brutal.Render.Mesh` for runtime quad mesh construction and `Brutal.Vulkan.Vma` for texture upload allocator APIs. The world quad presenter publishes the current terminal texture from the UI render path and submits the mesh from `TerminalMod.OnBeforeUi()`.
+Terminal texture prototypes use KSA render assemblies directly, including `Brutal.Render.Mesh` for runtime quad mesh construction and `Brutal.Vulkan.Vma` for texture upload allocator APIs. Render services install in a partial state when only the renderer/ImGui sampler are available so the debug preview can work before KSA creates material and mesh systems; world quad submission waits until texture, material, and mesh systems are all present. The world quad presenter publishes the current terminal texture from the UI render path and submits the mesh from `TerminalMod.OnBeforeUi()`.
 
 ### Custom Shell Architecture
 

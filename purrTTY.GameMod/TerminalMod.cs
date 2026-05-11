@@ -33,6 +33,7 @@ public class TerminalMod
     private bool _isCapturingToggleHotkey;
     private bool _toggleHotkeyModalOpenRequested;
     private bool _suppressNextTerminalKeyboardInputFrame;
+    private static string? _lastRenderServiceStatus;
 
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
@@ -102,6 +103,7 @@ public class TerminalMod
 
         try
         {
+            InstallTerminalRenderServices();
             bool hotkeyModalVisible = RenderToggleHotkeyModal();
 
             // Handle terminal toggle keybind (dynamic, defaults to F12)
@@ -140,6 +142,12 @@ public class TerminalMod
     public void OnBeforeUi(double dt)
     {
         // ModLog.Log.Debug("purrTTY OnBeforeUi");
+        if (!_isInitialized || _isDisposed)
+        {
+            return;
+        }
+
+        InstallTerminalRenderServices();
         TerminalTextureWorldQuadPresenter.DrawCurrent();
     }
 
@@ -190,6 +198,7 @@ public class TerminalMod
             Patcher.unload();
             TerminalTextureWorldQuadPresenter.Dispose();
             TerminalRenderServices.Clear();
+            _lastRenderServiceStatus = null;
 
             DisposeResources();
         }
@@ -312,21 +321,19 @@ public class TerminalMod
                 return;
             }
 
-            if (program.TextureSystem == null)
-            {
-                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA TextureSystem is null");
-                return;
-            }
+            string readiness = program.TextureSystem != null && program.MaterialSystem != null && program.SuperMeshRenderSystem != null
+                ? "world-ready"
+                : $"preview-only texture={program.TextureSystem != null} material={program.MaterialSystem != null} mesh={program.SuperMeshRenderSystem != null}";
 
-            if (program.MaterialSystem == null)
-            {
-                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA MaterialSystem is null");
-                return;
-            }
+            var current = TerminalRenderServices.Current;
+            bool alreadyInstalled = current != null &&
+                ReferenceEquals(current.Renderer, renderer) &&
+                ReferenceEquals(current.TextureSystem, program.TextureSystem) &&
+                ReferenceEquals(current.MaterialSystem, program.MaterialSystem) &&
+                ReferenceEquals(current.MeshRenderSystem, program.SuperMeshRenderSystem);
 
-            if (program.SuperMeshRenderSystem == null)
+            if (alreadyInstalled)
             {
-                ModLog.Log.Debug("purrTTY texture rendering unavailable: KSA SuperMeshRenderSystem is null");
                 return;
             }
 
@@ -339,7 +346,13 @@ public class TerminalMod
                 ImGuiSampler = KSA.Program.LinearClampedSampler
             });
 
-            ModLog.Log.Debug("purrTTY texture rendering services installed");
+            if (_lastRenderServiceStatus != readiness)
+            {
+                _lastRenderServiceStatus = readiness;
+                ModLog.Log.Debug(readiness == "world-ready"
+                    ? "purrTTY texture rendering services installed"
+                    : $"purrTTY texture preview services installed; world quad services pending ({readiness})");
+            }
         }
         catch (Exception ex)
         {
