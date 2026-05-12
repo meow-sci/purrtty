@@ -7,6 +7,7 @@ using purrTTY.Display.Controllers.TerminalUi.Input;
 using purrTTY.Display.Rendering;
 using purrTTY.GameMod.InWorld;
 using purrTTY.GameMod.InWorld.Settings;
+using purrTTY.GameMod.InWorld.UI;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
@@ -36,6 +37,7 @@ public class TerminalMod
     private bool _suppressNextTerminalKeyboardInputFrame;
     private InWorldTerminalManager? _inWorld;
     private InWorldSettings? _inWorldSettings;
+    private InWorldSettingsWindow? _inWorldSettingsWindow;
 
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
@@ -60,12 +62,13 @@ public class TerminalMod
     internal static Action? OpenToggleHotkeySettings;
 
     /// <summary>
-    ///     In-world (render-to-texture) toggle action and diagnostic accessors.
+    ///     In-world (render-to-texture) feature accessors. Replaces the old
+    ///     three-menu-item bundle with a single "open settings window" action.
     ///     Wired in OnFullyLoaded; nulled in DisposeResources.
     /// </summary>
-    internal static Action? ToggleInWorld;
-    internal static Func<InWorldTerminalManager?>? GetInWorldManager;
-    internal static Func<InWorldSettings?>? GetInWorldSettings;
+    internal static Action? ToggleInWorldSettingsWindow;
+    internal static Func<bool>? IsInWorldSettingsWindowOpen;
+    internal static Func<bool>? IsInWorldFeatureAvailable;
 
     /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
@@ -76,7 +79,7 @@ public class TerminalMod
     public static void DrawMenu()
     {
         DrawToggleMenuItem();
-        DrawInWorldToggleMenuItem();
+        DrawInWorldSettingsMenuItem();
     }
 
     /// <summary>
@@ -99,164 +102,31 @@ public class TerminalMod
     }
 
     /// <summary>
-    ///     Draws the in-world (render-to-texture) menu items: a checkable toggle
-    ///     plus a diagnostic submenu showing live state. Mirrors the screen-space
-    ///     toggle's idiom — state is read via static delegates set by the instance.
+    ///     Single menu entry that opens the unified in-world terminal settings
+    ///     window. Replaces the previous trio of menu items (toggle, status,
+    ///     pick-target-part). Greyed out when the in-world feature failed to
+    ///     initialize (e.g. no renderer, GPU resource creation threw).
     /// </summary>
-    internal static void DrawInWorldToggleMenuItem()
+    internal static void DrawInWorldSettingsMenuItem()
     {
-        var manager  = GetInWorldManager?.Invoke();
-        var settings = GetInWorldSettings?.Invoke();
-        var available = manager != null && settings != null;
-
-        var hotkey = settings != null ? settings.ToggleKey.ToString() : "F11";
-        var enabled = settings?.Enabled ?? false;
+        bool available = IsInWorldFeatureAvailable?.Invoke() ?? false;
+        bool windowOpen = IsInWorldSettingsWindowOpen?.Invoke() ?? false;
 
         if (!available)
         {
             ImGui.BeginDisabled();
         }
-        if (ImGui.MenuItem("Toggle In-World Terminal", hotkey, enabled))
+        if (ImGui.MenuItem("In-World Terminal Settings…", "", windowOpen))
         {
-            ToggleInWorld?.Invoke();
+            ToggleInWorldSettingsWindow?.Invoke();
         }
         if (ImGui.IsItemHovered())
         {
-            ImGui.SetTooltip("Renders the terminal to a quad in 3D space. Requires an active vessel camera.");
+            ImGui.SetTooltip("Open the in-world terminal settings window. F11 still toggles rendering.");
         }
         if (!available)
         {
             ImGui.EndDisabled();
-        }
-
-        if (available && ImGui.BeginMenu("In-World Status"))
-        {
-            var hasCamera = KSA.Program.GetMainCamera() != null;
-            var partName = string.IsNullOrEmpty(settings!.TargetPartName) ? "(none — quad only)" : settings.TargetPartName;
-
-            // Pre-format to plain string variables so overload resolution binds
-            // to ImGui.Text(string) rather than the Brutal.Core.Strings String8
-            // overload (which would otherwise pick up interpolated literals).
-            string enabledLine    = "Enabled:        " + (settings.Enabled ? "yes" : "no");
-            string initLine       = "Initialized:    " + (manager!.IsInitialized ? "yes" : "no");
-            string anchoredLine   = "Quad anchored:  " + (manager.IsQuadAnchored ? "yes" : "no");
-            string focusedLine    = "Focused:        " + (manager.IsFocused ? "yes" : "no");
-            string cameraLine     = "Active camera:  " + (hasCamera ? "yes" : "no — F11 will reject");
-            string partLine       = "Target part:    " + partName;
-            string subpartLine    = "SubPart active: " + (manager.HasSubPartOverride ? "yes" : "no");
-            string textureLine    = "Texture:        " + settings.TextureWidth + "×" + settings.TextureHeight;
-            string quadSizeLine   = "Quad size:      " + settings.QuadWidthMeters.ToString("0.0") + "×" + settings.QuadHeightMeters.ToString("0.0") + " m";
-            string quadDistLine   = "Quad distance:  " + settings.QuadDistanceMeters.ToString("0.0") + " m";
-
-            ImGui.Text(enabledLine);
-            ImGui.Text(initLine);
-            ImGui.Text(anchoredLine);
-            ImGui.Text(focusedLine);
-            ImGui.Text(cameraLine);
-            ImGui.Separator();
-            ImGui.Text(partLine);
-            ImGui.Text(subpartLine);
-            ImGui.Separator();
-            ImGui.Text(textureLine);
-            ImGui.Text(quadSizeLine);
-            ImGui.Text(quadDistLine);
-
-            ImGui.EndMenu();
-        }
-
-        if (available && ImGui.BeginMenu("Pick Target Part"))
-        {
-            DrawSubPartPickerSubmenu(manager!, settings!);
-            ImGui.EndMenu();
-        }
-    }
-
-    /// <summary>
-    ///     Body of the "Pick Target Part" submenu. Rebuilt each time the
-    ///     submenu is opened so vessel reloads / scene switches are picked up
-    ///     automatically. Selecting an item updates
-    ///     <see cref="InWorldSettings.TargetPartName"/> and triggers a rebind
-    ///     of the SubPart override if the in-world feature is currently on.
-    /// </summary>
-    private static void DrawSubPartPickerSubmenu(InWorldTerminalManager manager, InWorldSettings settings)
-    {
-        var vehicle = KSA.Program.ControlledVehicle;
-        if (vehicle == null)
-        {
-            ImGui.BeginDisabled();
-            ImGui.MenuItem("(no active vessel)");
-            ImGui.EndDisabled();
-            return;
-        }
-
-        // "(none)" entry: clear the SubPart binding, fall back to the quad-only path.
-        bool noneChecked = string.IsNullOrEmpty(settings.TargetPartName);
-        string noneLabel = "(none — quad only)";
-        string noneShortcut = "";
-        if (ImGui.MenuItem(noneLabel, noneShortcut, noneChecked))
-        {
-            if (!noneChecked)
-            {
-                settings.TargetPartName = "";
-                manager.RebindSubPart();
-            }
-        }
-        ImGui.Separator();
-
-        // Top-level parts each get a nested submenu listing their SubParts.
-        // String8 overload pitfall: hold every label in a plain `string` local
-        // before passing to ImGui.MenuItem so overload resolution picks the
-        // String8 ctor with a literal — not the interpolated string overload.
-        foreach (KSA.Part part in vehicle.Parts.Parts)
-        {
-            string topId = part.Id;
-            bool topChecked = settings.TargetPartName == topId;
-            string topShortcut = "";
-
-            // No SubParts → render as a flat selectable item.
-            if (part.SubParts.Length == 0)
-            {
-                if (ImGui.MenuItem(topId, topShortcut, topChecked))
-                {
-                    if (!topChecked)
-                    {
-                        settings.TargetPartName = topId;
-                        manager.RebindSubPart();
-                    }
-                }
-                continue;
-            }
-
-            // Has SubParts → render as a submenu with the top-level part
-            // itself as the first selectable entry, then each SubPart.
-            string topGroupLabel = topId + "  (" + part.SubParts.Length + " sub)";
-            if (ImGui.BeginMenu(topGroupLabel))
-            {
-                if (ImGui.MenuItem(topId, topShortcut, topChecked))
-                {
-                    if (!topChecked)
-                    {
-                        settings.TargetPartName = topId;
-                        manager.RebindSubPart();
-                    }
-                }
-                ImGui.Separator();
-                foreach (KSA.Part sub in part.SubParts)
-                {
-                    string subId = sub.Id;
-                    bool subChecked = settings.TargetPartName == subId;
-                    string subShortcut = "";
-                    if (ImGui.MenuItem(subId, subShortcut, subChecked))
-                    {
-                        if (!subChecked)
-                        {
-                            settings.TargetPartName = subId;
-                            manager.RebindSubPart();
-                        }
-                    }
-                }
-                ImGui.EndMenu();
-            }
         }
     }
 
@@ -304,6 +174,11 @@ public class TerminalMod
                 _inWorld?.Toggle();
             }
 
+            // The settings window must render in the MAIN ImGui context (it is
+            // a normal screen-space window). Drawn before _inWorld.OnAfterGui so
+            // any state edits land before this frame's secondary-context build.
+            _inWorldSettingsWindow?.Render();
+
             _inWorld?.OnAfterGui(dt);
         }
         catch (Exception ex)
@@ -348,21 +223,32 @@ public class TerminalMod
                 _inWorldSettings = InWorldSettings.LoadOrDefault();
                 _inWorld = new InWorldTerminalManager(_inWorldSettings);
                 _inWorld.Initialize();
-                ToggleInWorld     = () => _inWorld?.Toggle();
-                GetInWorldManager = () => _inWorld;
-                GetInWorldSettings = () => _inWorldSettings;
+
+                _inWorldSettingsWindow = new InWorldSettingsWindow(_inWorld, _inWorldSettings);
+
+                ToggleInWorldSettingsWindow = () => _inWorldSettingsWindow?.Toggle();
+                IsInWorldSettingsWindowOpen = () => _inWorldSettingsWindow?.IsOpen ?? false;
+                IsInWorldFeatureAvailable   = () => _inWorld != null && _inWorldSettings != null;
 
                 // Swap the Phase 5 placeholder for a real terminal mirror. The
                 // controller's heavyweight Render() has already run earlier in
                 // OnAfterUi, so cursor/scroll/session state is settled by the
                 // time this builder fires inside the secondary context.
+                //
+                // The texture-space rect + font scale are read fresh inside the
+                // closure each frame so the new settings window's slider edits
+                // take effect immediately without rebuilding BuildUi.
                 if (_controller != null)
                 {
                     var ctrl = _controller;
-                    float width  = (float)_inWorldSettings.TextureWidth;
-                    float height = (float)_inWorldSettings.TextureHeight;
-                    var size = new float2(width, height);
-                    _inWorld.SetBuildUi(() => ctrl.RenderContentOnly(size));
+                    var s    = _inWorldSettings;
+                    _inWorld.SetBuildUi(() =>
+                    {
+                        var texSize  = new float2(s.TextureWidth, s.TextureHeight);
+                        var winPos   = new float2(s.RenderWindowOffsetU, s.RenderWindowOffsetV) * texSize;
+                        var winSize  = new float2(s.RenderWindowSizeU,   s.RenderWindowSizeV)   * texSize;
+                        ctrl.RenderContentOnly(winPos, winSize, s.RenderFontScale);
+                    });
                 }
 
                 ModLog.Log.Debug("purrTTY GameMod: InWorldTerminalManager initialized (Phase 1 scaffold).");
@@ -372,6 +258,7 @@ public class TerminalMod
                 // Never let a Phase 1 bug break the existing terminal.
                 ModLog.Log.Debug($"purrTTY GameMod: InWorldTerminalManager init failed: {inWorldEx.Message}");
                 _inWorld = null;
+                _inWorldSettingsWindow = null;
             }
         }
         catch (Exception ex)
@@ -872,6 +759,7 @@ public class TerminalMod
             _inWorld?.Dispose();
             _inWorld = null;
             _inWorldSettings = null;
+            _inWorldSettingsWindow = null;
 
             // Dispose components (the session manager handles process cleanup)
             _controller?.Dispose();
@@ -884,9 +772,9 @@ public class TerminalMod
             GetIsVisible = null;
             GetToggleHotkeyShortcut = null;
             OpenToggleHotkeySettings = null;
-            ToggleInWorld = null;
-            GetInWorldManager = null;
-            GetInWorldSettings = null;
+            ToggleInWorldSettingsWindow = null;
+            IsInWorldSettingsWindowOpen = null;
+            IsInWorldFeatureAvailable = null;
             SpecialKeyHandler.ReservedGlobalHotkey = null;
             KeyboardInputHandler.ShouldSuppressKeyboardInputThisFrame = null;
 

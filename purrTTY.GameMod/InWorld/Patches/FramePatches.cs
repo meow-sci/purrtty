@@ -1,13 +1,10 @@
 using System;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using Brutal;
 using Brutal.GlfwApi;
 using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using HarmonyLib;
 using KSA;
-using KSA.Rendering;
 using purrTTY.GameMod.InWorld.Display;
 using purrTTY.GameMod.InWorld.Input;
 using purrTTY.Logging;
@@ -35,7 +32,7 @@ internal static class FramePatches
     public static QuadDisplay? Display;
 
     /// <summary>Optional Phase 6B SubPart texture override. Null = quad-only.</summary>
-    public static SubPartMaterialOverride? Override;
+    public static SubPartOverrideBase? Override;
 
     /// <summary>Master enable. Patches are no-ops when false.</summary>
     public static bool IsActive;
@@ -48,6 +45,13 @@ internal static class FramePatches
     ///     input events into. Null when the feature is not alive.
     /// </summary>
     public static OffscreenContext? SecondaryContext;
+
+    // Per-call state stashed by the Prefix patches and consumed by the matching
+    // Postfix patches on the same call. Both PartModelModule.UpdateRenderData and
+    // PartModel.WriteInstancesToGpu run on the renderer thread; ThreadStatic
+    // keeps each thread's stash isolated from any unexpected re-entry.
+    [ThreadStatic] internal static int s_instanceListCountBefore;
+    [ThreadStatic] internal static int s_deviceInstanceOffsetBefore;
 }
 
 [HarmonyPatch(typeof(SuperMeshRenderSystem), nameof(SuperMeshRenderSystem.RenderMainPass))]
@@ -81,17 +85,28 @@ internal static class SuperMeshRenderSystem_RenderMainPass_Patch
 [HarmonyPatch(typeof(PartModel), nameof(PartModel.WriteInstancesToGpu))]
 internal static class PartModel_WriteInstancesToGpu_Patch
 {
-    // PartModel.WriteInstancesToGpu (decomp/ksa/KSA/PartModel.cs:393-425) appends
-    // exactly ONE PerDrawData entry per call (the per-template draw constants —
-    // diffuse/normal/PBR/emissive bindless indices) and N PerInstanceData entries
-    // for the part instances. The PerDrawData is appended to a host-coherent
-    // CPU-mapped buffer (DeviceVector → DeviceHostSharedMemory.Write), so a postfix
-    // can rewrite the just-written entry in-place before the GPU consumes it.
+    // Thin dispatcher. Per-template mode rewrites the just-appended PerDrawData
+    // entry; per-instance overlay mode appends an extra draw + instance + draw
+    // command for the chosen part instance. Both implementations live on the
+    // SubPartOverrideBase subclass so this patch stays mode-agnostic.
     //
-    // Why not patch PartModelModule.UpdateRenderData instead: that method's data
-    // never reaches PerDrawData — it only feeds PerInstanceData. The PerDrawData
-    // values come from Template.Material.*.BindlessHandle at WriteInstancesToGpu
-    // time, so the rewrite must happen at this site.
+    // The Prefix captures the device PerInstanceDataVectors[frameIndex] count
+    // BEFORE the original method appends — overlay mode needs that to locate the
+    // just-appended slice (the per-PartModel InstanceList is .Clear()-ed at the
+    // end of WriteInstancesToGpu, so reading it in Postfix gives 0).
+    static void Prefix(PartModel __instance, Viewport viewport, int frameIndex)
+    {
+        if (!FramePatches.IsActive) return;
+        var ov = FramePatches.Override;
+        if (ov == null) return;
+        if (!ReferenceEquals(__instance, ov.TargetPartModel)) return;
+
+        PartModel.Shared.ViewportData? sharedVp = PartModel.Shared.ViewportData.TryGet(viewport);
+        FramePatches.s_deviceInstanceOffsetBefore = sharedVp != null
+            ? (int)sharedVp.PerInstanceDataVectors[frameIndex].ElementCount
+            : 0;
+    }
+
     static void Postfix(PartModel __instance, Viewport viewport, int frameIndex)
     {
         if (!FramePatches.IsActive) return;
@@ -101,48 +116,52 @@ internal static class PartModel_WriteInstancesToGpu_Patch
 
         try
         {
-            // The ViewportData.PerDrawDataVectors[frameIndex] DeviceVector now
-            // contains the freshly-appended PerDrawData entry as its LAST element
-            // (WriteInstancesToGpu only appends if InstanceList.Count > 0; if the
-            // count was zero this postfix is a no-op since we matched after Add).
-            PartModel.Shared.ViewportData? sharedVp = PartModel.Shared.ViewportData.TryGet(viewport);
-            if (sharedVp == null) return;
-
-            DeviceVector vec = sharedVp.PerDrawDataVectors[frameIndex];
-            int count = vec.ElementCount;
-            if (count <= 0) return;
-
-            // Construct an override PerDrawData using the same field layout as the
-            // original WriteInstancesToGpu emission, with diffuse + emissive swapped
-            // to our bindless handle. Normal + PBR + TFI are preserved so the lit
-            // shader still has plausible inputs (a TODO in SubPartMaterialOverride
-            // tracks providing neutral defaults).
-            int handle = ov.BindlessHandle;
-            var template = __instance.Template;
-            int normalIdx = template.Material?.NormalReference?.BindlessHandle   ?? -1;
-            int pbrIdx    = template.Material?.PBRMap?.BindlessHandle            ?? -1;
-            int tfiIdx    = template.Material?.ThinFilmMap?.BindlessHandle       ?? -1;
-
-            PartModel.PerDrawData replacement = new PartModel.PerDrawData
-            {
-                DiffuseTextureIndex  = handle,
-                NormalTextureIndex   = normalIdx,
-                PbrTextureIndex      = pbrIdx,
-                EmissiveTextureIndex = handle,
-                TfiTextureIndex      = tfiIdx,
-            };
-
-            // Overwrite the last element. DeviceVector lays elements end-to-end at
-            // ElementSizeInBytes stride starting at MemoryPair.Offset; the new
-            // element was added at offset (count-1) * stride.
-            ByteSize entryOffset = vec.ElementSizeInBytes * (count - 1);
-            ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(
-                MemoryMarshal.CreateReadOnlySpan(ref replacement, 1));
-            Program.DeviceHostSharedMemory.Write(vec.MemoryPair, entryOffset, bytes);
+            ov.OnWriteInstancesToGpu(__instance, viewport, frameIndex,
+                FramePatches.s_deviceInstanceOffsetBefore);
         }
         catch (Exception ex)
         {
             ModLog.Log.Error($"purrTTY in-world subpart override failed; disabling: {ex}");
+            FramePatches.IsActive = false;
+        }
+    }
+}
+
+[HarmonyPatch(typeof(PartModelModule), nameof(PartModelModule.UpdateRenderData))]
+internal static class PartModelModule_UpdateRenderData_Patch
+{
+    // Per-instance overlay mode needs to know which slot of the per-PartModel
+    // InstanceList holds OUR Part's instance for the current frame. The Prefix
+    // captures the count just before the original method calls AddInstance; the
+    // Postfix forwards that to the override which compares to the post-call
+    // count to detect the Internal/ShadowProxy/non-IVA skip case in
+    // PartModel.AddInstance.
+    static void Prefix(PartModelModule __instance, Viewport viewport)
+    {
+        if (!FramePatches.IsActive) return;
+        var ov = FramePatches.Override;
+        if (ov == null) return;
+        if (!ReferenceEquals(__instance.Parent, ov.Target)) return;
+        if (!ReferenceEquals(__instance.PartModel, ov.TargetPartModel)) return;
+
+        var perPartModelVp = PartModel.ViewportData.Get(ov.TargetPartModel, viewport);
+        FramePatches.s_instanceListCountBefore = perPartModelVp.InstanceList.Count;
+    }
+
+    static void Postfix(PartModelModule __instance, Viewport viewport, int frameIndex)
+    {
+        if (!FramePatches.IsActive) return;
+        var ov = FramePatches.Override;
+        if (ov == null) return;
+
+        try
+        {
+            ov.OnUpdateRenderData(__instance, viewport, frameIndex,
+                FramePatches.s_instanceListCountBefore);
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world UpdateRenderData hook failed; disabling: {ex}");
             FramePatches.IsActive = false;
         }
     }

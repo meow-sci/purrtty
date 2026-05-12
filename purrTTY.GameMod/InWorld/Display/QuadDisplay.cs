@@ -207,12 +207,20 @@ public sealed class QuadDisplay : IDisposable
         //     (1,1)→bottom-right per ImGui convention. If the terminal appears
         //     mirrored or upside-down on first run, flip the V coordinate or
         //     reverse the index winding here rather than touching the camera math.
+        // UV mapping: Camera.LookAtRotation(-forward, up) (see Anchor) negates the
+        // Z row of the basis matrix, so local +Z ends up pointing in +forward —
+        // i.e. AWAY from the camera. With CullMode.None we still draw the quad,
+        // but the side facing the camera is the geometric back face, which sees
+        // local +X mirrored to the visual left. To compensate we flip the U axis
+        // on the source texture: local +X (U was 1) now samples the texture's
+        // left edge, so the readable orientation appears upright to the camera.
+        // V remains flipped (top-left = (0,0)) to match ImGui's top-left origin.
         Span<QuadVertex> verts = stackalloc QuadVertex[4]
         {
-            new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(0f, 1f) },
-            new QuadVertex { Pos = new float3( 0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
-            new QuadVertex { Pos = new float3( 0.5f,  0.5f, 0f), Uv = new float2(1f, 0f) },
-            new QuadVertex { Pos = new float3(-0.5f,  0.5f, 0f), Uv = new float2(0f, 0f) },
+            new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
+            new QuadVertex { Pos = new float3( 0.5f, -0.5f, 0f), Uv = new float2(0f, 1f) },
+            new QuadVertex { Pos = new float3( 0.5f,  0.5f, 0f), Uv = new float2(0f, 0f) },
+            new QuadVertex { Pos = new float3(-0.5f,  0.5f, 0f), Uv = new float2(1f, 0f) },
         };
         Span<ushort> indices = stackalloc ushort[6] { 0, 1, 2, 0, 2, 3 };
 

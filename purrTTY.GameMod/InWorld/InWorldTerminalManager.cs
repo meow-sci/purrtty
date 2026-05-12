@@ -23,7 +23,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private OffscreenImGuiBackend? _backend;
     private PerFrameRenderer? _frame;
     private QuadDisplay? _quad;
-    private SubPartMaterialOverride? _override;
+    private SubPartOverrideBase? _override;
     private readonly InWorldFocus _focus = new();
     private QuadPicker? _picker;
     private bool _initialized;
@@ -49,6 +49,21 @@ public sealed class InWorldTerminalManager : IDisposable
     {
         if (_frame == null) return;
         _frame.BuildUi = build ?? (() => { });
+    }
+
+    /// <summary>
+    ///     Re-runs the quad anchor logic against the current main camera.
+    ///     Useful for the user when they have moved/rotated and want the in-world
+    ///     terminal to re-attach in front of the new view. Safe no-op when the
+    ///     feature is not initialized, when there is no active camera, or when
+    ///     the quad is missing.
+    /// </summary>
+    public void ReanchorQuad()
+    {
+        if (_disposed || !_initialized || _quad == null) return;
+        var camera = Program.GetMainCamera();
+        if (camera == null) return;
+        _quad.Anchor(camera);
     }
 
     /// <summary>
@@ -221,11 +236,13 @@ public sealed class InWorldTerminalManager : IDisposable
     ///     </para>
     ///     <para>
     ///         Phase 6B: when enabling and <see cref="InWorldSettings.TargetPartName"/>
-    ///         is set, also try to construct a <see cref="SubPartMaterialOverride"/>
-    ///         that swaps the chosen part's diffuse + emissive bindless handles for
-    ///         our off-screen texture. Failure here is non-fatal: the quad still
-    ///         renders. When the target name is empty we log all available part Ids
-    ///         on the active vessel as a one-shot hint to the user.
+    ///         is set, also try to construct a <see cref="SubPartOverrideBase"/>
+    ///         (per-template or per-instance overlay, depending on
+    ///         <see cref="InWorldSettings.TargetOverrideMode"/>) that swaps the chosen
+    ///         part's diffuse + emissive bindless handles for our off-screen texture.
+    ///         Failure here is non-fatal: the quad still renders. When the target name
+    ///         is empty we log all available part Ids on the active vessel as a one-shot
+    ///         hint to the user.
     ///     </para>
     ///     <para>
     ///         The patch enable bits (<see cref="FramePatches.IsActive"/>,
@@ -322,7 +339,15 @@ public sealed class InWorldTerminalManager : IDisposable
 
         try
         {
-            _override = new SubPartMaterialOverride(renderer, _target, hit);
+            // Mode dispatch: per-template rewrites the shared PerDrawData (and so
+            // affects every instance of the same template); per-instance overlay
+            // appends a second draw for the chosen instance only.
+            _override = _settings.TargetOverrideMode switch
+            {
+                OverrideMode.PerInstanceOverlay
+                    => new SubPartOverlayOverride(renderer, _target, hit),
+                _   => new SubPartTemplateOverride(renderer, _target, hit),
+            };
         }
         catch (Exception ex)
         {

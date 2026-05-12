@@ -1160,20 +1160,37 @@ public class TerminalController : ITerminalController
   ///     advance any per-frame state (cursor blink is advanced in
   ///     <see cref="Update"/>, not here).
   /// </summary>
-  /// <param name="size">Target window size in pixels (typically the
-  /// off-screen texture dimensions).</param>
-  public void RenderContentOnly(float2 size)
+  /// <param name="windowPos">Top-left of the rendered window in pixels.</param>
+  /// <param name="windowSize">Window size in pixels (typically derived from a
+  /// texture-space sub-rect multiplied by the texture dimensions).</param>
+  /// <param name="fontScale">Per-context font scale multiplier; the binding has
+  /// no SetWindowFontScale, so we apply this through the secondary context's
+  /// ImGuiStyle.FontScaleMain. Restored to its prior value after End().</param>
+  public void RenderContentOnly(float2 windowPos, float2 windowSize, float fontScale)
   {
     // Do NOT gate on _isVisible: the in-world terminal is an independent
     // surface — a user may have the screen-space window hidden but still
     // expect the in-world quad to keep showing terminal output. The in-world
     // feature has its own enable gate at InWorldTerminalManager.OnAfterGui.
+
+    // Clamp the font scale so a stray 0 from the UI sliders cannot collapse
+    // glyph metrics and cause div-by-zero in downstream cell-size math.
+    if (fontScale < 0.1f) fontScale = 0.1f;
+
     _fonts.EnsureFontsLoaded();
     _fonts.PushUIFont(out bool uiFontUsed);
+
+    // Save the secondary context's pre-call FontScaleMain so we can restore it.
+    // RenderContentOnly is called inside the secondary context's With() scope,
+    // so GetStyle() targets that context's style — not the main one.
+    ImGuiStylePtr style = ImGui.GetStyle();
+    float prevFontScale = style.FontScaleMain;
+    style.FontScaleMain = (prevFontScale > 0.0f ? prevFontScale : 1.0f) * fontScale;
+
     try
     {
-      ImGui.SetNextWindowPos(float2.Zero, ImGuiCond.Always);
-      ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+      ImGui.SetNextWindowPos(windowPos, ImGuiCond.Always);
+      ImGui.SetNextWindowSize(windowSize, ImGuiCond.Always);
 
       ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0.0f, 0.0f));
       ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0.0f);
@@ -1224,6 +1241,7 @@ public class TerminalController : ITerminalController
     finally
     {
       TerminalUiFonts.MaybePopFont(uiFontUsed);
+      style.FontScaleMain = prevFontScale;
     }
   }
 

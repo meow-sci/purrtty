@@ -58,8 +58,14 @@ public interface ITerminalController : IDisposable
     ///     read-only mirroring to a secondary ImGui context. Safe to call AFTER
     ///     <see cref="Render"/> in the same frame.
     /// </summary>
-    /// <param name="size">Target window size in pixels.</param>
-    void RenderContentOnly(float2 size);
+    /// <param name="windowPos">Window origin in pixels (typically derived from
+    /// the texture-space offset multiplied by the texture size).</param>
+    /// <param name="windowSize">Window size in pixels (typically derived from
+    /// the texture-space size multiplied by the texture size).</param>
+    /// <param name="fontScale">Multiplier applied to the secondary context's
+    /// font scale so the user can fit more rows/cols. Clamped to a sane minimum
+    /// internally to avoid invisible text or div-by-zero metrics.</param>
+    void RenderContentOnly(float2 windowPos, float2 windowSize, float fontScale);
 
     /// <summary>
     ///     Gets the current terminal dimensions.

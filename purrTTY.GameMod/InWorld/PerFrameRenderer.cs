@@ -3,6 +3,7 @@ using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Core;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.GameMod.InWorld;
@@ -216,7 +217,47 @@ public sealed class PerFrameRenderer : IDisposable
         // The KSA Vulkan ImGui backend installs its draw state into the
         // currently-bound ImGui context's IO/viewport user-data, so we MUST
         // make the secondary context current while it records.
-        _ctx.With(() => _backend.Render(drawData, cmd));
+        //
+        // Texture-lifecycle suppression: the secondary context shares the main
+        // atlas, so drawData.Textures is the same ImFontAtlas.TexList that the
+        // main backend manages. Letting the secondary backend's UpdateTexture
+        // loop fire would let it call DestroyTexture on a descriptor set whose
+        // BackendUserData was set by the main backend (its descriptor set was
+        // allocated from main's pool, not ours) — that throws
+        // DescriptorPoolInvalidOperationException. Null out the texture list
+        // for the duration of this Render call so the secondary backend skips
+        // the loop entirely; main remains the sole owner of the atlas
+        // textures' lifecycle. Vulkan binding doesn't care which pool a
+        // descriptor set was allocated from, so the secondary's draw commands
+        // bind tex.TexID (set by main) and render correctly.
+        var savedTextures = drawData.Textures;
+        drawData.Textures = default;
+        try
+        {
+            try
+            {
+                _ctx.With(() => _backend.Render(drawData, cmd));
+            }
+            catch (ImException ex)
+            {
+                // Skipping the texture-lifecycle loop (above) means the secondary
+                // backend never assigns TexIDs of its own, but our render runs
+                // BEFORE main's RenderDrawData each frame. So when an atlas glyph
+                // is added this frame (status WantCreate, TexID Invalid) and the
+                // terminal references it on the same frame, the assert in
+                // ImDrawCmd.GetTexID fires here. Main's RenderDrawData later in
+                // the same frame will assign the TexID, so next frame the same
+                // texture is OK. Skip this frame's draws (the render pass is
+                // still cleanly bracketed by Begin/EndRenderPass below) and let
+                // the next frame succeed — much better than disabling the whole
+                // feature for what is a one-frame transient.
+                ModLog.Log.Debug($"purrTTY in-world: skipping frame (atlas texture not yet uploaded by main backend): {ex.Message}");
+            }
+        }
+        finally
+        {
+            drawData.Textures = savedTextures;
+        }
 
         cmd.EndRenderPass();
     }
