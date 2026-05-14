@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using Brutal.ImGuiApi;
 using KSA;
-using purrTTY.GameMod.InWorld.Display;
 using purrTTY.GameMod.InWorld.Settings;
 using float2 = Brutal.Numerics.float2;
 
@@ -9,11 +8,9 @@ namespace purrTTY.GameMod.InWorld.UI;
 
 /// <summary>
 ///     Unified settings window for the in-world (render-to-texture) terminal.
-///     Replaces the old per-menu pickers with a single resizable window so the
-///     user can browse long part lists without the menu collapsing on every
-///     click. Pure UI: holds a reference to the manager and settings, mutates
-///     settings in-place, and never touches Vulkan / ImGui contexts other than
-///     the main one this Render() call is invoked from.
+///     Holds a reference to the manager and settings, mutates settings in-place,
+///     and never touches Vulkan / ImGui contexts other than the main one this
+///     Render() call is invoked from.
 /// </summary>
 public sealed class InWorldSettingsWindow
 {
@@ -26,23 +23,13 @@ public sealed class InWorldSettingsWindow
     // arrays we rebuild at the top of each Render() call from the live vehicle.
     private int _vehicleSelectedIdx = -1;
     private int _partSelectedIdx = -1;
-    private int _subPartSelectedIdx = -1; // 0 == "(quad only — no SubPart)" sentinel
+    private int _subPartSelectedIdx = -1; // 0 == "(none — select to anchor)" sentinel
 
     // Per-combo filter buffers. Allocated once and reused so typed text
     // survives across frames while the popup is open.
     private readonly ImInputString _vehicleFilter = new ImInputString(64);
     private readonly ImInputString _partFilter = new ImInputString(64);
     private readonly ImInputString _subPartFilter = new ImInputString(64);
-    private readonly ImInputString _modeFilter = new ImInputString(64);
-
-    // Display labels for the override mode combo, indexed by (int)OverrideMode.
-    // Kept in source order to match the enum's declaration order so
-    // ModeLabels[(int)Mode] gives the right text.
-    private static readonly string[] ModeLabels =
-    {
-        "Per-template (all instances)",
-        "Per-instance overlay (one only)",
-    };
 
     private bool _isOpen;
 
@@ -73,7 +60,7 @@ public sealed class InWorldSettingsWindow
     {
         if (!_isOpen) return;
 
-        ImGui.SetNextWindowSize(new float2(520f, 420f), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new float2(520f, 520f), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin(WindowTitle, ref _isOpen, ImGuiWindowFlags.None))
         {
             ImGui.End();
@@ -84,6 +71,7 @@ public sealed class InWorldSettingsWindow
         {
             DrawStatusSection();
             DrawTargetSubPartSection();
+            DrawQuadTransformSection();
             DrawUvSection();
             DrawMeshSection();
             DrawGeometryDiagnosticsSection();
@@ -99,6 +87,10 @@ public sealed class InWorldSettingsWindow
         ImGui.SeparatorText("Status");
 
         bool hasCamera = Program.GetMainCamera() != null;
+        bool anchorResolves = _manager.CanResolveAnchor();
+        string anchorIdDisplay = string.IsNullOrEmpty(_settings.TargetPartName)
+            ? "(not selected)"
+            : _settings.TargetPartName + (anchorResolves ? "" : " — NOT on controlled vessel");
 
         // Pre-format every line to a plain `string` local. ImGui.Text bound to
         // an interpolated literal would resolve to the String8 overload (via
@@ -108,20 +100,22 @@ public sealed class InWorldSettingsWindow
         string anchoredLine    = "Quad anchored:  " + (_manager.IsQuadAnchored ? "yes" : "no");
         string focusedLine     = "Focused:        " + (_manager.IsFocused ? "yes" : "no");
         string cameraLine      = "Active camera:  " + (hasCamera ? "yes" : "no — F11 will reject");
-        string subpartLine     = "SubPart active: " + (_manager.HasSubPartOverride ? "yes" : "no");
+        string anchorLine      = "Anchor part:    " + anchorIdDisplay;
 
         ImGui.Text(enabledLine);
         ImGui.Text(initLine);
         ImGui.Text(anchoredLine);
         ImGui.Text(focusedLine);
         ImGui.Text(cameraLine);
-        ImGui.Text(subpartLine);
+        ImGui.Text(anchorLine);
 
-        // Disable the toggle button only when the user could not possibly
-        // succeed (no camera AND not currently enabled — already-on can still
-        // be toggled off). The manager itself enforces the same rule, but
-        // greying-out gives immediate visual feedback.
-        bool toggleDisabled = !hasCamera && !_settings.Enabled;
+        // Toggle button: when turning ON, the manager rejects unless a SubPart
+        // is selected AND it resolves to a real part on the controlled vessel.
+        // Greying out the button gives immediate visual feedback so the user
+        // doesn't press F11 and silently get nothing.
+        bool toggleDisabled = _settings.Enabled
+            ? false                                    // already on — always allow toggle off
+            : (!hasCamera || !anchorResolves);
         if (toggleDisabled) ImGui.BeginDisabled();
         string toggleLabel = _settings.Enabled
             ? "Disable Rendering (F11)"
@@ -132,15 +126,24 @@ public sealed class InWorldSettingsWindow
         }
         if (toggleDisabled) ImGui.EndDisabled();
 
-        ImGui.SameLine();
-
-        bool reanchorDisabled = !hasCamera || !_settings.Enabled;
-        if (reanchorDisabled) ImGui.BeginDisabled();
-        if (ImGui.Button("Re-anchor Quad"))
+        // Hovering a disabled button still fires IsItemHovered, so the user
+        // gets a tooltip explaining what to fix.
+        if (toggleDisabled && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
         {
-            _manager.ReanchorQuad();
+            if (!hasCamera)
+            {
+                ImGui.SetTooltip("No active camera — load into flight first.");
+            }
+            else if (string.IsNullOrEmpty(_settings.TargetPartName))
+            {
+                ImGui.SetTooltip("Pick a Vehicle / Part / SubPart in the section below first.");
+            }
+            else
+            {
+                ImGui.SetTooltip(
+                    "Selected SubPart is not on the controlled vessel right now.");
+            }
         }
-        if (reanchorDisabled) ImGui.EndDisabled();
     }
 
     private void DrawTargetSubPartSection()
@@ -173,10 +176,6 @@ public sealed class InWorldSettingsWindow
         {
             foreach (Part p in vehicle.Parts.Parts) parts.Add(p);
         }
-        // Default the selected root part to whichever owns the current
-        // TargetPartName SubPart (or matches it directly). If nothing matches
-        // and we have no prior selection, fall back to the first part so the
-        // SubPart combo has something meaningful to populate.
         SyncPartSelection(parts);
 
         ImGui.Text("Part");
@@ -189,31 +188,22 @@ public sealed class InWorldSettingsWindow
             ref _partSelectedIdx,
             _partFilter);
 
-        // SubPart combo. Index 0 is the "(quad only)" sentinel that clears
-        // TargetPartName. Indices 1.. are the SubParts of the selected root
-        // part. We build a parallel display list so the combo helper stays
-        // generic over <T>.
+        // SubPart combo. Index 0 is the "(none — select to anchor)" sentinel
+        // that clears TargetPartName (and so disables the toggle). Indices 1..
+        // are the SubParts of the selected root part, plus the root itself as
+        // the second entry (some "root" parts have anchor surfaces too).
         var subPartLabels = new List<string>();
         var subPartIds = new List<string>();
-        subPartLabels.Add("(quad only — no SubPart)");
+        subPartLabels.Add("(none — select to anchor)");
         subPartIds.Add("");
         if (_partSelectedIdx >= 0 && _partSelectedIdx < parts.Count)
         {
             Part rootPart = parts[_partSelectedIdx];
-            // Honest UI: count instances per template Id across the vessel so
-            // the user can see when picking "engine_thrust" will (per-template
-            // mode) bleed onto every other engine_thrust on the ship. The
-            // suffix is a hint, not a constraint — picking any of the matching
-            // instances resolves to the same shared PartModel anyway.
-            var templateCounts = CountInstancesPerTemplate(vehicle);
-
-            // Include the root itself as a selectable SubPart (the old picker
-            // behaved the same way — root parts can be the override target).
-            subPartLabels.Add(BuildSubPartLabel(rootPart, templateCounts) + " (root)");
+            subPartLabels.Add(rootPart.Id + " (root)");
             subPartIds.Add(rootPart.Id);
             foreach (Part sub in rootPart.SubParts)
             {
-                subPartLabels.Add(BuildSubPartLabel(sub, templateCounts));
+                subPartLabels.Add(sub.Id);
                 subPartIds.Add(sub.Id);
             }
         }
@@ -232,78 +222,54 @@ public sealed class InWorldSettingsWindow
             string newId = (_subPartSelectedIdx >= 0 && _subPartSelectedIdx < subPartIds.Count)
                 ? subPartIds[_subPartSelectedIdx]
                 : "";
-            if (newId != _settings.TargetPartName)
-            {
-                _settings.TargetPartName = newId;
-                _manager.RebindSubPart();
-            }
-        }
-
-        // Override mode selector. Switching modes tears down and rebuilds the
-        // override under the new strategy via RebindSubPart, so the change
-        // takes effect on the next frame without needing a manual toggle.
-        var modeLabels = ModeLabels;
-        int modeIdx = (int)_settings.TargetOverrideMode;
-        if (modeIdx < 0 || modeIdx >= modeLabels.Length) modeIdx = 0;
-
-        ImGui.Text("Mode");
-        ImGui.SameLine(120f);
-        ImGui.SetNextItemWidth(-1);
-        if (FilterableCombo.Render(
-                "##inworld_mode_combo",
-                modeLabels,
-                s => s,
-                ref modeIdx,
-                _modeFilter))
-        {
-            var newMode = (OverrideMode)modeIdx;
-            if (newMode != _settings.TargetOverrideMode)
-            {
-                _settings.TargetOverrideMode = newMode;
-                _manager.RebindSubPart();
-            }
+            _settings.TargetPartName = newId;
         }
     }
 
-    private static Dictionary<string, int> CountInstancesPerTemplate(Vehicle? vehicle)
+    private void DrawQuadTransformSection()
     {
-        var counts = new Dictionary<string, int>();
-        if (vehicle == null) return counts;
+        ImGui.SeparatorText("Quad transform (SubPart-local)");
 
-        foreach (Part p in vehicle.Parts.Parts)
+        // Position and rotation are interpreted in the chosen SubPart's local
+        // frame. The quad first rotates about its own center, then translates
+        // by the offset, then the whole thing is brought into ego space by the
+        // SubPart's pose. So small Y offsets typically push the quad along the
+        // SubPart's local +Y axis (often "up from the surface"), and a small
+        // Z offset slides it along the SubPart's normal direction.
+        float px = _settings.AnchorOffsetX;
+        float py = _settings.AnchorOffsetY;
+        float pz = _settings.AnchorOffsetZ;
+        float rx = _settings.AnchorRotationX;
+        float ry = _settings.AnchorRotationY;
+        float rz = _settings.AnchorRotationZ;
+
+        DrawSliderRow("Position X (m)", "##qpx", ref px, 0.005f, -50f, 50f, "%.3f");
+        DrawSliderRow("Position Y (m)", "##qpy", ref py, 0.005f, -50f, 50f, "%.3f");
+        DrawSliderRow("Position Z (m)", "##qpz", ref pz, 0.005f, -50f, 50f, "%.3f");
+
+        DrawSliderRow("Rotation X (deg)", "##qrx", ref rx, 0.5f, -360f, 360f, "%.1f");
+        DrawSliderRow("Rotation Y (deg)", "##qry", ref ry, 0.5f, -360f, 360f, "%.1f");
+        DrawSliderRow("Rotation Z (deg)", "##qrz", ref rz, 0.5f, -360f, 360f, "%.1f");
+
+        _settings.AnchorOffsetX = px;
+        _settings.AnchorOffsetY = py;
+        _settings.AnchorOffsetZ = pz;
+        _settings.AnchorRotationX = rx;
+        _settings.AnchorRotationY = ry;
+        _settings.AnchorRotationZ = rz;
+
+        if (ImGui.Button("Reset Transform"))
         {
-            BumpTemplate(counts, p);
-            foreach (Part sub in p.SubParts)
-            {
-                BumpTemplate(counts, sub);
-            }
+            _settings.AnchorOffsetX = 0f;
+            _settings.AnchorOffsetY = 0f;
+            _settings.AnchorOffsetZ = 0f;
+            _settings.AnchorRotationX = 0f;
+            _settings.AnchorRotationY = 0f;
+            _settings.AnchorRotationZ = 0f;
         }
-        return counts;
-    }
 
-    private static void BumpTemplate(Dictionary<string, int> counts, Part part)
-    {
-        // Match the override's "shared PartModel" key: PartModel.Get(template)
-        // dedups by Template.Id, so we count by the same Id. A part with no
-        // PartModelModule contributes nothing — it can't be overridden anyway.
-        Span<PartModelModule> modules = part.Modules.Get<PartModelModule>();
-        if (modules.Length == 0) return;
-        string templateId = modules[0].PartModel?.Template?.Id ?? "";
-        if (string.IsNullOrEmpty(templateId)) return;
-        counts[templateId] = counts.TryGetValue(templateId, out int existing) ? existing + 1 : 1;
-    }
-
-    private static string BuildSubPartLabel(Part part, Dictionary<string, int> templateCounts)
-    {
-        Span<PartModelModule> modules = part.Modules.Get<PartModelModule>();
-        if (modules.Length == 0) return part.Id;
-        string templateId = modules[0].PartModel?.Template?.Id ?? "";
-        if (string.IsNullOrEmpty(templateId)) return part.Id;
-        if (templateCounts.TryGetValue(templateId, out int count) && count > 1)
-        {
-            return part.Id + " (" + count + " instances)";
-        }
-        return part.Id;
+        ImGui.SameLine();
+        ImGui.TextDisabled("Edits apply live — no re-anchor needed.");
     }
 
     private void SyncPartSelection(List<Part> parts)
@@ -376,8 +342,9 @@ public sealed class InWorldSettingsWindow
         }
 
         // The bound name does not belong to the currently-selected root part
-        // (this happens during the brief window after a part-combo change).
-        // Fall back to the sentinel so the user sees the inconsistency.
+        // (this happens during the brief window after a part-combo change, or
+        // after a vessel reload). Fall back to the sentinel so the user sees
+        // the inconsistency.
         _subPartSelectedIdx = 0;
     }
 
@@ -388,10 +355,9 @@ public sealed class InWorldSettingsWindow
         // The UV sliders drive the offscreen render-rect: the terminal renders
         // pixel-clean (no font scaling) into the sub-rect of the texture defined
         // here, and the rest of the texture stays at the renderpass's clear
-        // color (opaque black). Both the quad and the subpart sample the same
-        // texture, so smaller UV Size = smaller terminal on BOTH surfaces with
-        // the black mat filling the remainder. Offset shifts where in the
-        // texture the terminal lands.
+        // color (opaque black). Smaller UV Size = smaller terminal with the
+        // black mat filling the remainder. Offset shifts where in the texture
+        // the terminal lands.
         float ou = _settings.UvOffsetU;
         float ov = _settings.UvOffsetV;
         float su = _settings.UvSizeU;
@@ -418,56 +384,28 @@ public sealed class InWorldSettingsWindow
 
     private void DrawMeshSection()
     {
-        ImGui.SeparatorText("Mesh size");
+        ImGui.SeparatorText("Quad size");
 
         float w = _settings.QuadWidthMeters;
         float h = _settings.QuadHeightMeters;
-        float d = _settings.QuadDistanceMeters;
 
-        DrawSliderRow("Width (m)",    "##qw", ref w, 0.01f, 0.05f, 20.0f, "%.2f");
-        DrawSliderRow("Height (m)",   "##qh", ref h, 0.01f, 0.05f, 20.0f, "%.2f");
-        DrawSliderRow("Distance (m)", "##qd", ref d, 0.01f, 0.10f, 50.0f, "%.2f");
+        DrawSliderRow("Width (m)",  "##qw", ref w, 0.01f, 0.05f, 20.0f, "%.2f");
+        DrawSliderRow("Height (m)", "##qh", ref h, 0.01f, 0.05f, 20.0f, "%.2f");
 
-        _settings.QuadWidthMeters    = w;
-        _settings.QuadHeightMeters   = h;
-        _settings.QuadDistanceMeters = d;
+        _settings.QuadWidthMeters  = w;
+        _settings.QuadHeightMeters = h;
 
-        if (ImGui.Button("Reset Mesh"))
+        if (ImGui.Button("Reset Size"))
         {
-            _settings.QuadWidthMeters    = 1.6f;
-            _settings.QuadHeightMeters   = 1.0f;
-            _settings.QuadDistanceMeters = 2.0f;
-        }
-
-        ImGui.SameLine();
-        ImGui.Text("Distance applies on next Re-anchor; width/height live.");
-
-        // On the quad, Width/Height are a physical size in meters and Distance
-        // is ego-space placement. On a subpart, the same Width and Height are
-        // reused as a scale factor pre-multiplied onto each appended instance's
-        // ModelMatrix, so the textured face grows / shrinks on the part. In
-        // PerTemplate mode every instance of the template scales together
-        // (they all share the override anyway); in PerInstanceOverlay mode only
-        // the one overlay instance scales and the underlying part keeps its
-        // original transform. Defaults are 1.6×1.0 (tuned for the quad's 16:10
-        // panel); reset to 1.0×1.0 to leave a subpart at its native size.
-        if (_manager.HasSubPartOverride)
-        {
-            if (_settings.TargetOverrideMode == OverrideMode.PerInstanceOverlay)
-            {
-                ImGui.TextDisabled("SubPart overlay active — Width/Height scale only the overlay instance.");
-            }
-            else
-            {
-                ImGui.TextDisabled("SubPart per-template active — Width/Height scale every instance of the template.");
-            }
+            _settings.QuadWidthMeters  = 1.6f;
+            _settings.QuadHeightMeters = 1.0f;
         }
     }
 
     private static void DrawSliderRow(string label, string sliderId, ref float value, float speed, float min, float max, string format)
     {
         ImGui.Text(label);
-        ImGui.SameLine(120f);
+        ImGui.SameLine(140f);
         ImGui.SetNextItemWidth(-1);
         ImGui.DragFloat(sliderId, ref value, speed, min, max, format);
     }

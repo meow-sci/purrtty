@@ -10,8 +10,8 @@ using RenderCore;
 namespace purrTTY.GameMod.InWorld.Display;
 
 /// <summary>
-///     Phase 6A — owns the GPU resources for a flat textured quad that samples
-///     the off-screen color image (the in-world terminal "screen") and gets drawn
+///     Owns the GPU resources for a flat textured quad that samples the
+///     off-screen color image (the in-world terminal "screen") and gets drawn
 ///     into the game's main render pass via the <c>SuperMeshRenderSystem.RenderMainPass</c>
 ///     Harmony postfix in <see cref="purrTTY.GameMod.InWorld.Patches.FramePatches"/>.
 ///     <para>
@@ -20,12 +20,15 @@ namespace purrTTY.GameMod.InWorld.Display;
 ///         input, single mat4 push constant, and one combined-image-sampler.
 ///     </para>
 ///     <para>
-///         The model matrix is computed ONCE in <see cref="Anchor"/> when the user
-///         toggles the in-world quad ON, then persists in ego space — the quad
-///         "rides" with the vessel. KSA renders parts in ego space and provides the
-///         view-projection in <c>Camera.MVP.viewProjection</c>; we multiply that
-///         with our cached ego-space model matrix every frame to produce the MVP
-///         push constant. KSA's main pass uses reverse-Z, so this pipeline matches
+///         The quad is anchored to a SubPart on the controlled vessel. Each frame
+///         we read the SubPart's current ego-space pose (rotation + position; we
+///         deliberately exclude its scale so the user's Width/Height settings are
+///         the sole scale source) and compose it with the user's local offset and
+///         Euler rotation from <see cref="Settings.InWorldSettings"/>. KSA renders
+///         parts in ego space and provides the view-projection in
+///         <c>Camera.MVP.viewProjection</c>; we multiply that with our composed
+///         ego-space model matrix every frame. KSA's main pass uses reverse-Z, so
+///         this pipeline matches
 ///         (<c>RenderingPresets.ReverseZDepthStencil.DepthTestWrite</c>).
 ///     </para>
 ///     <para>
@@ -50,16 +53,16 @@ public sealed class QuadDisplay : IDisposable
     private readonly BufferEx               _vertexBuffer;
     private readonly BufferEx               _indexBuffer;
 
-    // Anchor captures pose only (rotation + ego-space position). Mesh size is
-    // applied per-frame in RecordDraw from the live settings so the user can
-    // drag the size sliders and see the result immediately without re-anchoring
-    // (which would re-orient to the current camera, which is not what the user
-    // wants when tweaking dimensions).
-    private float4x4 _poseEgo = float4x4.Identity;
-    private bool     _anchored;
-    private bool     _disposed;
+    private bool _disposed;
 
-    public bool IsAnchored => _anchored;
+    /// <summary>
+    ///     True when the live model matrix can be computed this frame (anchor
+    ///     SubPart selected and resolvable on the controlled vessel, and a
+    ///     camera is active). Mirrors the predicate used by <see cref="RecordDraw"/>
+    ///     so the manager and UI can show an honest "anchored" status without
+    ///     duplicating the resolve logic.
+    /// </summary>
+    public bool IsAnchored => TryComputeModelEgo(out _);
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 1)]
     private struct QuadVertex
@@ -178,9 +181,9 @@ public sealed class QuadDisplay : IDisposable
         // Reverse-Z to match KSA's main pass: the depth attachment is cleared to
         // 0 and the compare op is GreaterOrEqual. We bind to Program.MainPass.Pass
         // so we MUST follow that convention or the quad will Z-fight / vanish.
-        // Cull none: a single quad, both sides visible (the user may rotate the
-        // vessel until they see the back of the quad on first toggle and we don't
-        // want that to render as invisible).
+        // Cull none: a single quad, both sides visible (the user may orient the
+        // quad until they see its back face and we don't want that to render as
+        // invisible).
         var multisample = new VkPipelineMultisampleStateCreateInfo
         {
             RasterizationSamples = Program.MainPass.SampleCount,
@@ -205,26 +208,20 @@ public sealed class QuadDisplay : IDisposable
         _pipeline = device.CreateGraphicsPipeline(default(VkPipelineCache), pipelineInfo, null);
 
         // ---- Vertex / index buffers ----
-        // UV mapping: Camera.LookAtRotation(-forward, up) (see Anchor) negates the
-        // Z row of the basis matrix, so local +Z ends up pointing in +forward —
-        // i.e. AWAY from the camera. With CullMode.None we still draw the quad,
-        // but the side facing the camera is the geometric back face, which sees
-        // local +X mirrored to the visual left. To compensate we flip the U axis
-        // on the source texture: local +X (U was 1) now samples the texture's
-        // left edge, so the readable orientation appears upright to the camera.
-        // V remains flipped (top-left = (0,0)) to match ImGui's top-left origin.
+        // Quad is laid out in the XY plane with +Z as its normal. UV mapping:
+        // local +X → U=0, local +Y → V=1 (top-left of the texture is the quad's
+        // upper-left corner when viewed from +Z). V is flipped so the texture's
+        // (0,0) top-left aligns with ImGui's top-left origin.
         //
-        // UVs are STATIC: they sample the full off-screen texture (0..1 in both
-        // axes, with U flipped per the orientation note above). The "UV scale"
-        // sliders in the settings window are implemented as a render-rect on the
-        // offscreen target (see TerminalMod.SetBuildUi) so the same setting also
-        // affects the subpart path, whose mesh UVs we cannot intercept.
+        // UVs are STATIC and sample the full off-screen texture. The "UV
+        // offset/size" sliders in the settings window are implemented as a
+        // render-rect on the offscreen target (see TerminalMod.SetBuildUi).
         Span<QuadVertex> verts = stackalloc QuadVertex[4]
         {
-            new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
-            new QuadVertex { Pos = new float3( 0.5f, -0.5f, 0f), Uv = new float2(0f, 1f) },
-            new QuadVertex { Pos = new float3( 0.5f,  0.5f, 0f), Uv = new float2(0f, 0f) },
-            new QuadVertex { Pos = new float3(-0.5f,  0.5f, 0f), Uv = new float2(1f, 0f) },
+            new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(0f, 1f) },
+            new QuadVertex { Pos = new float3( 0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
+            new QuadVertex { Pos = new float3( 0.5f,  0.5f, 0f), Uv = new float2(1f, 0f) },
+            new QuadVertex { Pos = new float3(-0.5f,  0.5f, 0f), Uv = new float2(0f, 0f) },
         };
         Span<ushort> indices = stackalloc ushort[6] { 0, 1, 2, 0, 2, 3 };
 
@@ -269,60 +266,83 @@ public sealed class QuadDisplay : IDisposable
     }
 
     /// <summary>
-    ///     Capture the ego-space pose (rotation + translation) ONCE based on the
-    ///     camera's current forward/up, then persist it. The quad rides with the
-    ///     vessel and is not re-oriented on subsequent camera motion.
-    ///     <para>
-    ///         Mesh size is NOT baked in here — it's applied at draw time from
-    ///         the live settings so the user can edit
-    ///         <see cref="Settings.InWorldSettings.QuadWidthMeters"/> /
-    ///         <see cref="Settings.InWorldSettings.QuadHeightMeters"/> and see
-    ///         the result without re-anchoring.
-    ///     </para>
+    ///     Compose the current ego-space model matrix from:
+    ///       (1) the user's Width/Height (scale),
+    ///       (2) the user's local Euler rotation about the quad's own axes,
+    ///       (3) the user's local position offset (in the SubPart's frame),
+    ///       (4) the anchor SubPart's ego-space rotation + position.
+    ///     Returns false when any of {camera, controlled vehicle, anchor part}
+    ///     is missing — caller should skip the draw / pick in that case.
     /// </summary>
-    public void Anchor(Camera camera)
+    private bool TryComputeModelEgo(out float4x4 model)
     {
-        if (camera == null) throw new ArgumentNullException(nameof(camera));
+        model = float4x4.Identity;
+        if (_disposed) return false;
 
-        // Ego-space placement: the camera sits at the ego origin (0,0,0).
-        // The position to put the quad: distance forward of the camera.
-        double3 forward = camera.GetForward();
-        double3 up      = camera.GetUp();
-        double3 posEgo  = forward * _settings.QuadDistanceMeters;
+        string targetName = _settings.TargetPartName;
+        if (string.IsNullOrEmpty(targetName)) return false;
 
-        // Quad's local +Z is its normal (we built it in the XY plane). To face
-        // the camera, the quad's normal should point at the camera, i.e. opposite
-        // the camera's forward. Use KSA's LookAtRotation helper (mirrors what
-        // Camera.LookAt does internally), which builds a quaternion from a forward
-        // vector + up vector.
-        doubleQuat lookAtCam = Camera.LookAtRotation(-forward, up);
+        var camera = Program.GetMainCamera();
+        if (camera == null) return false;
 
-        // Pose = R * T (mesh size scale composed in at draw time). Brutal.Numerics
-        // matrices left-multiply column vectors (M * v) and the shader does
-        // `worldViewProjMatrix * vec4(inPos,1)`, so the SRT convention applies.
-        float4x4 rot   = float4x4.CreateFromQuaternion(floatQuat.Pack(in lookAtCam));
-        float4x4 trans = float4x4.CreateTranslation(float3.Pack(in posEgo));
-        _poseEgo  = rot * trans;
-        _anchored = true;
+        Vehicle? vehicle = Program.ControlledVehicle;
+        if (vehicle == null) return false;
+
+        Part? part = FindPart(vehicle, targetName);
+        if (part == null) return false;
+
+        // Pull the SubPart's ego-space rotation + position separately rather
+        // than using its combined MatrixAsmb2Ego: that combined matrix bakes in
+        // the part's own scale, which we deliberately want to exclude so the
+        // user's Width/Height sliders are the sole source of quad size.
+        double4x4 vehMat    = vehicle.GetMatrixAsmb2Ego(camera);
+        double3   partPos   = part.PositionEgo(in vehMat);
+        doubleQuat partRotD = part.Asmb2Ego(vehicle.Asmb2Ego);
+
+        float4x4 partRotMat   = float4x4.CreateFromQuaternion(floatQuat.Pack(in partRotD));
+        float4x4 partTransMat = float4x4.CreateTranslation(float3.Pack(in partPos));
+        // Row-vector convention (matches existing code: `mvp = model * viewProjection`):
+        // left-to-right multiplication is the ordering of transforms applied to v.
+        // Rotate first, then translate — that places verts at the part's origin
+        // in ego space.
+        float4x4 partEgo = partRotMat * partTransMat;
+
+        // User-controlled pose in subpart-local frame.
+        const float deg2rad = MathF.PI / 180f;
+        float4x4 userRotX = float4x4.CreateRotationX(_settings.AnchorRotationX * deg2rad);
+        float4x4 userRotY = float4x4.CreateRotationY(_settings.AnchorRotationY * deg2rad);
+        float4x4 userRotZ = float4x4.CreateRotationZ(_settings.AnchorRotationZ * deg2rad);
+        float4x4 userRot  = userRotX * userRotY * userRotZ;
+        float4x4 userTrans = float4x4.CreateTranslation(new float3(
+            _settings.AnchorOffsetX, _settings.AnchorOffsetY, _settings.AnchorOffsetZ));
+
+        float4x4 scaleMat = float4x4.CreateScale(
+            _settings.QuadWidthMeters, _settings.QuadHeightMeters, 1f);
+
+        // Full chain (row-vector / left-to-right):
+        //   v_local → scale → userRot → userTrans → partEgo → world (ego)
+        model = scaleMat * userRot * userTrans * partEgo;
+        return true;
     }
 
-    /// <summary>
-    ///     Compose the current ego-space model matrix from the captured pose and
-    ///     the live mesh-size settings. Used by both <see cref="RecordDraw"/>
-    ///     and <see cref="TryRaycast"/> so the pick rays and the rendered quad
-    ///     always agree.
-    /// </summary>
-    private float4x4 CurrentModelEgo()
+    private static Part? FindPart(Vehicle vehicle, string id)
     {
-        float4x4 scale = float4x4.CreateScale(_settings.QuadWidthMeters, _settings.QuadHeightMeters, 1f);
-        return scale * _poseEgo;
+        foreach (Part p in vehicle.Parts.Parts)
+        {
+            if (p.Id == id) return p;
+            foreach (Part sub in p.SubParts)
+            {
+                if (sub.Id == id) return sub;
+            }
+        }
+        return null;
     }
 
 
     /// <summary>
-    ///     Phase 7A — ego-space ray vs. quad pick. Returns true and the nearer
-    ///     positive <c>t</c> when the ray hits one of the two triangles, false
-    ///     otherwise. No-op if not yet anchored.
+    ///     Ego-space ray vs. quad pick. Returns true and the nearer positive
+    ///     <c>t</c> when the ray hits one of the two triangles, false
+    ///     otherwise. No-op when the live model cannot be composed.
     ///     <para>
     ///         The local-space verts/indices here MUST match the buffers uploaded
     ///         in the constructor: 4 corners in the XY plane, two triangles
@@ -332,7 +352,7 @@ public sealed class QuadDisplay : IDisposable
     public bool TryRaycast(Ray ray, out double t)
     {
         t = double.MaxValue;
-        if (_disposed || !_anchored) return false;
+        if (!TryComputeModelEgo(out float4x4 modelEgo)) return false;
 
         // Local-space corners mirror the QuadVertex array in the ctor. We only
         // need positions for the raycast; UVs are irrelevant for hit-vs-no-hit.
@@ -343,9 +363,6 @@ public sealed class QuadDisplay : IDisposable
 
         // float3.Transform(p, M) computes M * vec4(p,1) using KSA's mat-vector
         // convention (same one RecordDraw relies on when it composes the MVP).
-        // Use the live model (current mesh-size scale × captured pose) so the
-        // pick ray agrees with the rendered quad even after the user resizes.
-        float4x4 modelEgo = CurrentModelEgo();
         double3 v0 = ToDouble3(float3.Transform(v0Local, modelEgo));
         double3 v1 = ToDouble3(float3.Transform(v1Local, modelEgo));
         double3 v2 = ToDouble3(float3.Transform(v2Local, modelEgo));
@@ -372,20 +389,20 @@ public sealed class QuadDisplay : IDisposable
 
     /// <summary>
     ///     Record bind + draw commands for the quad into the supplied (live,
-    ///     inside-render-pass) command buffer. No-op if not yet anchored.
+    ///     inside-render-pass) command buffer. No-op when the live model cannot
+    ///     be composed (no camera / no vessel / SubPart not on the vessel).
     /// </summary>
     public unsafe void RecordDraw(CommandBuffer cmd)
     {
-        if (_disposed || !_anchored) return;
+        if (_disposed) return;
+        if (!TryComputeModelEgo(out float4x4 modelEgo)) return;
 
         var camera = Program.GetMainCamera();
         if (camera == null) return;
 
-        // MVP = view * projection * model, all in ego space. Camera.MVP is a
+        // MVP = model * viewProjection (row-vector convention). Camera.MVP is a
         // ViewProjection struct with a precomputed view*projection matrix.
-        // Compose the live model (mesh-size scale × captured pose) per-frame so
-        // QuadWidth/Height edits take effect without re-anchoring.
-        float4x4 mvp = CurrentModelEgo() * camera.MVP.viewProjection;
+        float4x4 mvp = modelEgo * camera.MVP.viewProjection;
 
         cmd.BindPipeline(VkPipelineBindPoint.Graphics, _pipeline);
         VkDescriptorSet descSetCopy = _descriptorSet;
@@ -397,10 +414,7 @@ public sealed class QuadDisplay : IDisposable
             default(Span<ByteSize32>));
 
         // Match the rest of KSA's main-pass draws (which all rely on a dynamic
-        // viewport set by Program.SetViewport). The patched call into
-        // SuperMeshRenderSystem.RenderMainPass already set this for the prior
-        // draws but it costs nothing to re-state and it future-proofs us against
-        // KSA changing the call order.
+        // viewport set by Program.SetViewport).
         Program.SetViewport(cmd);
 
         cmd.PushConstants(_pipelineLayout, VkShaderStageFlags.VertexBit, ByteSize.Zero, mvp);

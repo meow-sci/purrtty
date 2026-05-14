@@ -1,5 +1,4 @@
 using Brutal.ImGuiApi;
-using purrTTY.GameMod.InWorld.Display;
 
 namespace purrTTY.GameMod.InWorld.Settings;
 
@@ -11,27 +10,42 @@ namespace purrTTY.GameMod.InWorld.Settings;
 public sealed class InWorldSettings
 {
     public bool Enabled { get; set; } = false;                       // Master toggle
-    public string TargetPartName { get; set; } = "";                 // If set, try SubPart path; else quad path
-    public OverrideMode TargetOverrideMode { get; set; } = OverrideMode.PerTemplate;
+
+    /// <summary>
+    ///     SubPart (or root Part) Id the quad is anchored against. Empty = no
+    ///     anchor selected; toggle is rejected in that state. The quad floats in
+    ///     this part's local frame, offset by <see cref="AnchorOffsetX"/>/Y/Z
+    ///     and rotated by <see cref="AnchorRotationX"/>/Y/Z.
+    /// </summary>
+    public string TargetPartName { get; set; } = "";
     public int TextureWidth  { get; set; } = 1024;
     public int TextureHeight { get; set; } = 1024;
     public ImGuiKey ToggleKey { get; set; } = ImGuiKey.F11;          // separate from main terminal toggle
 
-    // Mesh size (quad path only — a SubPart's mesh is fixed by the part definition
-    // and not modifiable from CPU side without shader changes). The quad is built
-    // in local space as a 1×1 unit square and scaled per-frame by these values.
+    // Quad size (meters). The quad is built in local space as a 1×1 unit square
+    // and scaled per-frame by these values.
     public float QuadWidthMeters    { get; set; } = 1.6f;
     public float QuadHeightMeters   { get; set; } = 1.0f;
-    public float QuadDistanceMeters { get; set; } = 2.0f;            // distance in front of camera at spawn
+
+    // Subpart-local pose offset for the quad. X/Y/Z are in the chosen SubPart's
+    // own frame: rotation is applied first (about the quad's own center), then
+    // the rotated quad is translated by the offset, then the result is brought
+    // into ego space via the SubPart's ego pose. Defaults of 0/0/0 put the quad
+    // co-located with the SubPart origin, facing the SubPart's +Z axis.
+    public float AnchorOffsetX { get; set; } = 0.0f;
+    public float AnchorOffsetY { get; set; } = 0.0f;
+    public float AnchorOffsetZ { get; set; } = 0.0f;
+
+    // Subpart-local Euler rotation (degrees). Intrinsic XYZ — applied in the
+    // order X, then Y, then Z about the quad's own axes before translation.
+    public float AnchorRotationX { get; set; } = 0.0f;
+    public float AnchorRotationY { get; set; } = 0.0f;
+    public float AnchorRotationZ { get; set; } = 0.0f;
 
     // UV sub-rect: which portion of the off-screen texture is sampled onto the
     // mesh. Smaller size → more zoomed in (less of the texture stretched across
     // the same surface). Offsets pan within the texture. Texture coords use
     // ImGui convention: (0,0) = top-left, (1,1) = bottom-right.
-    //
-    // Quad path: applied to the quad's vertex UVs (rebuilt when these change).
-    // SubPart path: NOT applied — the part mesh has fixed UVs we cannot
-    // intercept without shader changes; the part samples the full texture.
     public float UvOffsetU { get; set; } = 0.0f;
     public float UvOffsetV { get; set; } = 0.0f;
     public float UvSizeU   { get; set; } = 1.0f;

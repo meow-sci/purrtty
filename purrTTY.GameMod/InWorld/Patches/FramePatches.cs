@@ -13,15 +13,15 @@ namespace purrTTY.GameMod.InWorld.Patches;
 
 /// <summary>
 ///     Static glue between <see cref="InWorld.InWorldTerminalManager"/> and the
-///     Harmony postfixes on <c>SuperMeshRenderSystem.RenderMainPass</c> and
-///     <c>PartModel.WriteInstancesToGpu</c>.
+///     Harmony postfixes on <c>SuperMeshRenderSystem.RenderMainPass</c> and the
+///     GLFW input callbacks.
 ///     <para>
 ///         The patches are attribute-discovered by <c>Patcher.patch()</c>'s
 ///         <c>PatchAll(typeof(Patcher).Assembly)</c>, so no manual registration
 ///         is required.
 ///     </para>
 ///     <para>
-///         Both fields are touched on the main thread only (the manager updates
+///         All fields are touched on the main thread only (the manager updates
 ///         them in <see cref="InWorld.InWorldTerminalManager.Toggle"/>, the patch
 ///         reads them on the same thread inside KSA's render loop).
 ///     </para>
@@ -30,9 +30,6 @@ internal static class FramePatches
 {
     /// <summary>The quad to draw. Set by the manager when the feature is alive.</summary>
     public static QuadDisplay? Display;
-
-    /// <summary>Optional Phase 6B SubPart texture override. Null = quad-only.</summary>
-    public static SubPartOverrideBase? Override;
 
     /// <summary>Master enable. Patches are no-ops when false.</summary>
     public static bool IsActive;
@@ -45,13 +42,6 @@ internal static class FramePatches
     ///     input events into. Null when the feature is not alive.
     /// </summary>
     public static OffscreenContext? SecondaryContext;
-
-    // Per-call state stashed by the Prefix patches and consumed by the matching
-    // Postfix patches on the same call. Both PartModelModule.UpdateRenderData and
-    // PartModel.WriteInstancesToGpu run on the renderer thread; ThreadStatic
-    // keeps each thread's stash isolated from any unexpected re-entry.
-    [ThreadStatic] internal static int s_instanceListCountBefore;
-    [ThreadStatic] internal static int s_deviceInstanceOffsetBefore;
 }
 
 [HarmonyPatch(typeof(SuperMeshRenderSystem), nameof(SuperMeshRenderSystem.RenderMainPass))]
@@ -77,91 +67,6 @@ internal static class SuperMeshRenderSystem_RenderMainPass_Patch
             // Disable ourselves so the user can re-toggle after fixing whatever
             // is wrong; the manager observes IsActive when toggling back on.
             ModLog.Log.Error($"purrTTY in-world quad draw failed: {ex}");
-            FramePatches.IsActive = false;
-        }
-    }
-}
-
-[HarmonyPatch(typeof(PartModel), nameof(PartModel.WriteInstancesToGpu))]
-internal static class PartModel_WriteInstancesToGpu_Patch
-{
-    // Thin dispatcher. Per-template mode rewrites the just-appended PerDrawData
-    // entry; per-instance overlay mode appends an extra draw + instance + draw
-    // command for the chosen part instance. Both implementations live on the
-    // SubPartOverrideBase subclass so this patch stays mode-agnostic.
-    //
-    // The Prefix captures the device PerInstanceDataVectors[frameIndex] count
-    // BEFORE the original method appends — overlay mode needs that to locate the
-    // just-appended slice (the per-PartModel InstanceList is .Clear()-ed at the
-    // end of WriteInstancesToGpu, so reading it in Postfix gives 0).
-    static void Prefix(PartModel __instance, Viewport viewport, int frameIndex)
-    {
-        if (!FramePatches.IsActive) return;
-        var ov = FramePatches.Override;
-        if (ov == null) return;
-        if (!ReferenceEquals(__instance, ov.TargetPartModel)) return;
-
-        PartModel.Shared.ViewportData? sharedVp = PartModel.Shared.ViewportData.TryGet(viewport);
-        FramePatches.s_deviceInstanceOffsetBefore = sharedVp != null
-            ? (int)sharedVp.PerInstanceDataVectors[frameIndex].ElementCount
-            : 0;
-    }
-
-    static void Postfix(PartModel __instance, Viewport viewport, int frameIndex)
-    {
-        if (!FramePatches.IsActive) return;
-        var ov = FramePatches.Override;
-        if (ov == null) return;
-        if (!ReferenceEquals(__instance, ov.TargetPartModel)) return;
-
-        try
-        {
-            ov.OnWriteInstancesToGpu(__instance, viewport, frameIndex,
-                FramePatches.s_deviceInstanceOffsetBefore);
-        }
-        catch (Exception ex)
-        {
-            ModLog.Log.Error($"purrTTY in-world subpart override failed; disabling: {ex}");
-            FramePatches.IsActive = false;
-        }
-    }
-}
-
-[HarmonyPatch(typeof(PartModelModule), nameof(PartModelModule.UpdateRenderData))]
-internal static class PartModelModule_UpdateRenderData_Patch
-{
-    // Per-instance overlay mode needs to know which slot of the per-PartModel
-    // InstanceList holds OUR Part's instance for the current frame. The Prefix
-    // captures the count just before the original method calls AddInstance; the
-    // Postfix forwards that to the override which compares to the post-call
-    // count to detect the Internal/ShadowProxy/non-IVA skip case in
-    // PartModel.AddInstance.
-    static void Prefix(PartModelModule __instance, Viewport viewport)
-    {
-        if (!FramePatches.IsActive) return;
-        var ov = FramePatches.Override;
-        if (ov == null) return;
-        if (!ReferenceEquals(__instance.Parent, ov.Target)) return;
-        if (!ReferenceEquals(__instance.PartModel, ov.TargetPartModel)) return;
-
-        var perPartModelVp = PartModel.ViewportData.Get(ov.TargetPartModel, viewport);
-        FramePatches.s_instanceListCountBefore = perPartModelVp.InstanceList.Count;
-    }
-
-    static void Postfix(PartModelModule __instance, Viewport viewport, int frameIndex)
-    {
-        if (!FramePatches.IsActive) return;
-        var ov = FramePatches.Override;
-        if (ov == null) return;
-
-        try
-        {
-            ov.OnUpdateRenderData(__instance, viewport, frameIndex,
-                FramePatches.s_instanceListCountBefore);
-        }
-        catch (Exception ex)
-        {
-            ModLog.Log.Error($"purrTTY in-world UpdateRenderData hook failed; disabling: {ex}");
             FramePatches.IsActive = false;
         }
     }
