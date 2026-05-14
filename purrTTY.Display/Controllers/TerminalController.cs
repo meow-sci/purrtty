@@ -1155,37 +1155,30 @@ public class TerminalController : ITerminalController
   ///     Renders the terminal cell grid into the currently-bound ImGui context
   ///     without managing window chrome, menus, focus, or input. Intended for
   ///     read-only mirroring to a secondary ImGui context (the in-world
-  ///     off-screen target). Safe to call AFTER the main <see cref="Render"/>
+  ///     render-to-texture path). Safe to call AFTER the main <see cref="Render"/>
   ///     in the same frame: it reads cursor/scroll/session state but does not
   ///     advance any per-frame state (cursor blink is advanced in
   ///     <see cref="Update"/>, not here).
+  ///     <para>
+  ///         No font scaling is applied — the secondary render uses the same
+  ///         font metrics as the screen render so glyphs are pixel-clean in the
+  ///         off-screen texture. Any "scale" effect on the in-world surface is
+  ///         done at the mesh level (UV sub-rect, mesh size, etc.) by the
+  ///         display layer that samples this texture.
+  ///     </para>
   /// </summary>
   /// <param name="windowPos">Top-left of the rendered window in pixels.</param>
-  /// <param name="windowSize">Window size in pixels (typically derived from a
-  /// texture-space sub-rect multiplied by the texture dimensions).</param>
-  /// <param name="fontScale">Per-context font scale multiplier; the binding has
-  /// no SetWindowFontScale, so we apply this through the secondary context's
-  /// ImGuiStyle.FontScaleMain. Restored to its prior value after End().</param>
-  public void RenderContentOnly(float2 windowPos, float2 windowSize, float fontScale)
+  /// <param name="windowSize">Window size in pixels (typically the full texture
+  /// extent so the terminal fills the texture 1:1).</param>
+  public void RenderContentOnly(float2 windowPos, float2 windowSize)
   {
     // Do NOT gate on _isVisible: the in-world terminal is an independent
     // surface — a user may have the screen-space window hidden but still
     // expect the in-world quad to keep showing terminal output. The in-world
     // feature has its own enable gate at InWorldTerminalManager.OnAfterGui.
 
-    // Clamp the font scale so a stray 0 from the UI sliders cannot collapse
-    // glyph metrics and cause div-by-zero in downstream cell-size math.
-    if (fontScale < 0.1f) fontScale = 0.1f;
-
     _fonts.EnsureFontsLoaded();
     _fonts.PushUIFont(out bool uiFontUsed);
-
-    // Save the secondary context's pre-call FontScaleMain so we can restore it.
-    // RenderContentOnly is called inside the secondary context's With() scope,
-    // so GetStyle() targets that context's style — not the main one.
-    ImGuiStylePtr style = ImGui.GetStyle();
-    float prevFontScale = style.FontScaleMain;
-    style.FontScaleMain = (prevFontScale > 0.0f ? prevFontScale : 1.0f) * fontScale;
 
     try
     {
@@ -1241,7 +1234,6 @@ public class TerminalController : ITerminalController
     finally
     {
       TerminalUiFonts.MaybePopFont(uiFontUsed);
-      style.FontScaleMain = prevFontScale;
     }
   }
 

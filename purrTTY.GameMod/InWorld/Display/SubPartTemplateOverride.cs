@@ -1,10 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
 using Brutal;
+using Brutal.Numerics;
 using Core;
 using HarmonyLib;
 using KSA;
 using KSA.Rendering;
+using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.Logging;
 using RenderCore.Systems;
 
@@ -41,17 +43,20 @@ public sealed class SubPartTemplateOverride : SubPartOverrideBase
 {
     private readonly OffscreenRenderTarget _target;
     private readonly BindlessTextureLibrary _bindlessLib;
+    private readonly InWorldSettings _settings;
     private bool _disposed;
 
     public override OverrideMode Mode => OverrideMode.PerTemplate;
 
-    public SubPartTemplateOverride(Renderer renderer, OffscreenRenderTarget target, Part targetPart)
+    public SubPartTemplateOverride(Renderer renderer, OffscreenRenderTarget target, Part targetPart, InWorldSettings settings)
     {
         if (renderer == null) throw new ArgumentNullException(nameof(renderer));
         if (target == null) throw new ArgumentNullException(nameof(target));
         if (targetPart == null) throw new ArgumentNullException(nameof(targetPart));
+        if (settings == null) throw new ArgumentNullException(nameof(settings));
 
         _target = target;
+        _settings = settings;
         Target = targetPart;
 
         Span<PartModelModule> modelModules = targetPart.Modules.Get<PartModelModule>();
@@ -98,10 +103,6 @@ public sealed class SubPartTemplateOverride : SubPartOverrideBase
     public override void OnWriteInstancesToGpu(
         PartModel partModel, Viewport viewport, int frameIndex, int deviceInstanceOffsetBefore)
     {
-        // Per-template mode ignores deviceInstanceOffsetBefore — we only rewrite
-        // the just-appended PerDrawData entry.
-        _ = deviceInstanceOffsetBefore;
-
         // The ViewportData.PerDrawDataVectors[frameIndex] DeviceVector now contains
         // the freshly-appended PerDrawData entry as its LAST element
         // (WriteInstancesToGpu only appends if InstanceList.Count > 0; if the count
@@ -140,6 +141,45 @@ public sealed class SubPartTemplateOverride : SubPartOverrideBase
         ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(
             MemoryMarshal.CreateReadOnlySpan(ref replacement, 1));
         Program.DeviceHostSharedMemory.Write(vec.MemoryPair, entryOffset, bytes);
+
+        // Apply the in-world settings' Width/Height as a local scale on the
+        // ModelMatrix of every instance of OUR template that WriteInstancesToGpu
+        // just appended. Per-template mode rewrites the shared PerDrawData so all
+        // these instances draw with our terminal texture — scaling them in their
+        // own local frame keeps each part where it was on the vessel but grows
+        // / shrinks the textured face. Z is left at 1 because the user only
+        // exposes 2D dimensions.
+        //
+        // Per-template's draw is a single indirect command with InstanceCount =
+        // InstanceList.Count, so when the user picks a template with multiple
+        // instances on the vessel, all of them scale together. That matches the
+        // per-template mental model (everything that shares the template shares
+        // the override).
+        float w = _settings.QuadWidthMeters;
+        float h = _settings.QuadHeightMeters;
+        if (w > 0f && h > 0f && (w != 1f || h != 1f))
+        {
+            DeviceVector instanceVec = sharedVp.PerInstanceDataVectors[frameIndex];
+            int afterCount = instanceVec.ElementCount;
+            int n = afterCount - deviceInstanceOffsetBefore;
+            if (n > 0)
+            {
+                ByteSize stride = instanceVec.ElementSizeInBytes;
+                Span<byte> instanceBytes = stackalloc byte[(int)stride];
+                float4x4 extra = float4x4.CreateScale(w, h, 1f);
+                for (int i = 0; i < n; i++)
+                {
+                    ByteSize slotOffset = stride * (deviceInstanceOffsetBefore + i);
+                    if (!Program.DeviceHostSharedMemory.Read(instanceVec.MemoryPair, slotOffset, instanceBytes))
+                    {
+                        continue;
+                    }
+                    ref float4x4 model = ref MemoryMarshal.AsRef<float4x4>(instanceBytes);
+                    model = extra * model;
+                    Program.DeviceHostSharedMemory.Write(instanceVec.MemoryPair, slotOffset, instanceBytes);
+                }
+            }
+        }
     }
 
     public override void Dispose()

@@ -7,7 +7,8 @@
       "Bash(xargs grep -l \"Raycast\\\\|WorldPick\\\\|MouseToWorldRay\\\\|ScreenToWorld\")",
       "Bash(xargs grep -l \"VkRenderPass\\\\|VkImage\\\\|Framebuffer\\\\|RenderTarget\\\\|CommandBuffer\")",
       "Bash(xargs grep -l \"class.*Mod\\\\|IMod\\\\|ModEntryPoint\")",
-      "Bash(xargs grep -l \"class.*Renderer\\\\|class.*Backend\\\\|struct.*Renderer\")"
+      "Bash(xargs grep -l \"class.*Renderer\\\\|class.*Backend\\\\|struct.*Renderer\")",
+      "Bash(dotnet build *)"
     ]
   }
 }

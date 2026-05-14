@@ -1,11 +1,13 @@
 using System;
 using System.Runtime.InteropServices;
 using Brutal;
+using Brutal.Numerics;
 using Brutal.VulkanApi;
 using Core;
 using HarmonyLib;
 using KSA;
 using KSA.Rendering;
+using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.Logging;
 using RenderCore.Systems;
 
@@ -40,6 +42,7 @@ public sealed class SubPartOverlayOverride : SubPartOverrideBase
 {
     private readonly OffscreenRenderTarget _target;
     private readonly BindlessTextureLibrary _bindlessLib;
+    private readonly InWorldSettings _settings;
     private bool _disposed;
 
     // Index of our part instance in the per-PartModel InstanceList for the most
@@ -56,13 +59,15 @@ public sealed class SubPartOverlayOverride : SubPartOverrideBase
 
     public override OverrideMode Mode => OverrideMode.PerInstanceOverlay;
 
-    public SubPartOverlayOverride(Renderer renderer, OffscreenRenderTarget target, Part targetPart)
+    public SubPartOverlayOverride(Renderer renderer, OffscreenRenderTarget target, Part targetPart, InWorldSettings settings)
     {
         if (renderer == null) throw new ArgumentNullException(nameof(renderer));
         if (target == null) throw new ArgumentNullException(nameof(target));
         if (targetPart == null) throw new ArgumentNullException(nameof(targetPart));
+        if (settings == null) throw new ArgumentNullException(nameof(settings));
 
         _target = target;
+        _settings = settings;
         Target = targetPart;
 
         Span<PartModelModule> modelModules = targetPart.Modules.Get<PartModelModule>();
@@ -145,6 +150,26 @@ public sealed class SubPartOverlayOverride : SubPartOverrideBase
         if (!Program.DeviceHostSharedMemory.Read(instanceVec.MemoryPair, stride * sourceInstanceSlot, instanceBytes))
         {
             return;
+        }
+
+        // Apply the in-world settings' mesh-size scale to OUR overlay instance
+        // only (the original draw keeps the original transform). PerInstanceData
+        // begins with `float4x4 ModelMatrix`. KSA's convention is local-to-world
+        // composed as S * R * T applied to a row vector (see Core/Transform.cs,
+        // RenderCore/TransformTRS.cs), so pre-multiplying an extra scale on the
+        // left scales the mesh in its local frame — exactly what the user
+        // expects "width / height" to do on a panel-like part. Z is left at 1
+        // because the user only exposes 2D dimensions.
+        //
+        // Skip the matrix mul when scale is unity to keep the common case free
+        // of float drift, and skip it entirely for non-positive values (a stray
+        // 0 from a slider would collapse the mesh).
+        float w = _settings.QuadWidthMeters;
+        float h = _settings.QuadHeightMeters;
+        if (w > 0f && h > 0f && (w != 1f || h != 1f))
+        {
+            ref float4x4 model = ref MemoryMarshal.AsRef<float4x4>(instanceBytes);
+            model = float4x4.CreateScale(w, h, 1f) * model;
         }
 
         // Capture the new instance's device-vector slot BEFORE Add — Add bumps

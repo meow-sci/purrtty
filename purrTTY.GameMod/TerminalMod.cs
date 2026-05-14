@@ -235,19 +235,23 @@ public class TerminalMod
                 // OnAfterUi, so cursor/scroll/session state is settled by the
                 // time this builder fires inside the secondary context.
                 //
-                // The texture-space rect + font scale are read fresh inside the
-                // closure each frame so the new settings window's slider edits
-                // take effect immediately without rebuilding BuildUi.
+                // The terminal renders into the UV-rect of the offscreen
+                // texture at 1:1 with the same font metrics as the screen
+                // render (no font scaling). The rest of the texture stays at
+                // the renderpass's clear color (opaque black). Both the quad
+                // and the subpart sample the texture, so the UV settings give
+                // a single "render the terminal smaller / shifted in the
+                // texture" effect that propagates to both surfaces.
                 if (_controller != null)
                 {
                     var ctrl = _controller;
                     var s    = _inWorldSettings;
                     _inWorld.SetBuildUi(() =>
                     {
-                        var texSize  = new float2(s.TextureWidth, s.TextureHeight);
-                        var winPos   = new float2(s.RenderWindowOffsetU, s.RenderWindowOffsetV) * texSize;
-                        var winSize  = new float2(s.RenderWindowSizeU,   s.RenderWindowSizeV)   * texSize;
-                        ctrl.RenderContentOnly(winPos, winSize, s.RenderFontScale);
+                        var texSize = new float2(s.TextureWidth, s.TextureHeight);
+                        var winPos  = new float2(s.UvOffsetU, s.UvOffsetV) * texSize;
+                        var winSize = new float2(s.UvSizeU,   s.UvSizeV)   * texSize;
+                        ctrl.RenderContentOnly(winPos, winSize);
                     });
                 }
 

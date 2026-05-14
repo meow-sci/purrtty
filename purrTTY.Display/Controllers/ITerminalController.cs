@@ -55,17 +55,21 @@ public interface ITerminalController : IDisposable
     /// <summary>
     ///     Renders the terminal cell grid into the currently-bound ImGui context
     ///     without managing window chrome, menus, focus, or input. Intended for
-    ///     read-only mirroring to a secondary ImGui context. Safe to call AFTER
-    ///     <see cref="Render"/> in the same frame.
+    ///     read-only mirroring to a secondary ImGui context (the in-world
+    ///     render-to-texture path). Safe to call AFTER <see cref="Render"/> in
+    ///     the same frame.
+    ///     <para>
+    ///         No font scaling is applied — the secondary render uses the same
+    ///         font metrics as the screen render, so glyphs are pixel-clean. Any
+    ///         "scale" effect on the in-world surface must be done at the mesh
+    ///         level (UV sub-rect, mesh size in meters, etc.).
+    ///     </para>
     /// </summary>
-    /// <param name="windowPos">Window origin in pixels (typically derived from
-    /// the texture-space offset multiplied by the texture size).</param>
-    /// <param name="windowSize">Window size in pixels (typically derived from
-    /// the texture-space size multiplied by the texture size).</param>
-    /// <param name="fontScale">Multiplier applied to the secondary context's
-    /// font scale so the user can fit more rows/cols. Clamped to a sane minimum
-    /// internally to avoid invisible text or div-by-zero metrics.</param>
-    void RenderContentOnly(float2 windowPos, float2 windowSize, float fontScale);
+    /// <param name="windowPos">Window origin in pixels (top-left of the rect
+    /// that fills the off-screen texture).</param>
+    /// <param name="windowSize">Window size in pixels (typically the full
+    /// texture extent so the terminal fills the texture 1:1).</param>
+    void RenderContentOnly(float2 windowPos, float2 windowSize);
 
     /// <summary>
     ///     Gets the current terminal dimensions.

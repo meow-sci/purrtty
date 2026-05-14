@@ -84,7 +84,8 @@ public sealed class InWorldSettingsWindow
         {
             DrawStatusSection();
             DrawTargetSubPartSection();
-            DrawTextureTransformSection();
+            DrawUvSection();
+            DrawMeshSection();
             DrawGeometryDiagnosticsSection();
         }
         finally
@@ -380,44 +381,87 @@ public sealed class InWorldSettingsWindow
         _subPartSelectedIdx = 0;
     }
 
-    private void DrawTextureTransformSection()
+    private void DrawUvSection()
     {
-        ImGui.SeparatorText("Texture Transform");
+        ImGui.SeparatorText("Texture render rect");
 
-        float rx = _settings.RenderWindowOffsetU;
-        float ry = _settings.RenderWindowOffsetV;
-        float rw = _settings.RenderWindowSizeU;
-        float rh = _settings.RenderWindowSizeV;
-        float fs = _settings.RenderFontScale;
+        // The UV sliders drive the offscreen render-rect: the terminal renders
+        // pixel-clean (no font scaling) into the sub-rect of the texture defined
+        // here, and the rest of the texture stays at the renderpass's clear
+        // color (opaque black). Both the quad and the subpart sample the same
+        // texture, so smaller UV Size = smaller terminal on BOTH surfaces with
+        // the black mat filling the remainder. Offset shifts where in the
+        // texture the terminal lands.
+        float ou = _settings.UvOffsetU;
+        float ov = _settings.UvOffsetV;
+        float su = _settings.UvSizeU;
+        float sv = _settings.UvSizeV;
 
-        DrawSliderRow("Render X", "##rx", ref rx, 0.005f, 0.0f, 1.0f, "%.3f");
-        DrawSliderRow("Render Y", "##ry", ref ry, 0.005f, 0.0f, 1.0f, "%.3f");
-        DrawSliderRow("Render W", "##rw", ref rw, 0.005f, 0.05f, 1.0f, "%.3f");
-        DrawSliderRow("Render H", "##rh", ref rh, 0.005f, 0.05f, 1.0f, "%.3f");
-        DrawSliderRow("Font Scale", "##fs", ref fs, 0.01f, 0.1f, 2.0f, "%.2f");
+        DrawSliderRow("UV Offset U", "##uvOffU", ref ou, 0.005f, 0.0f, 1.0f, "%.3f");
+        DrawSliderRow("UV Offset V", "##uvOffV", ref ov, 0.005f, 0.0f, 1.0f, "%.3f");
+        DrawSliderRow("UV Size U",   "##uvSizU", ref su, 0.005f, 0.05f, 1.0f, "%.3f");
+        DrawSliderRow("UV Size V",   "##uvSizV", ref sv, 0.005f, 0.05f, 1.0f, "%.3f");
 
-        _settings.RenderWindowOffsetU = rx;
-        _settings.RenderWindowOffsetV = ry;
-        _settings.RenderWindowSizeU   = rw;
-        _settings.RenderWindowSizeV   = rh;
-        _settings.RenderFontScale     = fs;
+        _settings.UvOffsetU = ou;
+        _settings.UvOffsetV = ov;
+        _settings.UvSizeU   = su;
+        _settings.UvSizeV   = sv;
 
-        if (ImGui.Button("Reset to Defaults"))
+        if (ImGui.Button("Reset UV"))
         {
-            _settings.RenderWindowOffsetU = 0.0f;
-            _settings.RenderWindowOffsetV = 0.0f;
-            _settings.RenderWindowSizeU   = 1.0f;
-            _settings.RenderWindowSizeV   = 1.0f;
-            _settings.RenderFontScale     = 1.0f;
+            _settings.UvOffsetU = 0.0f;
+            _settings.UvOffsetV = 0.0f;
+            _settings.UvSizeU   = 1.0f;
+            _settings.UvSizeV   = 1.0f;
+        }
+    }
+
+    private void DrawMeshSection()
+    {
+        ImGui.SeparatorText("Mesh size");
+
+        float w = _settings.QuadWidthMeters;
+        float h = _settings.QuadHeightMeters;
+        float d = _settings.QuadDistanceMeters;
+
+        DrawSliderRow("Width (m)",    "##qw", ref w, 0.01f, 0.05f, 20.0f, "%.2f");
+        DrawSliderRow("Height (m)",   "##qh", ref h, 0.01f, 0.05f, 20.0f, "%.2f");
+        DrawSliderRow("Distance (m)", "##qd", ref d, 0.01f, 0.10f, 50.0f, "%.2f");
+
+        _settings.QuadWidthMeters    = w;
+        _settings.QuadHeightMeters   = h;
+        _settings.QuadDistanceMeters = d;
+
+        if (ImGui.Button("Reset Mesh"))
+        {
+            _settings.QuadWidthMeters    = 1.6f;
+            _settings.QuadHeightMeters   = 1.0f;
+            _settings.QuadDistanceMeters = 2.0f;
         }
 
-        // Live preview of the resolved pixel rect + font scale.
-        int areaW = (int)(_settings.RenderWindowSizeU * _settings.TextureWidth + 0.5f);
-        int areaH = (int)(_settings.RenderWindowSizeV * _settings.TextureHeight + 0.5f);
-        string preview = "Texture: " + _settings.TextureWidth + "×" + _settings.TextureHeight
-                       + "  →  rendering area: " + areaW + "×" + areaH
-                       + "  font: " + _settings.RenderFontScale.ToString("0.00") + "×";
-        ImGui.Text(preview);
+        ImGui.SameLine();
+        ImGui.Text("Distance applies on next Re-anchor; width/height live.");
+
+        // On the quad, Width/Height are a physical size in meters and Distance
+        // is ego-space placement. On a subpart, the same Width and Height are
+        // reused as a scale factor pre-multiplied onto each appended instance's
+        // ModelMatrix, so the textured face grows / shrinks on the part. In
+        // PerTemplate mode every instance of the template scales together
+        // (they all share the override anyway); in PerInstanceOverlay mode only
+        // the one overlay instance scales and the underlying part keeps its
+        // original transform. Defaults are 1.6×1.0 (tuned for the quad's 16:10
+        // panel); reset to 1.0×1.0 to leave a subpart at its native size.
+        if (_manager.HasSubPartOverride)
+        {
+            if (_settings.TargetOverrideMode == OverrideMode.PerInstanceOverlay)
+            {
+                ImGui.TextDisabled("SubPart overlay active — Width/Height scale only the overlay instance.");
+            }
+            else
+            {
+                ImGui.TextDisabled("SubPart per-template active — Width/Height scale every instance of the template.");
+            }
+        }
     }
 
     private static void DrawSliderRow(string label, string sliderId, ref float value, float speed, float min, float max, string format)
@@ -435,12 +479,14 @@ public sealed class InWorldSettingsWindow
             return;
         }
 
-        string textureLine  = "Texture size:   " + _settings.TextureWidth + "×" + _settings.TextureHeight;
-        string quadSizeLine = "Quad size:      " + _settings.QuadWidthMeters.ToString("0.0") + "×" + _settings.QuadHeightMeters.ToString("0.0") + " m";
-        string quadDistLine = "Quad distance:  " + _settings.QuadDistanceMeters.ToString("0.0") + " m";
+        int sampW = (int)(_settings.UvSizeU * _settings.TextureWidth  + 0.5f);
+        int sampH = (int)(_settings.UvSizeV * _settings.TextureHeight + 0.5f);
+        string textureLine  = "Texture size:    " + _settings.TextureWidth + "×" + _settings.TextureHeight;
+        string sampledLine  = "Sampled region:  " + sampW + "×" + sampH + " px"
+                            + "  @ uv (" + _settings.UvOffsetU.ToString("0.00")
+                            + ", "       + _settings.UvOffsetV.ToString("0.00") + ")";
 
         ImGui.Text(textureLine);
-        ImGui.Text(quadSizeLine);
-        ImGui.Text(quadDistLine);
+        ImGui.Text(sampledLine);
     }
 }

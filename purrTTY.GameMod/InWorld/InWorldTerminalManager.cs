@@ -106,12 +106,20 @@ public sealed class InWorldTerminalManager : IDisposable
                 return;
             }
 
+            // R8G8B8A8Unorm (not SRGB): UnlitMesh.frag applies gammaToLinear() to
+            // the sampled texel before writing, on the assumption the texture
+            // holds gamma-encoded data. If we use an SRGB-format target, the GPU
+            // auto-decodes on sample so the shader's gammaToLinear() runs on
+            // already-linear values and the in-world colors come out
+            // noticeably darker than the on-screen terminal. UNORM keeps the
+            // ImGui-written bytes raw so the shader's gamma decode is the
+            // single, correct one.
             _target = new OffscreenRenderTarget(
                 renderer,
                 "purrTTY-Offscreen",
                 _settings.TextureWidth,
                 _settings.TextureHeight,
-                VkFormat.R8G8B8A8SRGB,
+                VkFormat.R8G8B8A8UNorm,
                 renderer.DepthFormat);
 
             // Phase 3: secondary ImGui context shares the main font atlas so we
@@ -345,8 +353,8 @@ public sealed class InWorldTerminalManager : IDisposable
             _override = _settings.TargetOverrideMode switch
             {
                 OverrideMode.PerInstanceOverlay
-                    => new SubPartOverlayOverride(renderer, _target, hit),
-                _   => new SubPartTemplateOverride(renderer, _target, hit),
+                    => new SubPartOverlayOverride(renderer, _target, hit, _settings),
+                _   => new SubPartTemplateOverride(renderer, _target, hit, _settings),
             };
         }
         catch (Exception ex)

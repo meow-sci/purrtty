@@ -50,7 +50,12 @@ public sealed class QuadDisplay : IDisposable
     private readonly BufferEx               _vertexBuffer;
     private readonly BufferEx               _indexBuffer;
 
-    private float4x4 _modelEgo = float4x4.Identity;
+    // Anchor captures pose only (rotation + ego-space position). Mesh size is
+    // applied per-frame in RecordDraw from the live settings so the user can
+    // drag the size sliders and see the result immediately without re-anchoring
+    // (which would re-orient to the current camera, which is not what the user
+    // wants when tweaking dimensions).
+    private float4x4 _poseEgo = float4x4.Identity;
     private bool     _anchored;
     private bool     _disposed;
 
@@ -200,13 +205,6 @@ public sealed class QuadDisplay : IDisposable
         _pipeline = device.CreateGraphicsPipeline(default(VkPipelineCache), pipelineInfo, null);
 
         // ---- Vertex / index buffers ----
-        // TODO Phase 6A iteration: winding and UV orientation are finicky.
-        //     The off-screen image is rendered in ImGui coordinates (origin
-        //     top-left, +Y down) while Vulkan's clip space has +Y down post-
-        //     projection. Tried: CCW front face with UVs mapped (0,0)→top-left,
-        //     (1,1)→bottom-right per ImGui convention. If the terminal appears
-        //     mirrored or upside-down on first run, flip the V coordinate or
-        //     reverse the index winding here rather than touching the camera math.
         // UV mapping: Camera.LookAtRotation(-forward, up) (see Anchor) negates the
         // Z row of the basis matrix, so local +Z ends up pointing in +forward —
         // i.e. AWAY from the camera. With CullMode.None we still draw the quad,
@@ -215,6 +213,12 @@ public sealed class QuadDisplay : IDisposable
         // on the source texture: local +X (U was 1) now samples the texture's
         // left edge, so the readable orientation appears upright to the camera.
         // V remains flipped (top-left = (0,0)) to match ImGui's top-left origin.
+        //
+        // UVs are STATIC: they sample the full off-screen texture (0..1 in both
+        // axes, with U flipped per the orientation note above). The "UV scale"
+        // sliders in the settings window are implemented as a render-rect on the
+        // offscreen target (see TerminalMod.SetBuildUi) so the same setting also
+        // affects the subpart path, whose mesh UVs we cannot intercept.
         Span<QuadVertex> verts = stackalloc QuadVertex[4]
         {
             new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
@@ -265,10 +269,16 @@ public sealed class QuadDisplay : IDisposable
     }
 
     /// <summary>
-    ///     Compute the ego-space model matrix ONCE based on the camera's current
-    ///     forward/up, then persist it. Subsequent camera motion will not
-    ///     re-orient the quad — it stays where it was placed at toggle time, in
-    ///     ego space, so it rides with the vessel as the camera rotates.
+    ///     Capture the ego-space pose (rotation + translation) ONCE based on the
+    ///     camera's current forward/up, then persist it. The quad rides with the
+    ///     vessel and is not re-oriented on subsequent camera motion.
+    ///     <para>
+    ///         Mesh size is NOT baked in here — it's applied at draw time from
+    ///         the live settings so the user can edit
+    ///         <see cref="Settings.InWorldSettings.QuadWidthMeters"/> /
+    ///         <see cref="Settings.InWorldSettings.QuadHeightMeters"/> and see
+    ///         the result without re-anchoring.
+    ///     </para>
     /// </summary>
     public void Anchor(Camera camera)
     {
@@ -287,17 +297,27 @@ public sealed class QuadDisplay : IDisposable
         // vector + up vector.
         doubleQuat lookAtCam = Camera.LookAtRotation(-forward, up);
 
-        // Compose. Brutal.Numerics matrices left-multiply column vectors (M * v),
-        // so the natural composition is T * R * S — but UnlitMeshRenderTechnique
-        // pushes a single `world` matrix and the shader does
-        // `worldViewProjMatrix * vec4(inPos,1)`, so this matches the standard
-        // SRT convention used everywhere else in KSA.
-        float4x4 scale = float4x4.CreateScale(_settings.QuadWidthMeters, _settings.QuadHeightMeters, 1f);
+        // Pose = R * T (mesh size scale composed in at draw time). Brutal.Numerics
+        // matrices left-multiply column vectors (M * v) and the shader does
+        // `worldViewProjMatrix * vec4(inPos,1)`, so the SRT convention applies.
         float4x4 rot   = float4x4.CreateFromQuaternion(floatQuat.Pack(in lookAtCam));
         float4x4 trans = float4x4.CreateTranslation(float3.Pack(in posEgo));
-        _modelEgo = scale * rot * trans;
+        _poseEgo  = rot * trans;
         _anchored = true;
     }
+
+    /// <summary>
+    ///     Compose the current ego-space model matrix from the captured pose and
+    ///     the live mesh-size settings. Used by both <see cref="RecordDraw"/>
+    ///     and <see cref="TryRaycast"/> so the pick rays and the rendered quad
+    ///     always agree.
+    /// </summary>
+    private float4x4 CurrentModelEgo()
+    {
+        float4x4 scale = float4x4.CreateScale(_settings.QuadWidthMeters, _settings.QuadHeightMeters, 1f);
+        return scale * _poseEgo;
+    }
+
 
     /// <summary>
     ///     Phase 7A — ego-space ray vs. quad pick. Returns true and the nearer
@@ -323,10 +343,13 @@ public sealed class QuadDisplay : IDisposable
 
         // float3.Transform(p, M) computes M * vec4(p,1) using KSA's mat-vector
         // convention (same one RecordDraw relies on when it composes the MVP).
-        double3 v0 = ToDouble3(float3.Transform(v0Local, _modelEgo));
-        double3 v1 = ToDouble3(float3.Transform(v1Local, _modelEgo));
-        double3 v2 = ToDouble3(float3.Transform(v2Local, _modelEgo));
-        double3 v3 = ToDouble3(float3.Transform(v3Local, _modelEgo));
+        // Use the live model (current mesh-size scale × captured pose) so the
+        // pick ray agrees with the rendered quad even after the user resizes.
+        float4x4 modelEgo = CurrentModelEgo();
+        double3 v0 = ToDouble3(float3.Transform(v0Local, modelEgo));
+        double3 v1 = ToDouble3(float3.Transform(v1Local, modelEgo));
+        double3 v2 = ToDouble3(float3.Transform(v2Local, modelEgo));
+        double3 v3 = ToDouble3(float3.Transform(v3Local, modelEgo));
 
         bool any = false;
         if (ray.RaycastMollerTrumbore(v0, v1, v2, out double t0))
@@ -360,7 +383,9 @@ public sealed class QuadDisplay : IDisposable
 
         // MVP = view * projection * model, all in ego space. Camera.MVP is a
         // ViewProjection struct with a precomputed view*projection matrix.
-        float4x4 mvp = _modelEgo * camera.MVP.viewProjection;
+        // Compose the live model (mesh-size scale × captured pose) per-frame so
+        // QuadWidth/Height edits take effect without re-anchoring.
+        float4x4 mvp = CurrentModelEgo() * camera.MVP.viewProjection;
 
         cmd.BindPipeline(VkPipelineBindPoint.Graphics, _pipeline);
         VkDescriptorSet descSetCopy = _descriptorSet;
