@@ -178,21 +178,32 @@ public sealed class QuadDisplay : IDisposable
         };
 
         // ---- Pipeline state ----
-        // Reverse-Z to match KSA's main pass: the depth attachment is cleared to
-        // 0 and the compare op is GreaterOrEqual. We bind to Program.MainPass.Pass
-        // so we MUST follow that convention or the quad will Z-fight / vanish.
-        // Cull none: a single quad, both sides visible (the user may orient the
-        // quad until they see its back face and we don't want that to render as
-        // invisible).
+        // Reverse-Z to match KSA's offscreen pass: the depth attachment is
+        // cleared to 0 and the compare op is GreaterOrEqual. Cull none: a
+        // single quad, both sides visible (the user may orient the quad until
+        // they see its back face and we don't want that to render as invisible).
+        //
+        // CRITICAL: bind to Program.OffScreenPass, NOT Program.MainPass. KSA's
+        // `Program.MainPass` is the SWAPCHAIN pass (`_renderer.MainRenderPass`,
+        // Program.cs:643), but the scene — parts, SuperMesh draws, and our
+        // postfix on `SuperMeshRenderSystem.RenderMainPass` — runs inside
+        // `_offscreenPass` (Program.cs:3784, used by the BeginRenderPass at
+        // Program.cs:3896). The two passes have different sample counts —
+        // `_mainPass` is hard-coded to 1-bit (Program.cs:660) while
+        // `_offscreenPass` uses `GameSettings.GetSampleCount()` which is 4x/8x
+        // when the user enables MSAA. Binding to MainPass with 1-bit samples
+        // while the active framebuffer is 4x-sample makes the depth state
+        // silently misbehave: the quad renders but does not test against the
+        // depth values parts wrote, so it always paints on top.
         var multisample = new VkPipelineMultisampleStateCreateInfo
         {
-            RasterizationSamples = Program.MainPass.SampleCount,
+            RasterizationSamples = Program.OffScreenPass.SampleCount,
         };
 
         var pipelineInfo = new VkGraphicsPipelineCreateInfo
         {
             Layout             = _pipelineLayout,
-            RenderPass         = Program.MainPass.Pass,
+            RenderPass         = Program.OffScreenPass.Pass,
             Subpass            = 0,
             StageCount         = 2,
             Stages             = stagesArr,
