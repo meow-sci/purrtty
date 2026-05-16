@@ -9,6 +9,7 @@
         <Product>purrTTY Terminal Emulator</Product>
         <Company>meow sci</Company>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     </PropertyGroup>
 

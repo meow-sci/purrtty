@@ -152,7 +152,31 @@ internal class TerminalGridRenderer
                         {
                             float charX = terminalDrawPos.X + ((runStartCol + i) * currentCharacterWidth);
                             var charPos = new float2(charX, runY);
-                            target.AddText(charPos, runColorU32, runChars[i].ToString(), runFont, _fonts.CurrentFontConfig.FontSize);
+
+                            // UTF-16 surrogate pair: emoji and other supplementary-plane
+                            // codepoints arrive as two adjacent cells (high+low surrogate).
+                            // KSA's ImGui is built with 16-bit ImWchar so the lookup path
+                            // can't see codepoints above U+FFFF — sending the raw 2-char
+                            // string renders as `?`. EmojiPuaRemapper rewrote NotoEmoji's
+                            // cmap so every SMP glyph also lives at a PUA codepoint; if
+                            // we have a proxy for this emoji, render that single BMP char
+                            // instead. Either path skips the low-surrogate cell — its grid
+                            // slot becomes the visual second half of the wide emoji glyph.
+                            if (char.IsHighSurrogate(runChars[i])
+                                && i + 1 < runLength
+                                && char.IsLowSurrogate(runChars[i + 1]))
+                            {
+                                uint smp = (uint)char.ConvertToUtf32(runChars[i], runChars[i + 1]);
+                                string emojiText = EmojiPuaRemapper.TryMapSmpToPua(smp, out char pua)
+                                    ? pua.ToString()
+                                    : new string(runChars, i, 2);
+                                target.AddText(charPos, runColorU32, emojiText, runFont, _fonts.CurrentFontConfig.FontSize);
+                                i++;
+                            }
+                            else
+                            {
+                                target.AddText(charPos, runColorU32, runChars[i].ToString(), runFont, _fonts.CurrentFontConfig.FontSize);
+                            }
                         }
                     }
                     finally
@@ -396,6 +420,10 @@ internal class TerminalGridRenderer
 
         var fontSize = _fonts.CurrentFontConfig.FontSize;
 
+        // Reused buffer for surrogate-pair string construction (see emoji handling below).
+        // Hoisted out of the loop so the stackalloc only happens once per call (CA2014).
+        Span<char> pairBuf = stackalloc char[2];
+
         for (int row = 0; row < Math.Min(viewportRows.Count, activeSession.Terminal.Height); row++)
         {
             if (!currentSelection.RowMightBeSelected(row))
@@ -423,11 +451,36 @@ internal class TerminalGridRenderer
                     bgColU32
                 );
 
-                // Draw Text
+                // Draw Text — surrogate pair handling mirrors FlushRun() in Render(),
+                // including the PUA-proxy translation that lets SMP emoji reach ImGui's
+                // 16-bit ImWchar lookup path. The low-surrogate cell still gets its
+                // selection background (drawn above) but skips text rendering.
                 if (cell.Character != ' ' && cell.Character != '\0')
                 {
                     var font = _fonts.SelectFont(cell.Attributes);
-                    target.AddText(pos, fgColU32, cell.Character.ToString(), font, fontSize);
+
+                    if (char.IsHighSurrogate(cell.Character)
+                        && col + 1 < colsToRender
+                        && char.IsLowSurrogate(rowSpan[col + 1].Character))
+                    {
+                        uint smp = (uint)char.ConvertToUtf32(cell.Character, rowSpan[col + 1].Character);
+                        string emojiText;
+                        if (EmojiPuaRemapper.TryMapSmpToPua(smp, out char pua))
+                        {
+                            emojiText = pua.ToString();
+                        }
+                        else
+                        {
+                            pairBuf[0] = cell.Character;
+                            pairBuf[1] = rowSpan[col + 1].Character;
+                            emojiText = new string(pairBuf);
+                        }
+                        target.AddText(pos, fgColU32, emojiText, font, fontSize);
+                    }
+                    else if (!char.IsLowSurrogate(cell.Character))
+                    {
+                        target.AddText(pos, fgColU32, cell.Character.ToString(), font, fontSize);
+                    }
                 }
             }
         }

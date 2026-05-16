@@ -52,15 +52,68 @@ public class PurrTTYFontManager
           // Get all .iamttf from TerminalFonts folder
           string[] fontFiles = Directory.GetFiles(fontsDir, "*.iamttf");
 
+          // NotoEmoji is not a selectable terminal font; we use NotoEmoji-Regular as a
+          // merged glyph fallback for emoji / dingbats / misc symbols on top of every
+          // loaded terminal font. The other NotoEmoji weight variants are intentionally
+          // ignored — a single weight is sufficient for fallback coverage.
+          //
+          // NOTE: NotoColorEmoji (CBDT/CBLC bitmap color emoji) is intentionally NOT
+          // used here even when present. Empirical testing showed KSA's bundled ImGui
+          // does not include the FreeType-with-color backend required to decode CBDT
+          // bitmaps — loading NotoColorEmoji as the merged fallback caused every glyph
+          // (BMP included) to stop rendering. Color emoji rendering requires either
+          // a custom KSA ImGui build with FreeType+PNG, or an external pre-rasterized
+          // atlas approach. Out of scope for this mod. NotoColorEmoji-Regular.iamttf
+          // is left on disk so the user can keep their copy.
+          string? notoEmojiPath = Array.Find(fontFiles,
+              f => string.Equals(Path.GetFileNameWithoutExtension(f), "NotoEmoji-Regular",
+                  StringComparison.OrdinalIgnoreCase));
+
           if (fontFiles.Length > 0)
           {
             ImGuiIOPtr io = ImGui.GetIO();
             ImFontAtlasPtr atlas = io.Fonts;
 
+            // Build the PUA-remapped NotoEmoji bytes ONCE before the merge loop.
+            // The remap exposes SMP emoji glyphs at BMP Private Use Area codepoints so
+            // ImGui's 16-bit ImWchar lookup path can actually resolve them. See
+            // EmojiPuaRemapper for details. If the remap fails (corrupt font, parser
+            // bug, etc.) we fall through to the unmodified file so BMP emoji at least
+            // keep working.
+            IntPtr emojiBytesPtr = IntPtr.Zero;
+            int emojiBytesSize = 0;
+            bool useRemappedEmoji = false;
+            if (notoEmojiPath != null)
+            {
+              try
+              {
+                var (ptr, size) = EmojiPuaRemapper.BuildAndPinRemappedFont(notoEmojiPath);
+                emojiBytesPtr = ptr;
+                emojiBytesSize = size;
+                useRemappedEmoji = true;
+              }
+              catch (Exception ex)
+              {
+                ModLog.Log.Error(
+                    $"PurrTTYFontManager: PUA remap failed ({ex.Message}); falling back " +
+                    "to original NotoEmoji (BMP emoji only, SMP emoji will render as ?)");
+              }
+            }
+
             for (int i = 0; i < fontFiles.Length; i++)
             {
               string fontPath = fontFiles[i];
               string fontName = Path.GetFileNameWithoutExtension(fontPath);
+
+              // Skip all NotoEmoji and NotoColorEmoji files in the main loop.
+              // NotoEmoji is merged as an emoji fallback into each terminal font below;
+              // NotoColorEmoji is unsupported by KSA's ImGui (no FreeType+color backend)
+              // and loading it as a normal font breaks the atlas.
+              if (fontName.StartsWith("NotoEmoji", StringComparison.OrdinalIgnoreCase)
+                  || fontName.StartsWith("NotoColorEmoji", StringComparison.OrdinalIgnoreCase))
+              {
+                continue;
+              }
 
               ModLog.Log.Debug($"PurrTTYFontManager: Loading font: {fontPath}");
 
@@ -75,6 +128,48 @@ public class PurrTTYFontManager
                 float fontDensity = GameSettings.GetFontDensity() / 100f;
 
                                 ImFontPtr font = atlas.AddFontFromFileTTF(fontPathStr, fontSize);
+
+                // Merge NotoEmoji into this font as an emoji fallback. ImGui looks up
+                // missing glyphs in fonts added with MergeMode=true after the primary
+                // font, transparently substituting emoji glyphs when the terminal font
+                // lacks them.
+                //
+                // We prefer the PUA-remapped bytes built above (so SMP emoji codepoints
+                // are reachable through the 16-bit ImWchar lookup path via PUA proxies).
+                // If the remap failed, we fall back to AddFontFromFileTTF on the original
+                // — BMP emoji still work, SMP emoji will still render as `?`.
+                //
+                // The ImFontConfig defaults C# gives us (all zeroes) are NOT compatible
+                // with ImGui — most importantly RasterizerMultiply=0 multiplies every
+                // glyph's alpha to zero (i.e. invisible). Mirror the field values KSA's
+                // own FontManager.LoadFont uses so emoji glyphs actually rasterize.
+                if (notoEmojiPath != null)
+                {
+                  unsafe
+                  {
+                    var emojiCfg = new ImFontConfig
+                    {
+                      OversampleH = 3,
+                      OversampleV = 2,
+                      PixelSnapH = fontPixelSnap,
+                      GlyphMaxAdvanceX = float.MaxValue,
+                      RasterizerMultiply = 1f,
+                      RasterizerDensity = fontDensity,
+                      SizePixels = fontSize,
+                      MergeMode = true,
+                    };
+                    var emojiCfgPtr = new ImFontConfigPtr(&emojiCfg);
+                    if (useRemappedEmoji)
+                    {
+                      atlas.AddFontFromMemoryTTF((void*)emojiBytesPtr, emojiBytesSize, fontSize, emojiCfgPtr);
+                    }
+                    else
+                    {
+                      atlas.AddFontFromFileTTF(new ImString(notoEmojiPath), fontSize, emojiCfgPtr);
+                    }
+                  }
+                }
+
                 LoadedFonts[fontName] = font;
 
                 // Add to FontManager.Fonts dictionary if possible
@@ -94,6 +189,20 @@ public class PurrTTYFontManager
 
             ModLog.Log.Info(
                 $"PurrTTYFontManager: Loaded {LoadedFonts.Count} fonts - {string.Join(", ", LoadedFonts.Keys)}");
+
+            if (notoEmojiPath != null)
+            {
+              string remapStatus = useRemappedEmoji
+                  ? $"PUA-remapped, {EmojiPuaRemapper.RemappedCount} SMP glyphs reachable"
+                  : "original (BMP-only)";
+              ModLog.Log.Info(
+                  $"PurrTTYFontManager: Merged NotoEmoji-Regular ({remapStatus}) into {LoadedFonts.Count} terminal font(s)");
+            }
+            else
+            {
+              ModLog.Log.Info(
+                  "PurrTTYFontManager: NotoEmoji-Regular.iamttf not found; emoji glyphs will not be rendered");
+            }
           }
           else
           {
