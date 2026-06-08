@@ -1,3 +1,22 @@
+# instructions
+
+use the ksa, harmony, imgui, tomlyn skills as needed to properly implement the plan outlined in @LIBGHOSTTY_ANALYSIS.md
+
+the goal of this plan is to completely replace our bespoke headless terminal emulator with libghostty-vt
+
+the dirs for the required referenced projects are found at:
+
+- ghostty: /Users/asherwin/repos/github/ghostty
+- libghostty-vt-dotnet: /Users/asherwin/repos/github/libghostty-vt-dotnet
+
+expertly implement this plan to fully realize our new purrtty ksa game mod fully powered by libghostty-vt
+
+it's OK to pre-build libghostty-vt and copy the statically linked library file into some local csproj folder as reference to be included in the output.
+
+later we'll work on multi-os support patterns for that but for now just the default/current macOS host platform is fine
+
+
+
 # purrtty → libghostty-vt: Migration Analysis & Plan
 
 > Status: proposal / implementation-ready spec · Date: 2026-06-07

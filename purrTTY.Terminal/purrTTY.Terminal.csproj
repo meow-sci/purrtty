@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    purrTTY.Terminal — the headless, renderer-neutral terminal backend.
+
+    Wraps the vendored libghostty-vt engine and exposes the renderer-neutral
+    seam: a TerminalFrame snapshot (OUT) + an ITerminalSurface command/event
+    sink (IN). NO ImGui / Vulkan / KSA types cross this boundary, so any
+    frontend can consume it. PTY/process + session orchestration also live here.
+  -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Renderer-neutral value types are plain data carriers; XML docs on every
+         field add noise without value. Suppress CS1591 for this project. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../vendor/Ghostty.Vt/Ghostty.Vt.csproj" />
+    <ProjectReference Include="../purrTTY.Logging/purrTTY.Logging.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Vendored copy of libghostty-vt-dotnet's `Ghostty.Vt` binding. See README.md
+    for provenance + license. purrtty owns this copy and extends it (selection,
+    configurable scrollback, default cursor style/blink, batched cell reads).
+
+    Inherits net10.0 / Nullable / ImplicitUsings from the repo-root
+    Directory.Build.props. We deliberately relax a couple of repo-wide policies
+    for this third-party-derived code so vendored sources build cleanly.
+  -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Ghostty.Vt</RootNamespace>
+    <AssemblyName>Ghostty.Vt</AssemblyName>
+    <IsAotCompatible>true</IsAotCompatible>
+
+    <!-- Vendored sources are not held to purrtty's warnings-as-errors / XML-doc policy. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- CA2255: ModuleInitializer in a library is intentional here (auto-registers the
+         native resolver). IL3000: KSA is not a single-file app, so Assembly.Location is valid. -->
+    <NoWarn>$(NoWarn);CS1591;CA2255;IL3000</NoWarn>
+  </PropertyGroup>
+
+  <!-- Sources live under src/ to keep the binding visually separate from the csproj + native. -->
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Tests reach internal helpers (matches upstream binding). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ghostty.Vt.Tests" />
+    <InternalsVisibleTo Include="purrTTY.Terminal" />
+    <InternalsVisibleTo Include="purrTTY.Terminal.Tests" />
+  </ItemGroup>
+
+  <!--
+    Native libghostty-vt. macOS (osx-arm64) only for now; multi-RID packaging is
+    follow-up work. The file is copied next to the built assembly so default
+    P/Invoke resolution + our NativeLibraryResolver both find it. The same file
+    must be copied beside purrTTY.GameMod.dll for KSA's plugin ALC (handled by
+    the GameMod project).
+  -->
+  <ItemGroup>
+    <None Include="native/libghostty-vt.dylib" Link="libghostty-vt.dylib" Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
