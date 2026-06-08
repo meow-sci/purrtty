@@ -3,6 +3,7 @@ using Brutal.GlfwApi;
 using Brutal.ImGuiApi;
 using KSA;
 using purrTTY.Display.Controllers;
+using purrTTY.Display.Ghostty;
 using purrTTY.GameMod;
 using System.Collections.Generic;
 using System.Reflection;
@@ -91,7 +92,7 @@ class Patch01
   [HarmonyPatch(nameof(KSA.Program.OnKey))]
   static bool Prefix1(GlfwWindow window, GlfwKey key, int scanCode, GlfwKeyAction action, GlfwModifier mods)
   {
-    if (TerminalController.IsAnyTerminalActive)
+    if (GhosttyTerminalController.IsAnyTerminalActive)
     {
       // skipping Program.OnKey
       return false;

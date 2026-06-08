@@ -3,8 +3,6 @@ using NUnit.Framework;
 using PurrTTY.Terminal.Ghostty;
 using PurrTTY.Terminal.Sessions;
 using purrTTY.Core.Terminal;
-// Disambiguate from the (soon-to-be-deleted) legacy purrTTY.Core.Terminal.TerminalSession.
-using TerminalSession = PurrTTY.Terminal.Sessions.TerminalSession;
 
 namespace PurrTTY.Terminal.Tests;
 

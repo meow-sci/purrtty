@@ -4,7 +4,7 @@
         <OutputType>Library</OutputType>
         <AssemblyName>purrTTY.Core</AssemblyName>
         <RootNamespace>purrTTY.Core</RootNamespace>
-        <Description>Headless terminal emulation core library</Description>
+        <Description>PTY/process host, ConPTY integration, and custom-shell bridge. Terminal emulation now lives in libghostty-vt (see purrTTY.Terminal).</Description>
         <PackageId>purrTTY.Core</PackageId>
         <Product>purrTTY Terminal Emulator</Product>
         <Company>purrTTY Project</Company>
@@ -15,7 +15,6 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.1"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -28,21 +27,6 @@
             <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
             <Private>false</Private>
         </Reference>
-    </ItemGroup>
-
-    <ItemGroup>
-        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-            <_Parameter1>purrTTY.Core.Tests</_Parameter1>
-        </AssemblyAttribute>
-    </ItemGroup>
-
-    <ItemGroup>
-        <Folder Include="Terminal\"/>
-        <Folder Include="Input\"/>
-        <Folder Include="Parsing\"/>
-        <Folder Include="Types\"/>
-        <Folder Include="Utils\"/>
-        <Folder Include="Tracing\"/>
     </ItemGroup>
 
 </Project>

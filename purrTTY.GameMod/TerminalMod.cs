@@ -1,5 +1,4 @@
 using Brutal.ImGuiApi;
-using purrTTY.Core.Utils;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Ghostty;
@@ -338,15 +337,6 @@ public class TerminalMod
     private bool IsToggleHotkeyPressed()
     {
         return _toggleHotkey.MatchesPress(ImGui.GetIO());
-    }
-
-    private bool IsReservedTerminalHotkey(ImGuiKey key, KeyModifiers modifiers)
-    {
-        return _toggleHotkey.Key == key &&
-               _toggleHotkey.Shift == modifiers.Shift &&
-               _toggleHotkey.Ctrl == modifiers.Ctrl &&
-               _toggleHotkey.Alt == modifiers.Alt &&
-               _toggleHotkey.Super == modifiers.Meta;
     }
 
     private void RequestOpenToggleHotkeyModal()

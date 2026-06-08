@@ -79,6 +79,15 @@ public sealed class GhosttyTerminalController : ITerminalController
     private double _blinkTimer;
     private bool _cursorOn = true;
 
+    private static volatile bool _anyTerminalActive;
+
+    /// <summary>
+    /// True when a terminal is visible and focused. Used by the host's
+    /// <c>KSA.Program.OnKey</c> Harmony patch to suppress game key handling while
+    /// the terminal is capturing input.
+    /// </summary>
+    public static bool IsAnyTerminalActive => _anyTerminalActive;
+
     /// <summary>Optional host hook to suppress keyboard input for a frame (e.g. when the toggle hotkey fires).</summary>
     public Func<bool>? KeyboardSuppression { get; set; }
 
@@ -93,10 +102,27 @@ public sealed class GhosttyTerminalController : ITerminalController
 
         foreach (var session in _sessionManager.Sessions)
         {
-            session.Surface.SetTheme(_theme);
+            WireSession(session);
         }
 
-        _sessionManager.SessionCreated += (_, e) => e.Session.Surface.SetTheme(_theme);
+        _sessionManager.SessionCreated += (_, e) => WireSession(e.Session);
+    }
+
+    private void WireSession(TerminalSession session)
+    {
+        session.Surface.SetTheme(_theme);
+        // OSC 52: an app asked to set the system clipboard. (A clipboard *query*
+        // — Text == null — would need an OSC 52 reply written back to the PTY;
+        // that round-trip is deferred.)
+        session.Surface.ClipboardRequested += OnClipboardRequested;
+    }
+
+    private static void OnClipboardRequested(PurrTTY.Terminal.ClipboardRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.Text))
+        {
+            ImGui.SetClipboardText(request.Text);
+        }
     }
 
     public bool IsVisible
@@ -126,6 +152,7 @@ public sealed class GhosttyTerminalController : ITerminalController
     {
         if (!_isVisible || _disposed)
         {
+            _anyTerminalActive = false;
             return;
         }
 
@@ -149,6 +176,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         ImGui.PopStyleVar();
 
         UpdateFocusState(ImGui.IsWindowFocused());
+        _anyTerminalActive = _hasFocus;
         RenderMenuBar();
 
         var canvasPos = ImGui.GetCursorScreenPos();
@@ -496,6 +524,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         }
 
         _disposed = true;
+        _anyTerminalActive = false;
         _sessionManager.Dispose();
     }
 }
