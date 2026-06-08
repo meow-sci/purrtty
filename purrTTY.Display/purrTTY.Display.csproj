@@ -13,8 +13,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\purrTTY.Core\purrTTY.Core.csproj"/>
-        <!-- New libghostty-vt backend: renderer-neutral surface + sessions. -->
+        <!-- libghostty-vt backend: renderer-neutral surface + sessions + (relocated) PTY layer. -->
         <ProjectReference Include="..\purrTTY.Terminal\purrTTY.Terminal.csproj"/>
     </ItemGroup>
 

@@ -37,19 +37,18 @@ frontend is a frontend swap, not a backend rewrite.
 ```
 purrTTY.Logging
 vendor/Ghostty.Vt              # vendored libghostty-vt binding (+ native lib) — MIT, see its README
-purrTTY.Core                  # PTY/process host (ConPTY), custom-shell bridge, shell config — NO emulator
-    ↑ (CustomShellContract)
-purrTTY.CustomShellContract / purrTTY.CustomShells
-purrTTY.Terminal              # BACKEND: refs vendor/Ghostty.Vt + purrTTY.Core (PTY) + Logging
-    ↑
+purrTTY.CustomShellContract    # ICustomShell, CustomShellRegistry (namespace purrTTY.Core.Terminal)
+purrTTY.CustomShells           # GameConsoleShell
+purrTTY.Terminal               # BACKEND: surface + sessions + RELOCATED PTY layer (Pty/)
+    │  refs vendor/Ghostty.Vt + purrTTY.CustomShellContract + purrTTY.Logging
     └── purrTTY.Terminal.Tests (NUnit integration tests)
-purrTTY.Display               # ImGui FRONTEND: refs purrTTY.Terminal + purrTTY.Core + KSA ImGui DLLs
-purrTTY.GameMod               # final mod DLL: refs Display + CustomShells; StarMap hooks + Harmony patches
+purrTTY.Display                # ImGui FRONTEND: refs purrTTY.Terminal + KSA ImGui DLLs
+purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; StarMap hooks + Harmony patches
 ```
 
-> Transitional note: `purrTTY.Terminal` references `purrTTY.Core` to reuse the emulator-independent
-> PTY/process layer in place. A future cleanup may relocate that layer into `purrTTY.Terminal` and
-> drop the reference (and possibly fold `purrTTY.Core` away entirely).
+> The PTY/process layer was relocated out of the retired `purrTTY.Core` project into
+> `purrTTY.Terminal/Pty/` (its types keep the `purrTTY.Core.Terminal` namespace, which is shared
+> with `CustomShellContract`). There is no longer a `purrTTY.Core` project.
 
 ## Build and Test Commands
 
@@ -112,7 +111,7 @@ Frontend (`purrTTY.Display/`):
 - New session factory: `Ghostty/GhosttySessionManagerFactory.cs` (persisted `ThemeConfiguration`)
 - Reused chrome: `Rendering/PurrTTYFontManager.cs`, `Configuration/` (fonts, theme config, shell config)
 
-PTY/process (`purrTTY.Core/Terminal/`):
+PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 - ConPTY host: `Process/*`, `ProcessManager.cs`; interface: `IProcessManager.cs`
 - Custom-shell adapter: `CustomShellPtyBridge.cs`; launch options: `ProcessLaunchOptions.cs`
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`

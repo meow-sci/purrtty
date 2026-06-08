@@ -5,7 +5,6 @@
         <Platform Name="x86" />
     </Configurations>
     <Project Path="purrTTY.Logging/purrTTY.Logging.csproj" />
-    <Project Path="purrTTY.Core/purrTTY.Core.csproj" />
     <Folder Name="/vendor/">
         <Project Path="vendor/Ghostty.Vt/Ghostty.Vt.csproj" />
     </Folder>
