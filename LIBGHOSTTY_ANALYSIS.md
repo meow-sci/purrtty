@@ -23,6 +23,25 @@ Copy the sources from here as needed into new csproj's under our solution
 
 Make a note in the csproj folder for this about where it came from in a README.md under that and mention it was MIT licensed (copy the MIT license file from `/Users/asherwin/repos/github/libghostty-vt-dotnet/LICENSE`)
 
+## NOTES on building
+
+This mod is actually meant to run on Windows but since it's all dotnet and cross system compatible stuff like with libghostty-vt, it's OK to work on it on macOS (which the current host system is)
+
+You can just `dotnet build` the purrty project and it works now on macOS (there is a copy of the KSA game DLLs already referenced properly in @Directory.Build.props based on os)
+
+You can build libghostty-vt for the current platform (macOS) and link against it for tests etc.
+
+## NOTES on testing
+
+The existing test suite is large, huge and takes a long time with huge amounts of text output.
+
+We need an ALL NEW test suite since libghostty-vt is a complete wholesale backend replacement.
+
+- You MUST be more methodical in the test suite setup to have minimal output when run from the CLI so it doesnt poison ai context windows
+- You DO NOT need to test terminal emulator behavior itself (you MUST trust libghostty-vt implementations inherently), we want tests which are covering our integration with libghostty-vt is working as expected
+
+
+
 ---
 
 ## 1. Executive summary
