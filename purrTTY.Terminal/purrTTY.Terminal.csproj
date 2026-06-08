@@ -18,6 +18,14 @@
   <ItemGroup>
     <ProjectReference Include="../vendor/Ghostty.Vt/Ghostty.Vt.csproj" />
     <ProjectReference Include="../purrTTY.Logging/purrTTY.Logging.csproj" />
+    <!--
+      Transitional: the PTY/process layer (IProcessManager, ProcessManager,
+      CustomShellPtyBridge, ProcessLaunchOptions, SessionSettings, session event
+      args) and CustomShellRegistry still live in purrTTY.Core and are reused in
+      place. Once the legacy emulator is deleted (P6), that code relocates into
+      this project and this reference goes away.
+    -->
+    <ProjectReference Include="../purrTTY.Core/purrTTY.Core.csproj" />
   </ItemGroup>
 
 </Project>
