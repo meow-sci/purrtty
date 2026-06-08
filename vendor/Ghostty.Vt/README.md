@@ -25,18 +25,38 @@ to `net10.0` (purrtty's TFM), with purrtty-specific additions clearly marked in-
 
 ## Native library
 
-`native/libghostty-vt.dylib` is built from pinned upstream ghostty for **osx-arm64** with:
+The binding loads the **shared library** via P/Invoke (`NativeLibraryResolver` resolves
+`libghostty-vt.dylib` on macOS, `ghostty-vt.dll` on Windows, `libghostty-vt.so` on Linux). The
+native binaries are gitignored — build them from pinned upstream ghostty (zig 0.15) and drop them
+in `native/`.
+
+> ⚠️ Use the **shared** library only. ghostty's build also emits `ghostty-vt-static.lib` (a static
+> archive) and `ghostty-vt.lib` (an import lib) under `zig-out/lib/` — **neither can be loaded at
+> runtime** by a managed plugin. The DLL is `zig-out/bin/ghostty-vt.dll`.
+
+**macOS (osx-arm64)** → `native/libghostty-vt.dylib`:
 
 ```bash
-export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"   # ghostty needs zig 0.15
+export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"
 cd /path/to/ghostty
-zig build -Demit-lib-vt
-# → zig-out/lib/libghostty-vt.dylib
+zig build -Demit-lib-vt                       # → zig-out/lib/libghostty-vt.dylib
 ```
 
-Only the current host platform (macOS arm64) is vendored for now. Multi-RID packaging
-(`win-x64`, `linux-x64`) is follow-up work. We **pin** the C library; we do **not** fork it.
-All purrtty changes live in the managed binding (`src/`).
+**Windows (win-x64)** → `native/ghostty-vt.dll`:
+
+```powershell
+$env:PATH = "C:\zig-x86_64-windows-0.15.2;$env:PATH"
+cd C:\path\to\ghostty
+zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast   # → zig-out/bin/ghostty-vt.dll
+```
+
+The `gnu` target is required (it compiles ghostty-vt's `highway`/`simdutf` C++ SIMD deps; the default
+`native-native-msvc` target fails to build them). Build at **baseline cpu** — do **not** pass
+`-mcpu native`: a host-tuned binary is non-portable and was observed to access-violate inside
+`vt_write`. The SIMD libs runtime-dispatch to AVX2/etc. regardless, so baseline costs little.
+
+osx-arm64 + win-x64 are vendored today; linux-x64 / full multi-RID packaging is follow-up work.
+We **pin** the C library; we do **not** fork it. All purrtty changes live in the managed binding (`src/`).
 
 The library is loaded by `src/Native/NativeLibraryResolver.cs` (a purrtty addition) which
 resolves the native next to the consuming assembly — necessary inside KSA's plugin

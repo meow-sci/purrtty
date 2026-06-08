@@ -1,4 +1,5 @@
 using System.Text;
+using Brutal.ImGuiApi;
 using Brutal.ImGuiApi.Abstractions;
 using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
@@ -24,6 +25,15 @@ public class GameConsoleShell : BaseLineBufferedShell
 
     // Track if we're currently executing a command (prevents recursion)
     private bool _isExecutingCommand;
+
+    /// <summary>
+    ///     Lock-free fast gate for the Harmony console-capture postfix. The new
+    ///     Brutal <c>ConsoleWindow.Print</c> sink hands us a <c>ReadOnlySpan&lt;char&gt;</c>
+    ///     (it no longer allocates a string), so the postfix only materializes a
+    ///     string while a command is actually executing in this shell. The
+    ///     authoritative, locked check lives in <see cref="OnConsolePrint"/>.
+    /// </summary>
+    public static bool IsCapturing => _activeInstance is { _isExecutingCommand: true };
 
     // Prompt configuration
     private string _promptValue = "ksa> ";
@@ -199,7 +209,7 @@ public class GameConsoleShell : BaseLineBufferedShell
     /// <summary>
     ///     Internal method called by Harmony patch to handle captured console output.
     /// </summary>
-    public static void OnConsolePrint(string output, uint color, ConsoleLineType lineType)
+    public static void OnConsolePrint(string output, ImColor8 color)
     {
         lock (_activeLock)
         {
@@ -211,8 +221,10 @@ public class GameConsoleShell : BaseLineBufferedShell
             try
             {
                 // Forward to the active shell instance
-                // Determine if this is an error based on color (red = error)
-                bool isError = color == ConsoleWindow.ErrorColor || color == ConsoleWindow.CriticalColor;
+                // Determine if this is an error based on color (red = error).
+                // ImColor8 has no == operator; compare the packed uint value.
+                uint c = color.AsUint();
+                bool isError = c == ConsoleWindow.ErrorColor.AsUint() || c == ConsoleWindow.CriticalColor.AsUint();
 
                 if (isError)
                 {

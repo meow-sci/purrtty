@@ -47,7 +47,7 @@ public sealed class MouseEncoder : IDisposable
             _handle.DangerousGetHandle(), 2 /* GHOSTTY_MOUSE_ENCODER_OPT_SIZE */, buf);
     }
 
-    public unsafe ReadOnlySpan<byte> Encode(MouseEvent mouseEvent)
+    public unsafe byte[] Encode(MouseEvent mouseEvent)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         Span<byte> buf = stackalloc byte[64];
@@ -57,7 +57,9 @@ public sealed class MouseEncoder : IDisposable
             var result = NativeMethods.ghostty_mouse_encoder_encode(
                 _handle.DangerousGetHandle(), mouseEvent.NativeHandle, ptr, 64, &len);
             GhosttyException.ThrowIfFailure(result);
-            return new ReadOnlySpan<byte>(ptr, (int)len);
+            // Copy out of the stack buffer while it is still alive — returning a
+            // span into `buf` would be a use-after-scope (see KeyEncoder.Encode).
+            return buf[..(int)len].ToArray();
         }
     }
 

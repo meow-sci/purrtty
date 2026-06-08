@@ -24,7 +24,7 @@ FRONTEND   purrTTY.Display (ImGui)          — GhosttyTerminalController + Fram
 BACKEND    purrTTY.Terminal (headless, renderer-neutral)
    │  ITerminalSurface + TerminalFrame + GhosttyTerminalSurface + OSC sidecar + sessions
 BINDING    vendor/Ghostty.Vt (vendored, owned, net10)  — Terminal/RenderState/encoders + purrtty extensions
-NATIVE     vendor/Ghostty.Vt/native/libghostty-vt.dylib (built from pinned ghostty; macOS/osx-arm64 for now)
+NATIVE     vendor/Ghostty.Vt/native/{libghostty-vt.dylib | ghostty-vt.dll} (built from pinned ghostty; osx-arm64 + win-x64)
 ```
 
 The **renderer-neutral seam** is the heart of the design: the backend produces a `TerminalFrame`
@@ -76,14 +76,28 @@ Keep test output minimal so it does not flood the CLI.
 
 ### Building the native libghostty-vt
 
+P/Invoke needs the **shared library** (`.dylib`/`.dll`), built from pinned ghostty with zig 0.15.
+Do **not** vendor the static archive (`ghostty-vt-static.lib`) or the import lib (`ghostty-vt.lib`) —
+neither is loadable at runtime. Copy the result into `vendor/Ghostty.Vt/native/`.
+
 ```bash
-export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"   # ghostty needs zig 0.15
-cd /path/to/ghostty && zig build -Demit-lib-vt       # → zig-out/lib/libghostty-vt.dylib
-# copy into vendor/Ghostty.Vt/native/
+# macOS (osx-arm64) → zig-out/lib/libghostty-vt.dylib
+export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"
+cd /path/to/ghostty && zig build -Demit-lib-vt
+```
+
+```powershell
+# Windows (win-x64) → zig-out/bin/ghostty-vt.dll   (the .lib files in zig-out/lib are NOT used)
+# Use the gnu target (compiles the highway/simdutf C++ SIMD deps) at BASELINE cpu — never -mcpu native:
+#   a host-tuned build is non-portable AND was observed to AV inside vt_write. The SIMD libs still
+#   runtime-dispatch to AVX2 etc., so baseline costs little.
+$env:PATH = "C:\zig-x86_64-windows-0.15.2;$env:PATH"
+cd C:\path\to\ghostty ; zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast
 ```
 
 The native lib is **pinned, not forked** (current pin recorded in `vendor/Ghostty.Vt/README.md`).
-Only osx-arm64 is vendored today; multi-RID is follow-up work.
+osx-arm64 + win-x64 are vendored today (gitignored; built locally); linux-x64 / full multi-RID
+packaging is follow-up work.
 
 ## Code Navigation Guide
 
@@ -118,7 +132,7 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 
 Game/integration (`purrTTY.GameMod/`):
 - Lifecycle + window toggle: `TerminalMod.cs` (constructs `GhosttySessionManagerFactory` + `GhosttyTerminalController`)
-- Harmony patches: `Patcher.cs` (gates `KSA.Program.OnKey` via `GhosttyTerminalController.IsAnyTerminalActive`), `Patches/ConsoleWindowPrintPatch.cs`
+- Harmony patches: `Patcher.cs` (gates `KSA.Program.OnKey` via `GhosttyTerminalController.IsAnyTerminalActive`), `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
 
 Custom shells:
 - Contract: `purrTTY.CustomShellContract/` (`ICustomShell`, `CustomShellRegistry`, `BaseLineBufferedShell`)
@@ -134,9 +148,12 @@ Custom shells:
    PTY output → `ProcessManager.DataReceived` → `Surface.Write`; engine replies → `Surface.PtyReply`
    → `ProcessManager.Write`; user input → frontend `Surface.EncodeKey`/`EncodeMouse` → `session.SendInput`.
 
-3. **Key encoder quirk.** libghostty's key encoder can emit a spurious lone `NUL` on its first use;
-   `GhosttyTerminalSurface.EncodeKey` self-heals (re-encode once when a non-Ctrl key yields `[0x00]`).
-   Named keys encode from `Key` alone; `Text` is only for printable input.
+3. **Encoders return owned bytes.** `KeyEncoder.Encode`/`MouseEncoder.Encode` copy the native
+   result into a `byte[]` before returning. (Returning a span into their `stackalloc` scratch was a
+   use-after-scope: the caller read clobbered stack memory — `0x00` on macOS/arm64, `0xB0` on win-x64
+   — which had been misdiagnosed as a "first-use NUL" libghostty quirk and worked around with a
+   re-encode self-heal. Both the bug and the workaround are gone.) Named keys encode from `Key`
+   alone; `Text` is only for printable input.
 
 4. **Pre-resolved colors.** Push the theme via `Surface.SetTheme` so `TerminalFrame` cells carry
    final RGB; the frontend draws them directly (no SGR resolution in the frontend).

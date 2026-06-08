@@ -242,18 +242,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
         try
         {
-            int n = EncodeKeyOnce(keyEvent, output);
-
-            // libghostty quirk: the encoder occasionally misfires on its first
-            // use and returns a lone NUL for a key that should not produce one
-            // (e.g. Enter → should be CR). A NUL is only legitimate with Ctrl
-            // held (Ctrl+@/Ctrl+Space). Re-encoding once yields the real bytes.
-            if (n == 1 && output[0] == 0 && !keyEvent.Modifiers.HasFlag(KeyModifiers.Ctrl))
-            {
-                n = EncodeKeyOnce(keyEvent, output);
-            }
-
-            return n;
+            return EncodeKeyOnce(keyEvent, output);
         }
         catch (Exception ex)
         {
@@ -265,7 +254,6 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // Use a fresh native event per call: the engine distinguishes "no text"
     // (named keys → encode from Key) from "empty text", and a reused event
     // cannot reliably clear previously-set UTF-8. Key presses are infrequent.
-    // The encoded span aliases the encoder's stack buffer, so copy immediately.
     private int EncodeKeyOnce(in TerminalKeyEvent keyEvent, Span<byte> output)
     {
         _keyEncoder.ConfigureFromTerminal(_terminal);

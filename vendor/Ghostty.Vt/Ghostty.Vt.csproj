@@ -51,4 +51,22 @@
     </None>
   </ItemGroup>
 
+  <!--
+    Native libghostty-vt. Windows (win-x64) only for now; multi-RID packaging is
+    follow-up work. This MUST be the shared library (ghostty-vt.dll, built via
+    `zig build -Demit-lib-vt` → zig-out/bin/ghostty-vt.dll) — NOT the static
+    archive (ghostty-vt-static.lib) nor the import lib (ghostty-vt.lib), neither
+    of which can be loaded at runtime by P/Invoke. The DLL is copied next to the
+    built assembly so default P/Invoke resolution + our NativeLibraryResolver
+    (which looks for "ghostty-vt.dll" on Windows) both find it. The same file is
+    copied beside purrTTY.GameMod.dll for KSA's plugin ALC (handled by the
+    GameMod project).
+  -->
+  <ItemGroup>
+    <None Include="native/ghostty-vt.dll" Link="ghostty-vt.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+
 </Project>
