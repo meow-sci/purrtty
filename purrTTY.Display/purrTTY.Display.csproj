@@ -14,6 +14,8 @@
 
     <ItemGroup>
         <ProjectReference Include="..\purrTTY.Core\purrTTY.Core.csproj"/>
+        <!-- New libghostty-vt backend: renderer-neutral surface + sessions. -->
+        <ProjectReference Include="..\purrTTY.Terminal\purrTTY.Terminal.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

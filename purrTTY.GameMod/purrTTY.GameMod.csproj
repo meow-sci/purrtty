@@ -29,8 +29,20 @@
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)purrTTY.Display.dll" DestinationFolder="$(DistDir)"/>
+        <!-- libghostty-vt backend + binding -->
+        <Copy SourceFiles="$(TargetDir)purrTTY.Terminal.dll" DestinationFolder="$(DistDir)"/>
+        <Copy SourceFiles="$(TargetDir)Ghostty.Vt.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)ModMenu.Attributes.dll" DestinationFolder="$(DistDir)"/>
         <Copy SourceFiles="$(TargetDir)Tomlyn.dll" DestinationFolder="$(DistDir)"/>
+
+        <!-- Native libghostty-vt: copy whichever platform binaries the build produced,
+             so the NativeLibraryResolver finds the library beside the mod DLL. -->
+        <ItemGroup>
+            <GhosttyNative Include="$(TargetDir)libghostty-vt.dylib" Condition="Exists('$(TargetDir)libghostty-vt.dylib')" />
+            <GhosttyNative Include="$(TargetDir)libghostty-vt.so" Condition="Exists('$(TargetDir)libghostty-vt.so')" />
+            <GhosttyNative Include="$(TargetDir)ghostty-vt.dll" Condition="Exists('$(TargetDir)ghostty-vt.dll')" />
+        </ItemGroup>
+        <Copy SourceFiles="@(GhosttyNative)" DestinationFolder="$(DistDir)" Condition="'@(GhosttyNative)' != ''" />
         <!-- <Copy SourceFiles="$(TargetDir)purrTTY.GameMod.pdb" DestinationFolder="$(DistDir)"/> -->
         <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Logging.pdb" DestinationFolder="$(DistDir)"/> -->
         <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Core.pdb" DestinationFolder="$(DistDir)"/> -->

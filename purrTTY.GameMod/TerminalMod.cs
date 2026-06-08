@@ -1,9 +1,8 @@
 using Brutal.ImGuiApi;
-using purrTTY.Core.Terminal;
 using purrTTY.Core.Utils;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
-using purrTTY.Display.Controllers.TerminalUi.Input;
+using purrTTY.Display.Ghostty;
 using purrTTY.Display.Rendering;
 using StarMap.API;
 using purrTTY.Logging;
@@ -24,7 +23,6 @@ public class TerminalMod
     private ITerminalController? _controller;
     private bool _isDisposed;
     private bool _isInitialized;
-    private ITerminalEmulator? _terminal;
     private bool _terminalVisible;
     private ToggleHotkeyBinding _toggleHotkey = ToggleHotkeyBinding.Default;
     private ToggleHotkeyBinding _draftToggleHotkey = ToggleHotkeyBinding.Default;
@@ -239,19 +237,19 @@ public class TerminalMod
             // Load fonts first
             PurrTTYFontManager.LoadFonts();
 
-            // Create session manager with persisted shell configuration
-            var sessionManager = SessionManagerFactory.CreateWithPersistedConfiguration(
+            // Create the libghostty-vt-backed session manager with persisted shell configuration.
+            var sessionManager = GhosttySessionManagerFactory.CreateWithPersistedConfiguration(
                 maxSessions: 20);
-            var session = sessionManager.CreateSessionAsync().Result;
-
-            _terminal = session.Terminal;
+            _ = sessionManager.CreateSessionAsync().Result;
 
             ModLog.Log.Debug($"purrTTY online");
 
             var fontConfig = TerminalFontConfig.CreateForGameMod();
             ModLog.Log.Debug(
                 $"purrTTY GameMod using explicit font configuration: Regular={fontConfig.RegularFontName}, Bold={fontConfig.BoldFontName}");
-            _controller = new TerminalController(sessionManager, fontConfig);
+            var controller = new GhosttyTerminalController(sessionManager, fontConfig);
+            controller.KeyboardSuppression = ConsumeKeyboardInputSuppression;
+            _controller = controller;
 
             // Option 2: Automatic detection (alternative approach - convenient for development)
             // Uncomment the following lines to use automatic detection instead:
@@ -274,10 +272,6 @@ public class TerminalMod
             GetIsVisible = () => IsTerminalVisible;
             GetToggleHotkeyShortcut = () => _toggleHotkey.ToShortcutString();
             OpenToggleHotkeySettings = RequestOpenToggleHotkeyModal;
-
-            // Keep terminal-side special key handling aligned with the configured global toggle hotkey.
-            SpecialKeyHandler.ReservedGlobalHotkey = IsReservedTerminalHotkey;
-            KeyboardInputHandler.ShouldSuppressKeyboardInputThisFrame = ConsumeKeyboardInputSuppression;
 
             _isInitialized = true;
             ModLog.Log.Debug($"purrTTY GameMod: Terminal initialized successfully. Press {_toggleHotkey.ToDisplayString()} to toggle.");
@@ -643,19 +637,14 @@ public class TerminalMod
 
         try
         {
-            // Dispose components (the session manager handles process cleanup)
+            // Dispose components (the controller disposes the session manager, which handles process cleanup)
             _controller?.Dispose();
             _controller = null;
-
-            _terminal?.Dispose();
-            _terminal = null;
 
             Toggle = null;
             GetIsVisible = null;
             GetToggleHotkeyShortcut = null;
             OpenToggleHotkeySettings = null;
-            SpecialKeyHandler.ReservedGlobalHotkey = null;
-            KeyboardInputHandler.ShouldSuppressKeyboardInputThisFrame = null;
 
             _isInitialized = false;
             _isDisposed = true;
