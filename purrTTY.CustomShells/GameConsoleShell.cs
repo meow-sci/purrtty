@@ -222,9 +222,14 @@ public class GameConsoleShell : BaseLineBufferedShell
             {
                 // Forward to the active shell instance
                 // Determine if this is an error based on color (red = error).
-                // ImColor8 has no == operator; compare the packed uint value.
+                // ImColor8 has no == operator, so compare packed uint values. The
+                // Brutal API is version-sensitive across the KSA builds we target:
+                // ConsoleWindow.ErrorColor/CriticalColor are ImColor8 on newer
+                // builds but a raw uint on older ones. ToUint() is overloaded for
+                // both, so overload resolution picks the right path per build with
+                // no conditional compilation.
                 uint c = color.AsUint();
-                bool isError = c == ConsoleWindow.ErrorColor.AsUint() || c == ConsoleWindow.CriticalColor.AsUint();
+                bool isError = c == ToUint(ConsoleWindow.ErrorColor) || c == ToUint(ConsoleWindow.CriticalColor);
 
                 if (isError)
                 {
@@ -245,4 +250,10 @@ public class GameConsoleShell : BaseLineBufferedShell
             }
         }
     }
+
+    // Cross-version color normalization. Newer Brutal builds expose console
+    // colors as ImColor8; older ones use a raw uint. Both overloads exist so
+    // the compiler binds whichever matches the installed KSA assemblies.
+    private static uint ToUint(ImColor8 color) => color.AsUint();
+    private static uint ToUint(uint color) => color;
 }
