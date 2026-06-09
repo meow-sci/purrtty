@@ -1,6 +1,6 @@
 ---
 name: ksa
-description: details about the ksa game code and behavior
+description: detailed information about kitten space agency (KSA) game code, decompiled sources, modding patterns, architecture and best practices for working with mods and the game codebase
 ---
 
 # KSA Mod Structure
@@ -31,6 +31,40 @@ These attributes are the **complete** StarMap interface. Do not attempt to call 
 - HarmonyLib patching is done in `Patcher.cs`; call `Patcher.Patch()` in `OnFullyLoaded` and `Patcher.Unload()` in `Unload`
 - Use `Console.WriteLine` for logging
 - Guard all lifecycle methods with try/catch and log errors
+
+### Lifecycle ordering (where to do what)
+
+| Hook | Use for |
+|---|---|
+| `[StarMapImmediateLoad]` | Almost nothing — the renderer is NOT live (don't call `Program.GetRenderer()`). |
+| `[StarMapAllModsLoaded]` | Apply Harmony patches, build GPU resources, set static `Instance`. Renderer is live. |
+| `[StarMapBeforeGui]` (dt) | Per-frame compute / sampling / state mutation; drain the game-thread queue. |
+| `[StarMapAfterGui]` (dt) | ImGui rendering, hotkey toggles (`ImGui.IsKeyPressed(ImGuiKey.F11)`). |
+| `[StarMapUnload]` | Unpatch Harmony, dispose GPU resources (reverse order), null static `Instance`. |
+
+**For the full scaffolding playbook** — the two-project `<name>` + `<name>.lib` split, `Patcher.cs`, `mod.toml`, `.csproj`/`Directory.Build.props`, the `ISubmod` interface, the dual standalone+submod static-`Instance` pattern, the `GameThread` off-thread scheduler, and solver-timing hooks (`Universe.ExecuteNextVehicleSolvers`) — see [lifecycle.md](lifecycle.md).
+
+### Solver-timing hooks (cross-cutting)
+
+State that must be visible to the **physics solvers each sim step** (battery charge, robotics transforms) cannot be set in the render loop — the render frame and sim step run at different cadences. Patch a `priority = Priority.First` prefix on `Universe.ExecuteNextVehicleSolvers` instead. See [lifecycle.md](lifecycle.md), [telemetry.md](telemetry.md), [robotics.md](robotics.md).
+
+## Topic map
+
+| Topic | File |
+|---|---|
+| Mod scaffolding, lifecycle, ISubmod, GameThread scheduler, solver hooks | [lifecycle.md](lifecycle.md) |
+| Vehicle telemetry, resources (fuel/battery refill), Situation, flight events | [telemetry.md](telemetry.md) |
+| Vehicle physics data, render override, engine control | [vehicle-api.md](vehicle-api.md) |
+| Parts/SubParts rendering, raycasting, mouse picking | [parts.md](parts.md) |
+| GPU materials, kitten tinting/spawning, vehicle paint shader swap, engine emissive | [materials.md](materials.md) |
+| Lights, solar panels, KeyframeAnimationModule, runtime LightPart creation | [lights.md](lights.md) |
+| Robotics — rotating parts at runtime (hinges/rotors) | [robotics.md](robotics.md) |
+| HUD GaugeCanvas, View-menu injection, celestial/orbit reparenting, ImGui theming | [gauges-orbits.md](gauges-orbits.md) |
+| Camera controller patching | [camera.md](camera.md) |
+| In-world textured quad (render-to-texture) | [quad.md](quad.md) |
+| Top-level game menu injection | [game-menus.md](game-menus.md) |
+| KittenEva avatar (animations, expressions, scaling) | [kitten-eva.md](kitten-eva.md) |
+| Runtime reflection debugging | [debug.md](debug.md) |
 
 ## Researching KSA Game APIs
 
@@ -156,15 +190,24 @@ foreach (var part in vehicle.Parts.Parts)
 
 ### Modules & Components
 
-Parts contain typed modules accessed via generic `Get<T>()` calls:
+Parts contain typed modules accessed via generic `Get<T>()` calls. These return a **`Span<T>`** — check `.Length`, index `[0]`:
 
 ```csharp
-// All modules of type T on a single part and its subtree:
-EngineController[] engines = part.SubtreeModules.Get<EngineController>();
+// Modules of type T on THIS part only:
+Span<LightModule> lights = part.Modules.Get<LightModule>();
 
-// All modules of type T across the entire vehicle:
-EngineController[] engines = vehicle.Parts.Modules.Get<EngineController>();
+// Modules of type T on this part AND its sub-parts (aggregated):
+Span<EngineController> engines = part.SubtreeModules.Get<EngineController>();
+
+// Modules of type T across the ENTIRE vehicle:
+Span<EngineController> all = vehicle.Parts.Modules.Get<EngineController>();
 ```
+
+- `Modules` = this part only; `SubtreeModules` = part + sub-parts. Use `SubtreeModules` to ask "does this top-level part carry a light/engine/anim anywhere".
+- `part.FullPart` resolves an inner sub-part to its owning top-level part — fetch subtree modules off `part.FullPart ?? part`.
+- **Addressing parts: prefer `Part.InstanceId` (uint, runtime-unique) over `Part.Id` (string, can collide** across instances of the same template). To resolve an InstanceId, iterate `vehicle.Parts.Parts` matching it.
+
+Module **mutable state** may live in a struct-of-arrays separate from the module object (e.g. `Battery`/`BatteryState`). You write it through a `ref`-returning accessor, not a property — see the `ModuleStateful` pattern in [telemetry.md](telemetry.md).
 
 After modifying module state (e.g. activating/deactivating engines), call:
 
@@ -172,7 +215,7 @@ After modifying module state (e.g. activating/deactivating engines), call:
 vehicle.Parts.RecomputeAllDerivedData();
 ```
 
-For engine control details see [vehicle-api.md](vehicle-api.md).
+For engine control see [vehicle-api.md](vehicle-api.md); for lights/solar/keyframe animation see [lights.md](lights.md); for rotating parts at runtime see [robotics.md](robotics.md).
 
 ## Dynamically Adding Parts at Runtime
 
@@ -441,11 +484,26 @@ Custom top-level menus can be injected into the game's title bar menu (alongside
 
 See [game-menus.md](game-menus.md) for the complete pattern including the transpiler code, injection offset rationale, and all available ImGui menu calls.
 
+To add items into the **existing View menu** (rather than a new top-level menu) the transpiler is overkill — a plain Harmony prefix on `GaugeCanvas.OnDrawMenuBar` (which the game calls inside the open View menu) works with no IL rewriting. See [gauges-orbits.md](gauges-orbits.md).
+
 # Camera Controller Patching
 
 KSA cameras (`OrbitController`, `FlyController`) can be intercepted via Harmony prefix on `OnFrame`. Return `false` to suppress default camera behavior. Camera uses **ECL (Ecliptic)** coordinates (distinct from vehicle CCI/CCE frames).
 
 See [camera.md](camera.md) for full details including `Transform3D`, `Controller.Camera.Following`, orbit math, and look-at helpers.
+
+# In-World Textured Quad (Render-to-Texture Surface)
+
+Draw a flat textured quad in the scene, anchored to a `Part` / `SubPart` on a `Vehicle`, sampling any `VkImageView` (e.g. an offscreen render target). Reuses KSA's `UnlitMesh.{vert,frag}` (`vec3 pos + vec2 uv`, `mat4` MVP push constant, one combined-image-sampler). Injects the draw via a Harmony **postfix on `SuperMeshRenderSystem.RenderMainPass`** — that runs inside the already-begun offscreen pass on the active command buffer.
+
+Key gotchas:
+- Bind the pipeline to `Program.OffScreenPass` (NOT `Program.MainPass`) and set `RasterizationSamples = Program.OffScreenPass.SampleCount` — otherwise depth silently misbehaves under MSAA.
+- Use `RenderingPresets.ReverseZDepthStencil.DepthTestWrite` (KSA's offscreen pass is reverse-Z) and `Presets.Rasterization.Fill.CullNone` (double-sided).
+- Compose the model matrix in **ego space**: combine `part.PositionEgo(...)` + `part.Asmb2Ego(...)` with your own scale / rotation / offset; multiply by `camera.MVP.viewProjection` for the MVP push constant.
+- Don't bake `part.MatrixAsmb2Ego` directly — it includes the part's scale, which you usually want to exclude.
+- If the source texture is gamma-encoded (as ImGui output is), use `R8G8B8A8UNorm` for the source; SRGB formats double-decode and darken the result.
+
+See [quad.md](quad.md) for the complete pipeline setup, vertex/index layout, per-frame model-matrix composition, ray-vs-quad picking via `Cursor.InputRay`, and lifecycle / disposal rules.
 
 # Numerics
 
