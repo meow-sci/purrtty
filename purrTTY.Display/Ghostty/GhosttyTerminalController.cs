@@ -74,7 +74,6 @@ public sealed class GhosttyTerminalController : ITerminalController
     private float _cellHeight = 16f;
 
     private bool _selecting;
-    private GridPoint _selectAnchor;
 
     private double _blinkTimer;
     private bool _cursorOn = true;
@@ -156,7 +155,7 @@ public sealed class GhosttyTerminalController : ITerminalController
             return;
         }
 
-        var font = ResolveFont();
+        var fonts = ResolveFonts();
         float fontSize = _fontConfig.FontSize;
 
         var bg = _theme.DefaultBackground;
@@ -182,7 +181,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         var canvasPos = ImGui.GetCursorScreenPos();
         var avail = ImGui.GetContentRegionAvail();
 
-        ComputeCellMetrics(font, fontSize);
+        ComputeCellMetrics(fonts.Regular, fontSize);
 
         int cols = Math.Max(1, (int)(avail.X / _cellWidth));
         int rows = Math.Max(1, (int)(avail.Y / _cellHeight));
@@ -206,7 +205,7 @@ public sealed class GhosttyTerminalController : ITerminalController
 
             FrameGridRenderer.Render(
                 frame, ImGui.GetWindowDrawList(), canvasPos,
-                _cellWidth, _cellHeight, font, fontSize, _selectionColor, cursorOn);
+                _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn);
 
             if (_hasFocus)
             {
@@ -314,24 +313,32 @@ public sealed class GhosttyTerminalController : ITerminalController
             return;
         }
 
-        // Selection gestures.
+        // Selection gestures: single-click+drag selects cells, double-click selects
+        // a word, triple-click selects the logical line.
         if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
-            if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+            int clicks = ImGui.GetMouseClickedCount(ImGuiMouseButton.Left);
+            if (clicks >= 3)
+            {
+                session.Surface.SelectLine(cell);
+                _selecting = false;
+            }
+            else if (clicks == 2)
             {
                 session.Surface.SelectWord(cell);
                 _selecting = false;
             }
             else
             {
-                _selectAnchor = cell;
-                _selecting = true;
                 session.Surface.ClearSelection();
+                session.Surface.BeginSelectCells(cell);
+                _selecting = true;
             }
         }
         else if (_selecting && ImGui.IsMouseDown(ImGuiMouseButton.Left))
         {
-            session.Surface.SelectCells(_selectAnchor, cell);
+            AutoScrollForDrag(session, canvasPos, rows);
+            session.Surface.ExtendSelectCells(cell);
         }
         else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
         {
@@ -373,6 +380,28 @@ public sealed class GhosttyTerminalController : ITerminalController
             EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
         }
     }
+
+    // While dragging a selection, scroll the viewport when the cursor leaves the
+    // grid vertically. Speed accelerates with how far past the edge the cursor is
+    // (capped), so a small overshoot creeps and a big one races.
+    private void AutoScrollForDrag(TerminalSession session, float2 canvasPos, int rows)
+    {
+        float mouseY = ImGui.GetMousePos().Y;
+        float top = canvasPos.Y;
+        float bottom = canvasPos.Y + rows * _cellHeight;
+
+        if (mouseY < top)
+        {
+            session.Surface.ScrollBy(-AutoScrollStep(top - mouseY));
+        }
+        else if (mouseY > bottom)
+        {
+            session.Surface.ScrollBy(AutoScrollStep(mouseY - bottom));
+        }
+    }
+
+    private int AutoScrollStep(float overflowPixels)
+        => Math.Clamp(1 + (int)(overflowPixels / Math.Max(1f, _cellHeight)), 1, 5);
 
     private GridPoint MouseCell(float2 canvasPos, int cols, int rows)
     {
@@ -447,16 +476,19 @@ public sealed class GhosttyTerminalController : ITerminalController
         _cellHeight = size.Y > 0.5f ? size.Y : fontSize * 1.2f;
     }
 
-    private ImFontPtr ResolveFont()
+    private FrameFonts ResolveFonts()
     {
-        if (!string.IsNullOrEmpty(_fontConfig.RegularFontName)
-            && PurrTTYFontManager.LoadedFonts.TryGetValue(_fontConfig.RegularFontName, out var font))
-        {
-            return font;
-        }
-
-        return ImGui.GetFont();
+        var regular = ResolveFontByName(_fontConfig.RegularFontName) ?? ImGui.GetFont();
+        var bold = ResolveFontByName(_fontConfig.BoldFontName) ?? regular;
+        var italic = ResolveFontByName(_fontConfig.ItalicFontName) ?? regular;
+        var boldItalic = ResolveFontByName(_fontConfig.BoldItalicFontName) ?? regular;
+        return new FrameFonts(regular, bold, italic, boldItalic);
     }
+
+    private static ImFontPtr? ResolveFontByName(string? name)
+        => !string.IsNullOrEmpty(name) && PurrTTYFontManager.LoadedFonts.TryGetValue(name, out var font)
+            ? font
+            : null;
 
     public (int width, int height) GetTerminalDimensions()
     {

@@ -110,18 +110,18 @@ Vendored binding (`vendor/Ghostty.Vt/`):
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)
 - Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`)
 - Native loader (KSA ALC): `src/Native/NativeLibraryResolver.cs` (ModuleInitializer + `SetDllImportResolver`)
-- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`
+- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` + a **render-optimized cell reader** in `RenderState.cs` (`RenderStateCellEnumerator.Current` populates only the fields the frame builder draws — skipping content tag / semantic / hyperlink / protected / kitty placement — but reads style and pre-resolved fg/bg **unconditionally**: `has_styling` does NOT imply "has a color" (a cell erased to EOL under a background reports `has_styling == false` yet carries that bg — how htop paints rows), so gating colors on it drops fills. Use `GridRef.GetCell()` for the fully-populated cell)
 
 Backend (`purrTTY.Terminal/`):
 - Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`)
-- Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode)
+- Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a content-pinned `GridRef` anchor that survives viewport scroll)
 - OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream)
 - Neutral input types: `Input/` (`TerminalKey`, `TerminalKeyEvent`, `TerminalMouseEvent`, `GridPoint`, `KeyModifiers`)
 - Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam)
 
 Frontend (`purrTTY.Display/`):
 - Controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs`)
-- Grid drawing: `Ghostty/FrameGridRenderer.cs`; default palette: `Ghostty/DefaultTheme.cs`
+- Grid drawing: `Ghostty/FrameGridRenderer.cs` (per-cell bold/italic/bold-italic variant via `Ghostty/FrameFonts.cs`); default palette: `Ghostty/DefaultTheme.cs`
 - New session factory: `Ghostty/GhosttySessionManagerFactory.cs` (persisted `ThemeConfiguration`)
 - Reused chrome: `Rendering/PurrTTYFontManager.cs`, `Configuration/` (fonts, theme config, shell config)
 
@@ -156,7 +156,10 @@ Custom shells:
    alone; `Text` is only for printable input.
 
 4. **Pre-resolved colors.** Push the theme via `Surface.SetTheme` so `TerminalFrame` cells carry
-   final RGB; the frontend draws them directly (no SGR resolution in the frontend).
+   final RGB; the frontend draws them directly (no SGR resolution in the frontend). **Reverse
+   video (SGR 7) is resolved in `FillCell`** by swapping the cell's fg/bg: the engine reports
+   *logical* colors plus an inverse flag, and the frontend never swaps — so the swap must happen
+   in the backend. (The `Inverse` flag is still surfaced as metadata.)
 
 5. **Custom shell discovery** is reflection-based; `GhosttySessionManagerFactory` forces the
    `purrTTY.CustomShells` assembly to load before discovery (do not remove without replacing it).

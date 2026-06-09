@@ -54,6 +54,11 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     private int _surfacePxH;
     private long _generation;
 
+    // Drag-selection anchor, pinned to content so it survives viewport scrolls.
+    private global::Ghostty.Vt.GridRef _selectionAnchor;
+    private bool _selectionRectangle;
+    private bool _hasSelectionAnchor;
+
     private readonly TerminalFrame _frame;
     private bool _disposed;
 
@@ -171,6 +176,29 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _pendingChange = true;
     }
 
+    public void BeginSelectCells(GridPoint anchor, bool rectangle = false)
+    {
+        ThrowIfDisposed();
+        // Pin the anchor to content (GridRef), not to a viewport row, so it stays
+        // put when the viewport scrolls mid-drag.
+        _selectionAnchor = _terminal.GetGridRef(GhosttyTypes.Point.Viewport(anchor.Col, anchor.Row));
+        _selectionRectangle = rectangle;
+        _hasSelectionAnchor = true;
+    }
+
+    public void ExtendSelectCells(GridPoint head)
+    {
+        ThrowIfDisposed();
+        if (!_hasSelectionAnchor)
+        {
+            return;
+        }
+
+        var h = _terminal.GetGridRef(GhosttyTypes.Point.Viewport(head.Col, head.Row));
+        _terminal.SetSelection(_selectionAnchor, h, _selectionRectangle);
+        _pendingChange = true;
+    }
+
     public void SelectWord(GridPoint point)
     {
         ThrowIfDisposed();
@@ -196,6 +224,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     {
         ThrowIfDisposed();
         _terminal.ClearSelection();
+        _hasSelectionAnchor = false;
         _pendingChange = true;
     }
 
@@ -480,6 +509,15 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         dst.Bg = cell.BgColor is { } bg ? ToRgba(bg) : defBg;
 
         var style = cell.Style;
+
+        // Reverse video: the engine reports logical fg/bg plus an inverse flag, so
+        // resolve it to final draw colors here (the frontend draws Fg/Bg directly).
+        // The Inverse flag is still surfaced below as metadata.
+        if (style.Inverse)
+        {
+            (dst.Fg, dst.Bg) = (dst.Bg, dst.Fg);
+        }
+
         var flags = CellFlags.None;
         if (style.Bold) flags |= CellFlags.Bold;
         if (style.Italic) flags |= CellFlags.Italic;

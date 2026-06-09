@@ -44,6 +44,20 @@ public interface ITerminalSurface : IDisposable
     /// <summary>Sets a raw cell selection between two viewport points.</summary>
     void SelectCells(GridPoint anchor, GridPoint head, bool rectangle = false);
 
+    /// <summary>
+    /// Begins a drag selection, pinning the anchor to the content under a
+    /// viewport point. The anchor stays fixed to that content even if the
+    /// viewport scrolls (e.g. autoscroll during the drag), so the selection
+    /// grows correctly into scrollback. Pair with <see cref="ExtendSelectCells"/>.
+    /// </summary>
+    void BeginSelectCells(GridPoint anchor, bool rectangle = false);
+
+    /// <summary>
+    /// Extends the in-progress drag selection to a viewport point. No-op until
+    /// <see cref="BeginSelectCells"/> has set an anchor.
+    /// </summary>
+    void ExtendSelectCells(GridPoint head);
+
     /// <summary>Selects the word under a viewport point.</summary>
     void SelectWord(GridPoint point);
 

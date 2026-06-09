@@ -402,9 +402,21 @@ public ref struct RenderStateCellEnumerator
             NativeMethods.ghostty_render_state_row_cells_get(
                 _cells, 1 /* ROW_CELLS_DATA_RAW */, &rawCell);
 
-            // Get content tag from the raw cell (data=2)
-            int contentTag = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 2 /* CELL_DATA_CONTENT_TAG */, &contentTag);
+            // purrtty optimization: this enumerator is the per-frame render hot
+            // path (~cols x rows cells every tick). It populates only the subset
+            // of Cell that purrtty's frame builder consumes (grapheme, width, the
+            // has_text/has_styling flags, the style, and pre-resolved fg/bg) and
+            // skips the fields nothing in the render path reads (content tag,
+            // semantic content, hyperlink/protected flags, kitty placement), which
+            // trims four native calls per cell. Consumers that need the full cell
+            // (e.g. hyperlink hit-testing on hover) should use GridRef.GetCell(),
+            // which stays fully populated.
+            //
+            // IMPORTANT: the style and pre-resolved fg/bg are read UNCONDITIONALLY.
+            // has_styling does NOT imply "has a non-default color" -- a blank cell
+            // erased to end-of-line under a background color (how TUIs like htop
+            // paint rows) carries a real background while reporting has_styling ==
+            // false. Gating the color reads on has_styling drops those fills.
 
             // Get has_text flag from the raw cell (data=4)
             byte hasText = 0;
@@ -417,18 +429,6 @@ public ref struct RenderStateCellEnumerator
             // Read has_styling (data ID 5)
             byte hasStyling = 0;
             NativeMethods.ghostty_cell_get(rawCell, 5 /* CELL_DATA_HAS_STYLING */, &hasStyling);
-
-            // Read has_hyperlink (data ID 7)
-            byte hasHyperlink = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 7 /* CELL_DATA_HAS_HYPERLINK */, &hasHyperlink);
-
-            // Read protected (data ID 8)
-            byte protected_ = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 8 /* CELL_DATA_PROTECTED */, &protected_);
-
-            // Read semantic_content (data ID 9)
-            int semantic = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 9 /* CELL_DATA_SEMANTIC_CONTENT */, &semantic);
 
             // Read grapheme text from codepoints if there's text
             string? grapheme = null;
@@ -474,38 +474,37 @@ public ref struct RenderStateCellEnumerator
                 }
             }
 
-            // Read style (data=2) — sized struct
+            // Read style (data=2) — sized struct.
             Style style = default;
             style.Size = (nuint)sizeof(Style);
             NativeMethods.ghostty_render_state_row_cells_get(
                 _cells, 2 /* ROW_CELLS_DATA_STYLE */, &style);
 
-            // Read pre-resolved BG color (data ID 5 on cells handle)
+            // Read pre-resolved BG color (data ID 5 on cells handle).
+            ColorRgb? bgColor = null;
             var bgColorNative = default(GhosttyColorRgbNative);
-            int bgResult = NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, 5 /* ROW_CELLS_DATA_BG_COLOR */, &bgColorNative);
-            ColorRgb? bgColor = bgResult == 0 ? new ColorRgb { R = bgColorNative.R, G = bgColorNative.G, B = bgColorNative.B } : null;
+            if (NativeMethods.ghostty_render_state_row_cells_get(
+                    _cells, 5 /* ROW_CELLS_DATA_BG_COLOR */, &bgColorNative) == 0)
+                bgColor = new ColorRgb { R = bgColorNative.R, G = bgColorNative.G, B = bgColorNative.B };
 
-            // Read pre-resolved FG color (data ID 6 on cells handle)
+            // Read pre-resolved FG color (data ID 6 on cells handle).
+            ColorRgb? fgColor = null;
             var fgColorNative = default(GhosttyColorRgbNative);
-            int fgResult = NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, 6 /* ROW_CELLS_DATA_FG_COLOR */, &fgColorNative);
-            ColorRgb? fgColor = fgResult == 0 ? new ColorRgb { R = fgColorNative.R, G = fgColorNative.G, B = fgColorNative.B } : null;
+            if (NativeMethods.ghostty_render_state_row_cells_get(
+                    _cells, 6 /* ROW_CELLS_DATA_FG_COLOR */, &fgColorNative) == 0)
+                fgColor = new ColorRgb { R = fgColorNative.R, G = fgColorNative.G, B = fgColorNative.B };
 
             return new Cell
             {
-                ContentTag = (CellContentTag)contentTag,
                 Grapheme = grapheme,
                 Style = style,
-                KittyPlacementId = 0, // Not available via render API; would need separate kitty image API
                 Wide = (CellWide)wide,
-                Semantic = (CellSemanticContent)semantic,
                 HasText = hasText != 0,
                 HasStyling = hasStyling != 0,
-                HasHyperlink = hasHyperlink != 0,
-                Protected = protected_ != 0,
                 BgColor = bgColor,
                 FgColor = fgColor,
+                // ContentTag / Semantic / HasHyperlink / Protected / KittyPlacementId
+                // are left at defaults here; use GridRef.GetCell() if you need them.
             };
         }
     }

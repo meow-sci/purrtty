@@ -20,7 +20,7 @@ internal static class FrameGridRenderer
         float2 origin,
         float cellWidth,
         float cellHeight,
-        ImFontPtr font,
+        FrameFonts fonts,
         float fontSize,
         RgbaColor selectionColor,
         bool cursorOn)
@@ -55,8 +55,9 @@ internal static class FrameGridRenderer
             }
         }
 
-        // Pass 2: glyphs (single font for now; bold/italic variants are follow-up).
-        ImGui.PushFont(font, fontSize);
+        // Pass 2: glyphs. The variant (regular/bold/italic/bold-italic) is chosen
+        // per cell from its flags; the explicit-font AddText overload avoids any
+        // PushFont/PopFont churn between cells.
         for (int r = 0; r < frame.Rows; r++)
         {
             var row = frame.RowData[r];
@@ -73,10 +74,9 @@ internal static class FrameGridRenderer
                 }
 
                 float x = origin.X + c * cellWidth;
-                drawList.AddText(new float2(x, y), ToU32(cell.Fg), cell.Grapheme);
+                drawList.AddText(fonts.Select(cell.Flags), fontSize, new float2(x, y), ToU32(cell.Fg), cell.Grapheme);
             }
         }
-        ImGui.PopFont();
 
         // Pass 3: text decorations (underline / strikethrough / overline).
         for (int r = 0; r < frame.Rows; r++)
@@ -124,7 +124,7 @@ internal static class FrameGridRenderer
             && frame.Cursor.X >= 0 && frame.Cursor.X < frame.Cols
             && frame.Cursor.Y >= 0 && frame.Cursor.Y < frame.Rows)
         {
-            DrawCursor(frame, drawList, origin, cellWidth, cellHeight, font, fontSize);
+            DrawCursor(frame, drawList, origin, cellWidth, cellHeight, fonts, fontSize);
         }
     }
 
@@ -134,7 +134,7 @@ internal static class FrameGridRenderer
         float2 origin,
         float cellWidth,
         float cellHeight,
-        ImFontPtr font,
+        FrameFonts fonts,
         float fontSize)
     {
         float x = origin.X + frame.Cursor.X * cellWidth;
@@ -151,9 +151,7 @@ internal static class FrameGridRenderer
                 var cell = frame.RowData[frame.Cursor.Y].Cells[frame.Cursor.X];
                 if (!string.IsNullOrEmpty(cell.Grapheme) && cell.Grapheme != " ")
                 {
-                    ImGui.PushFont(font, fontSize);
-                    drawList.AddText(min, ToU32(frame.Colors.DefaultBackground), cell.Grapheme);
-                    ImGui.PopFont();
+                    drawList.AddText(fonts.Select(cell.Flags), fontSize, min, ToU32(frame.Colors.DefaultBackground), cell.Grapheme);
                 }
                 break;
 

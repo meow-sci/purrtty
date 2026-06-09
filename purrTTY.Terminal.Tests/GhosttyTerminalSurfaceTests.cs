@@ -86,6 +86,106 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void Sgr_BoldAndItalic_SetCellFlags()
+    {
+        using var surface = NewSurface();
+        // Bold 'B', reset, italic 'I', reset.
+        WriteText(surface, "\x1b[1mB\x1b[0m\x1b[3mI\x1b[0m");
+        var frame = surface.BuildFrame();
+
+        Assert.That(frame.RowData[0].Cells[0].Flags & CellFlags.Bold, Is.EqualTo(CellFlags.Bold),
+            "SGR 1 should set the Bold flag on the cell.");
+        Assert.That(frame.RowData[0].Cells[1].Flags & CellFlags.Italic, Is.EqualTo(CellFlags.Italic),
+            "SGR 3 should set the Italic flag on the cell.");
+    }
+
+    [Test]
+    public void Sgr_BackgroundOnBlankCells_PreservedUnderOptimizedReader()
+    {
+        // Regression guard for the optimized cell reader: it gates the bg/fg
+        // reads behind has_styling, so a styled-but-textless cell (a space with a
+        // background color) must still carry that background.
+        using var surface = NewSurface();
+        WriteText(surface, "\x1b[44m   \x1b[0m"); // three spaces, blue background
+        var frame = surface.BuildFrame();
+
+        var blue = frame.Colors.Palette[4];
+        Assert.That(frame.RowData[0].Cells[0].Bg, Is.EqualTo(blue));
+        Assert.That(frame.RowData[0].Cells[2].Bg, Is.EqualTo(blue));
+        Assert.That(blue, Is.Not.EqualTo(frame.Colors.DefaultBackground));
+    }
+
+    [Test]
+    public void EraseToEndOfLine_WithBackground_FillsTrailingCells()
+    {
+        // htop and friends paint a row by printing text then erasing to the end
+        // of the line under a background color. Those trailing cells carry a
+        // background but no text (and, as it turns out, has_styling == false), so
+        // the reader must not skip their pre-resolved background.
+        using var surface = NewSurface(20, 3);
+        WriteText(surface, "\x1b[44mMENU\x1b[K");
+        var frame = surface.BuildFrame();
+
+        var blue = frame.Colors.Palette[4];
+        Assert.That(blue, Is.Not.EqualTo(frame.Colors.DefaultBackground));
+        Assert.That(frame.RowData[0].Cells[10].Bg, Is.EqualTo(blue),
+            "cells erased to EOL under a background color must retain it");
+    }
+
+    [Test]
+    public void ReverseVideo_SwapsResolvedForegroundAndBackground()
+    {
+        // The frontend does not swap on the Inverse flag; it relies on the engine
+        // pre-resolving reverse video into the cell's fg/bg, which the reader reads
+        // unconditionally. This covers SGR 7 (status bars, selected menu items).
+        using var surface = NewSurface();
+        var theme = new TerminalTheme
+        {
+            DefaultForeground = new RgbaColor(200, 200, 200),
+            DefaultBackground = new RgbaColor(10, 10, 10),
+        };
+        for (int i = 0; i < 256; i++)
+        {
+            theme.Palette[i] = new RgbaColor((byte)i, 0, 0);
+        }
+        surface.SetTheme(theme);
+
+        WriteText(surface, "N\x1b[7mR\x1b[0m"); // normal 'N', reverse-video 'R'
+        var frame = surface.BuildFrame();
+
+        var normal = frame.RowData[0].Cells[0];
+        var reverse = frame.RowData[0].Cells[1];
+
+        Assert.That(reverse.Fg, Is.EqualTo(normal.Bg), "reverse video draws the glyph in the background color");
+        Assert.That(reverse.Bg, Is.EqualTo(normal.Fg), "reverse video fills the cell in the foreground color");
+    }
+
+    [Test]
+    public void TrueColorBackground_ResolvesExactRgb()
+    {
+        // SGR 48;2;r;g;b direct-color background.
+        using var surface = NewSurface();
+        WriteText(surface, "\x1b[48;2;12;34;56mX\x1b[0m");
+        var frame = surface.BuildFrame();
+
+        Assert.That(frame.RowData[0].Cells[0].Bg, Is.EqualTo(new RgbaColor(12, 34, 56)));
+    }
+
+    [Test]
+    public void ClearScreenWithBackground_FillsBlankCells()
+    {
+        // ED (CSI 2 J) under a background color performs background-color erase:
+        // every cleared cell carries that background even though none have text.
+        using var surface = NewSurface(20, 3);
+        WriteText(surface, "\x1b[42m\x1b[2J");
+        var frame = surface.BuildFrame();
+
+        var green = frame.Colors.Palette[2];
+        Assert.That(green, Is.Not.EqualTo(frame.Colors.DefaultBackground));
+        Assert.That(frame.RowData[1].Cells[5].Bg, Is.EqualTo(green));
+    }
+
+    [Test]
     public void Resize_UpdatesDimensions()
     {
         using var surface = NewSurface(40, 10);
@@ -123,6 +223,60 @@ public sealed class GhosttyTerminalSurfaceTests
         surface.BuildFrame();
 
         Assert.That(surface.GetSelectionText(), Is.EqualTo("beta"));
+    }
+
+    [Test]
+    public void BeginExtendSelect_AnchorSurvivesViewportScroll()
+    {
+        // The drag anchor is pinned to content (a GridRef), so it must stay put
+        // when the viewport scrolls between Begin and Extend — exactly what the
+        // controller's drag-autoscroll relies on.
+        using var surface = NewSurface(20, 3);
+        for (int i = 0; i < 10; i++)
+        {
+            WriteText(surface, i == 9 ? "row09" : $"row{i:00}\r\n");
+        }
+        surface.BuildFrame();
+
+        surface.ScrollToTop();          // viewport now shows the oldest rows
+        surface.BuildFrame();
+        surface.BeginSelectCells(new GridPoint(0, 0)); // anchor on "row00"
+
+        surface.ScrollToBottom();       // viewport jumps to the newest rows
+        surface.BuildFrame();
+        surface.ExtendSelectCells(new GridPoint(4, 2)); // head on "row09"
+        surface.BuildFrame();
+
+        var text = surface.GetSelectionText();
+        Assert.That(text, Is.Not.Null);
+        Assert.That(text, Does.Contain("row00"), "anchor should have stayed pinned to the first row");
+        Assert.That(text, Does.Contain("row09"), "selection should extend to the last row");
+    }
+
+    [Test]
+    public void ExtendSelect_WithoutBegin_IsNoOp()
+    {
+        using var surface = NewSurface();
+        WriteText(surface, "nothing selected");
+        surface.BuildFrame();
+
+        surface.ExtendSelectCells(new GridPoint(3, 0));
+        surface.BuildFrame();
+
+        Assert.That(surface.GetSelectionText(), Is.Null);
+    }
+
+    [Test]
+    public void SelectLine_SelectsWholeLine()
+    {
+        using var surface = NewSurface();
+        WriteText(surface, "the whole line here");
+        surface.BuildFrame();
+
+        surface.SelectLine(new GridPoint(3, 0));
+        surface.BuildFrame();
+
+        Assert.That(surface.GetSelectionText(), Is.EqualTo("the whole line here"));
     }
 
     [Test]
