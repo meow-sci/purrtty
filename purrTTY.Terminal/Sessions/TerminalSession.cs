@@ -206,16 +206,37 @@ public sealed class TerminalSession : IDisposable
             return;
         }
 
+        _disposed = true;
+
         ChangeState(SessionState.Disposed);
 
+        // Detach both streams first so neither the surface nor the (about to be
+        // orphaned) process manager can raise events back into a disposed session.
         ProcessManager.ProcessExited -= OnProcessExited;
         ProcessManager.DataReceived -= OnProcessDataReceived;
         Surface.PtyReply -= OnSurfacePtyReply;
         Surface.TitleChanged -= OnSurfaceTitleChanged;
 
-        ProcessManager.Dispose();
+        // The libghostty surface is native and single-threaded (CLAUDE.md gotcha #1),
+        // so dispose it synchronously on the current (tick) thread.
         Surface.Dispose();
 
-        _disposed = true;
+        // Fire-and-forget the PTY/process teardown. Stopping a shell can block for
+        // seconds — graceful WaitForExit(2s) then Kill, plus ClosePseudoConsole,
+        // which can wedge on a slow child such as WSL2 — and closing a terminal or
+        // exiting the game must not stall on it. The manager is reaped on a
+        // background thread (or by the OS if the game exits first); its events are
+        // already detached so the orphan can't call back in.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                ProcessManager.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Background PTY teardown for session {SessionId} failed", Id);
+            }
+        });
     }
 }
