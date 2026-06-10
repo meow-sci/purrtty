@@ -219,6 +219,15 @@ Custom shells:
    mis-sends every button (Left→UNKNOWN, Middle→Left). App-mouse coordinates are **surface-local**
    (mouse − canvas), not screen-global, since the engine's encoder maps pixels→cells itself.
 
+11. **App-mouse motion is reported live, gated on cell change, and filtered by the engine.**
+   `HandleAppMouse` sends a `MouseAction.Motion` event (with the held button from `HeldMouseButton`,
+   or `None` for hover) whenever the pointer crosses into a new grid cell — so drags update live in
+   nvim/tmux instead of only on release. It always *offers* the motion; the libghostty mouse encoder
+   is **mode-aware** and emits a report only when the active mode wants it (button-event 1002 needs a
+   held button; any-event 1003 reports hover too; normal 1000 drops all motion), returning 0 bytes
+   otherwise. Reporting on **cell change**, not per pixel, matches xterm/ghostty granularity and keeps
+   the PTY from flooding.
+
 ## Common Workflows
 
 ### Changing terminal/rendering behavior

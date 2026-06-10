@@ -408,6 +408,49 @@ public sealed class GhosttyTerminalSurfaceTests
             Is.EqualTo("\x1b[<0;4;4M"), "pixel (24,48) is cell (4,4)");
     }
 
+    [Test]
+    public void EncodeMouse_MotionReportsDragInButtonEventTracking()
+    {
+        // Button-event tracking (1002) + SGR (1006): a drag (motion with the left
+        // button held) must report so apps like nvim update a selection live, not
+        // only on release. SGR motion adds 32 to the button code → left (0) + 32 = 32.
+        using var surface = NewSurface(20, 5);
+        WriteText(surface, "\x1b[?1002h\x1b[?1006h");
+        surface.BuildFrame();
+        surface.SetMouseGeometry(160, 80, 8, 16);
+
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Motion, MouseButton.Left, 24, 48),
+            Is.EqualTo("\x1b[<32;4;4M"), "left-drag motion → SGR button 0+32 at cell (4,4)");
+    }
+
+    [Test]
+    public void EncodeMouse_MotionWithoutButtonIsDroppedInButtonEventTracking()
+    {
+        // 1002 reports motion only while a button is held; a no-button hover must
+        // produce nothing (the encoder is mode-aware and drops it).
+        using var surface = NewSurface(20, 5);
+        WriteText(surface, "\x1b[?1002h\x1b[?1006h");
+        surface.BuildFrame();
+        surface.SetMouseGeometry(160, 80, 8, 16);
+
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Motion, MouseButton.None, 24, 48),
+            Is.EqualTo(string.Empty), "no-button hover in 1002 emits no report");
+    }
+
+    [Test]
+    public void EncodeMouse_MotionDroppedInNormalTracking()
+    {
+        // Normal tracking (1000) reports presses/releases only — motion offered by
+        // the frontend must be dropped by the encoder, never sent to the PTY.
+        using var surface = NewSurface(20, 5);
+        WriteText(surface, "\x1b[?1000h\x1b[?1006h");
+        surface.BuildFrame();
+        surface.SetMouseGeometry(160, 80, 8, 16);
+
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Motion, MouseButton.Left, 24, 48),
+            Is.EqualTo(string.Empty), "1000 tracking emits no motion report");
+    }
+
     private static string EncodeMouseSgr(ITerminalSurface surface, MouseAction action, MouseButton button, float x, float y)
     {
         var ev = new TerminalMouseEvent { Action = action, Button = button, X = x, Y = y };

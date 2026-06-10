@@ -90,6 +90,13 @@ public sealed class TerminalWindow : IDisposable
     private bool _wasHoveredLastFrame;
     private bool _selecting;
     private bool _hadSessions;
+
+    // Last grid cell reported to a mouse-tracking app via a motion event. Motion
+    // is only re-reported when the pointer crosses into a different cell (xterm /
+    // ghostty granularity), which is what keeps live drag reporting from flooding
+    // the PTY on every pixel of movement.
+    private int _appMouseCol = -1;
+    private int _appMouseRow = -1;
     private bool _disposed;
     private Guid? _lastActiveSessionId;
     private (float2 Pos, float2 Size)? _pendingPlacement;
@@ -549,7 +556,7 @@ public sealed class TerminalWindow : IDisposable
     {
         if (session.Surface.IsMouseTrackingEnabled)
         {
-            HandleAppMouse(session, io, canvasPos, gridHovered);
+            HandleAppMouse(session, io, canvasPos, cols, rows, gridHovered);
             return;
         }
 
@@ -630,12 +637,21 @@ public sealed class TerminalWindow : IDisposable
         ImGui.EndPopup();
     }
 
-    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, bool hovered)
+    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool hovered)
     {
         // libghostty's mouse encoder expects surface-local pixels (0,0 = top-left of
         // the terminal grid), not ImGui's screen-global mouse position.
         var pos = ImGui.GetMousePos() - canvasPos;
         var mods = ReadModifiers(io);
+
+        // Track which cell the pointer is over so motion below can fire only on a
+        // cell change. Updated every frame (incl. button-edge frames) so the next
+        // move is measured from the current cell, never a stale one.
+        int col = Math.Clamp((int)(pos.X / _cellWidth), 0, Math.Max(0, cols - 1));
+        int row = Math.Clamp((int)(pos.Y / _cellHeight), 0, Math.Max(0, rows - 1));
+        bool cellChanged = col != _appMouseCol || row != _appMouseRow;
+        _appMouseCol = col;
+        _appMouseRow = row;
 
         // Press is gated on hover (the click must land on the grid); release fires
         // unconditionally so a drag that ends off-grid still reports button-up.
@@ -663,6 +679,24 @@ public sealed class TerminalWindow : IDisposable
         {
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Middle, mods, pos);
         }
+        else if (cellChanged)
+        {
+            // Motion / drag reporting. Apps in button-event (1002) or any-event
+            // (1003) tracking expect mouse-move reports so drag-driven UIs (nvim
+            // visual-select, tmux pane-resize) update live instead of only on
+            // release. The engine's mouse encoder is mode-aware — it emits a report
+            // only when the active mode wants this motion (and encodes the held
+            // button into the drag code, or "no button" for hover), and drops it
+            // otherwise (e.g. normal 1000 tracking) — so we just offer each cell
+            // crossing and let the encoder decide. We only report when a button is
+            // held (a drag) or the pointer is over the grid (any-event hover),
+            // mirroring the press/release gating above.
+            var held = HeldMouseButton();
+            if (held != MouseButton.None || hovered)
+            {
+                EncodeMouseAndSend(session, MouseAction.Motion, held, mods, pos);
+            }
+        }
 
         // Wheel reports as a scroll-button press (libghostty buttons 4/5).
         if (hovered && io.MouseWheel != 0)
@@ -670,6 +704,17 @@ public sealed class TerminalWindow : IDisposable
             var button = io.MouseWheel > 0 ? MouseButton.ScrollUp : MouseButton.ScrollDown;
             EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
         }
+    }
+
+    // The button currently held during a drag, used as the motion report's button
+    // code. Left/Middle/Right priority matches the press handling; None means no
+    // button is down (an any-event hover motion).
+    private static MouseButton HeldMouseButton()
+    {
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Left)) return MouseButton.Left;
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Middle)) return MouseButton.Middle;
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) return MouseButton.Right;
+        return MouseButton.None;
     }
 
     // While dragging a selection, scroll the viewport when the cursor leaves the
