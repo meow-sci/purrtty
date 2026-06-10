@@ -200,6 +200,22 @@ public sealed class GhosttyTerminalController : ITerminalController
             session.Surface.SetMouseGeometry(
                 (int)(cols * _cellWidth), (int)(rows * _cellHeight), (int)_cellWidth, (int)_cellHeight);
 
+            // Reserve the whole canvas with an invisible button BEFORE drawing the
+            // grid. This is essential: the window has no title bar, so without an
+            // item under the cursor ImGui treats a click-drag on the body as a
+            // window-move gesture — text selection never starts and the window
+            // slides around instead. The button also yields reliable hover/active
+            // state for the mouse handlers. The grid is painted on top via the draw
+            // list, so the button stays invisible.
+            bool termHovered = false;
+            bool termActive = false;
+            if (avail.X >= 1f && avail.Y >= 1f)
+            {
+                ImGui.InvisibleButton("terminal_canvas", avail);
+                termHovered = ImGui.IsItemHovered();
+                termActive = ImGui.IsItemActive();
+            }
+
             var frame = session.Surface.BuildFrame();
             bool cursorOn = !frame.Cursor.Blinking || _cursorOn;
 
@@ -207,10 +223,15 @@ public sealed class GhosttyTerminalController : ITerminalController
                 frame, ImGui.GetWindowDrawList(), canvasPos,
                 _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn);
 
+            var io = ImGui.GetIO();
             if (_hasFocus)
             {
-                HandleInput(session, canvasPos, cols, rows);
+                HandleKeyboard(session, io);
             }
+
+            // Mouse is gated on hover/active (not focus) so the first click both
+            // selects and focuses in one gesture, as it did pre-libghostty.
+            HandleMouse(session, io, canvasPos, cols, rows, termHovered, termActive);
         }
 
         ImGui.End();
@@ -243,13 +264,6 @@ public sealed class GhosttyTerminalController : ITerminalController
         }
 
         ImGui.EndMenuBar();
-    }
-
-    private void HandleInput(TerminalSession session, float2 canvasPos, int cols, int rows)
-    {
-        var io = ImGui.GetIO();
-        HandleKeyboard(session, io);
-        HandleMouse(session, io, canvasPos, cols, rows);
     }
 
     private void HandleKeyboard(TerminalSession session, ImGuiIOPtr io)
@@ -295,23 +309,21 @@ public sealed class GhosttyTerminalController : ITerminalController
         }
     }
 
-    private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows)
+    private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool hovered, bool active)
     {
-        bool hovered = ImGui.IsWindowHovered();
+        if (session.Surface.IsMouseTrackingEnabled)
+        {
+            HandleAppMouse(session, io, canvasPos, hovered);
+            return;
+        }
 
-        // Wheel scrolling (viewport scrollback when the app isn't tracking the mouse).
-        if (hovered && io.MouseWheel != 0 && !session.Surface.IsMouseTrackingEnabled)
+        // Wheel scrolls the viewport scrollback when the app isn't tracking the mouse.
+        if (hovered && io.MouseWheel != 0)
         {
             session.Surface.ScrollBy(-(int)Math.Round(io.MouseWheel * 3));
         }
 
         var cell = MouseCell(canvasPos, cols, rows);
-
-        if (session.Surface.IsMouseTrackingEnabled)
-        {
-            HandleAppMouse(session, io, cell);
-            return;
-        }
 
         // Selection gestures: single-click+drag selects cells, double-click selects
         // a word, triple-click selects the logical line.
@@ -335,8 +347,10 @@ public sealed class GhosttyTerminalController : ITerminalController
                 _selecting = true;
             }
         }
-        else if (_selecting && ImGui.IsMouseDown(ImGuiMouseButton.Left))
+        else if (_selecting && active)
         {
+            // The canvas button stays "active" from press to release (even when the
+            // cursor leaves the grid), so the drag tracks correctly off-screen.
             AutoScrollForDrag(session, canvasPos, rows);
             session.Surface.ExtendSelectCells(cell);
         }
@@ -352,12 +366,16 @@ public sealed class GhosttyTerminalController : ITerminalController
         }
     }
 
-    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, GridPoint cell)
+    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, bool hovered)
     {
-        var pos = ImGui.GetMousePos();
+        // libghostty's mouse encoder expects surface-local pixels (0,0 = top-left of
+        // the terminal grid), not ImGui's screen-global mouse position.
+        var pos = ImGui.GetMousePos() - canvasPos;
         var mods = ReadModifiers(io);
 
-        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        // Press is gated on hover (the click must land on the grid); release fires
+        // unconditionally so a drag that ends off-grid still reports button-up.
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Left, mods, pos);
         }
@@ -365,7 +383,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         {
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Left, mods, pos);
         }
-        else if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
         {
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Right, mods, pos);
         }
@@ -373,10 +391,19 @@ public sealed class GhosttyTerminalController : ITerminalController
         {
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Right, mods, pos);
         }
-
-        if (io.MouseWheel != 0)
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Middle))
         {
-            var button = io.MouseWheel > 0 ? MouseButton.Middle : MouseButton.Middle;
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Middle, mods, pos);
+        }
+        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Middle))
+        {
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Middle, mods, pos);
+        }
+
+        // Wheel reports as a scroll-button press (libghostty buttons 4/5).
+        if (hovered && io.MouseWheel != 0)
+        {
+            var button = io.MouseWheel > 0 ? MouseButton.ScrollUp : MouseButton.ScrollDown;
             EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
         }
     }

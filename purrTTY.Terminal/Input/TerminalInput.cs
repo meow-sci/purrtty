@@ -67,13 +67,19 @@ public readonly struct TerminalKeyEvent
     }
 }
 
-/// <summary>Mouse button identity (matches libghostty mouse button ordering).</summary>
+/// <summary>
+/// Renderer-neutral mouse button identity. These are purrtty's own values — they
+/// are NOT libghostty's wire/enum codes. The backend translates them to the
+/// engine's native button enum in <see cref="PurrTTY.Terminal.Ghostty.GhosttyTerminalSurface"/>.
+/// </summary>
 public enum MouseButton
 {
     None = -1,
     Left = 0,
     Middle = 1,
     Right = 2,
+    ScrollUp = 3,
+    ScrollDown = 4,
 }
 
 /// <summary>Mouse action.</summary>
