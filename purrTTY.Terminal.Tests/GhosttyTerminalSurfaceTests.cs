@@ -506,6 +506,93 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void Generation_StableWhenNothingChanges()
+    {
+        // The engine's dirty tracking must let idle ticks skip the frame
+        // rebuild entirely — generation only moves on real changes.
+        using var surface = NewSurface();
+        WriteText(surface, "hello");
+        surface.BuildFrame();
+
+        long g1 = surface.BuildFrame().Generation;
+        long g2 = surface.BuildFrame().Generation;
+        long g3 = surface.BuildFrame().Generation;
+
+        Assert.That(g2, Is.EqualTo(g1));
+        Assert.That(g3, Is.EqualTo(g1));
+    }
+
+    [Test]
+    public void PartialUpdate_RefreshesDirtyRowAndPreservesCleanRows()
+    {
+        using var surface = NewSurface();
+        WriteText(surface, "first\r\nsecond");
+        surface.BuildFrame();
+
+        // Overwrite row 0 only; row 1 is clean in the engine's dirty tracking,
+        // so the frame must keep its cached cells for it.
+        WriteText(surface, "\x1b[1;1HFIRST");
+        var frame = surface.BuildFrame();
+
+        Assert.That(RowText(frame, 0), Is.EqualTo("FIRST"));
+        Assert.That(RowText(frame, 1), Is.EqualTo("second"));
+    }
+
+    [Test]
+    public void Underline_SetsRowDecorationFlag()
+    {
+        using var surface = NewSurface();
+        WriteText(surface, "\x1b[4mU\x1b[0m");
+        var frame = surface.BuildFrame();
+
+        Assert.That(frame.RowData[0].Cells[0].Underline, Is.EqualTo(UnderlineStyle.Single));
+        Assert.That(frame.RowData[0].HasDecorations, Is.True);
+        Assert.That(frame.RowData[1].HasDecorations, Is.False);
+    }
+
+    [Test]
+    public void GraphemeCluster_ReadAsSingleCellWithWideSpacer()
+    {
+        using var surface = NewSurface();
+        WriteText(surface, "e\u0301 \U0001F44D"); // e + combining acute (cluster), space, thumbs-up (wide)
+        var frame = surface.BuildFrame();
+
+        var cells = frame.RowData[0].Cells;
+        Assert.That(cells[0].Grapheme, Is.EqualTo("e\u0301"));
+        Assert.That(cells[2].Grapheme, Is.EqualTo("\U0001F44D"));
+        Assert.That(cells[2].Width, Is.EqualTo(CellWidth.Wide));
+        Assert.That(cells[3].Width, Is.EqualTo(CellWidth.Spacer));
+    }
+
+    [Test]
+    public void SynchronizedOutput_WithholdsPartialFrames()
+    {
+        using var surface = NewSurface();
+        WriteText(surface, "before");
+        surface.BuildFrame();
+
+        // App begins a synchronized update (DEC 2026), clears, redraws — the
+        // frame must keep showing the last complete state until the mode ends.
+        WriteText(surface, "\x1b[?2026h\x1b[2J\x1b[Hafter");
+        var held = surface.BuildFrame();
+        Assert.That(RowText(held, 0), Is.EqualTo("before"),
+            "frame must hold while synchronized output is active");
+
+        WriteText(surface, "\x1b[?2026l");
+        var released = surface.BuildFrame();
+        Assert.That(RowText(released, 0), Is.EqualTo("after"));
+    }
+
+    [Test]
+    public void RawCellLayout_MatchesNativeAccessors()
+    {
+        // The fast frame reader decodes the packed u64 cell managed-side; this
+        // cross-checks the decode against the native accessors so a native pin
+        // bump that changes the layout fails loudly here.
+        Assert.That(global::Ghostty.Vt.RawCellLayout.Validate(out var error), Is.True, error);
+    }
+
+    [Test]
     public void Scrollback_AccumulatesBeyondViewport()
     {
         using var surface = NewSurface(20, 5);

@@ -20,6 +20,13 @@ public sealed class FrameRow
     /// <summary>Whether this row is a soft-wrap continuation of the previous one.</summary>
     public bool WrapContinuation;
 
+    /// <summary>
+    /// Whether any cell in this row carries a text decoration (underline,
+    /// strikethrough, overline). Lets renderers skip the decoration pass for
+    /// the common undecorated row.
+    /// </summary>
+    public bool HasDecorations;
+
     public FrameRow(int cols)
     {
         Cells = new FrameCell[cols];

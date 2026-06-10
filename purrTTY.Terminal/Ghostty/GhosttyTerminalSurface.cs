@@ -4,14 +4,45 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PurrTTY.Terminal.Input;
 using PurrTTY.Terminal.Rendering;
 using GhosttyTypes = Ghostty.Vt.Types;
+using VtFrameReader = Ghostty.Vt.RenderFrameReader;
 using VtKeyEncoder = Ghostty.Vt.KeyEncoder;
 using VtKeyEvent = Ghostty.Vt.KeyEvent;
 using VtMouseEncoder = Ghostty.Vt.MouseEncoder;
 using VtMouseEvent = Ghostty.Vt.MouseEvent;
+using VtRawCell = Ghostty.Vt.RawCell;
+using VtRawCellLayout = Ghostty.Vt.RawCellLayout;
 using VtRenderState = Ghostty.Vt.RenderState;
 using VtTerminal = Ghostty.Vt.Terminal;
 
 namespace PurrTTY.Terminal.Ghostty;
+
+/// <summary>
+/// Per-<see cref="GhosttyTerminalSurface.BuildFrame"/> diagnostics for the
+/// debug perf HUD. Values are best-effort and engine-specific.
+/// </summary>
+public struct SurfaceFrameStats
+{
+    /// <summary>Milliseconds spent feeding PTY bytes (OSC tee + engine VT write).</summary>
+    public double WriteMs;
+
+    /// <summary>Milliseconds spent in the engine render-state update.</summary>
+    public double UpdateMs;
+
+    /// <summary>Milliseconds spent rebuilding the frame cells + cursor/scrollbar.</summary>
+    public double PopulateMs;
+
+    /// <summary>PTY bytes consumed this tick.</summary>
+    public int BytesConsumed;
+
+    /// <summary>0 = clean/skipped, 1 = partial row refresh, 2 = full rebuild.</summary>
+    public int DirtyState;
+
+    /// <summary>True when the frame was withheld by DEC 2026 synchronized output.</summary>
+    public bool SyncPaused;
+
+    /// <summary>Whether the frame generation advanced this tick.</summary>
+    public bool ContentChanged;
+}
 
 /// <summary>
 /// The libghostty-vt-backed <see cref="ITerminalSurface"/>. Wraps a single
@@ -47,6 +78,22 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     private bool _bellPending;
     private bool _titlePending;
     private bool _pendingChange = true; // first frame counts as a change
+
+    // Synchronized output (DEC mode 2026): timestamp of when the pause began,
+    // 0 when not paused. Frames are withheld while an app batches a redraw,
+    // bounded by SyncOutputTimeout in case it never clears the mode.
+    private long _syncOutputSince;
+    private static readonly TimeSpan SyncOutputTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>Diagnostics from the most recent <see cref="BuildFrame"/> (for the perf HUD).</summary>
+    public SurfaceFrameStats LastFrameStats;
+
+    // Interned grapheme strings so steady-state frame rebuilds allocate nothing.
+    private readonly GraphemeCache _graphemes = new();
+
+    // One-time cross-check of the managed packed-cell decode against the
+    // native accessors (catches a pin bump that changes the bit layout).
+    private static int s_cellLayoutChecked;
 
     private int _cellPxW;
     private int _cellPxH;
@@ -96,6 +143,23 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _osc.ClipboardRequested += req => ClipboardRequested?.Invoke(req);
 
         _frame = new TerminalFrame(cols, rows);
+
+        if (Interlocked.Exchange(ref s_cellLayoutChecked, 1) == 0)
+        {
+            try
+            {
+                if (!VtRawCellLayout.Validate(out var layoutError))
+                {
+                    _logger.LogError(
+                        "libghostty-vt packed-cell layout mismatch — cell rendering will be wrong until the managed decode is updated: {Error}",
+                        layoutError);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "libghostty-vt cell layout self-check failed to run");
+            }
+        }
     }
 
     public int Cols => _terminal.Cols;
@@ -356,6 +420,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     public TerminalFrame BuildFrame()
     {
         ThrowIfDisposed();
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         int inputLen;
         lock (_sync)
@@ -373,8 +438,11 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             var span = _scratch.AsSpan(0, inputLen);
             _osc.Feed(span);
             _terminal.VTWrite(span);
-            _pendingChange = true;
+            // No _pendingChange here: the engine's dirty tracking decides
+            // whether the bytes changed anything visible.
         }
+
+        long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         if (_replies.Count > 0)
         {
@@ -382,12 +450,6 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             _replies.Clear();
             PtyReply?.Invoke(reply);
         }
-
-        _renderState.Update(_terminal);
-
-        bool changed = _pendingChange || _renderState.Dirty != RenderStateDirty.False;
-        PopulateFrame();
-        _pendingChange = false;
 
         if (_bellPending)
         {
@@ -401,24 +463,182 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             TitleChanged?.Invoke(_terminal.Title ?? string.Empty);
         }
 
+        // Synchronized output (DEC 2026): while an app is batching a redraw,
+        // keep showing the last complete frame instead of a partial one (this
+        // is what eliminates mid-frame tearing for apps that use it). Bounded
+        // by a timeout so a stuck mode cannot freeze the terminal.
+        if (_terminal.ModeGet(TerminalMode.SynchronizedOutput))
+        {
+            if (_syncOutputSince == 0)
+            {
+                _syncOutputSince = System.Diagnostics.Stopwatch.GetTimestamp();
+            }
+
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(_syncOutputSince) < SyncOutputTimeout)
+            {
+                LastFrameStats = new SurfaceFrameStats
+                {
+                    WriteMs = ElapsedMs(t0, t1),
+                    BytesConsumed = inputLen,
+                    SyncPaused = true,
+                };
+                return _frame;
+            }
+            // Overdue: render live until the app finally clears the mode.
+        }
+        else
+        {
+            _syncOutputSince = 0;
+        }
+
+        _renderState.Update(_terminal);
+        long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        bool changed = PopulateFrame(_pendingChange);
+        _pendingChange = false;
+        changed |= RefreshCursorAndScrollbar();
+        long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
+
         if (changed)
         {
             _frame.Generation = ++_generation;
             FrameChanged?.Invoke();
         }
 
+        LastFrameStats = new SurfaceFrameStats
+        {
+            WriteMs = ElapsedMs(t0, t1),
+            UpdateMs = ElapsedMs(t1, t2),
+            PopulateMs = ElapsedMs(t2, t3),
+            BytesConsumed = inputLen,
+            DirtyState = _lastDirtyState,
+            ContentChanged = changed,
+        };
+
         return _frame;
     }
 
-    private void PopulateFrame()
+    private static double ElapsedMs(long from, long to)
+        => System.Diagnostics.Stopwatch.GetElapsedTime(from, to).TotalMilliseconds;
+
+    private int _lastDirtyState; // 0 = skipped/clean, 1 = partial, 2 = full
+
+    // Grapheme clusters longer than this (in UTF-8 bytes) take a rare
+    // heap-allocating slow path; everything realistic fits.
+    private const int GraphemeScratchBytes = 256;
+
+    /// <summary>
+    /// Rebuilds the frame's cell content from the render state, honoring the
+    /// engine's dirty tracking: a clean state is skipped entirely, a partial
+    /// state only refreshes dirty rows (clean rows keep their cells from the
+    /// previous tick — the engine guarantees row indices are stable unless the
+    /// update was Full), and a full state rebuilds everything including colors.
+    /// Consumed dirty flags are cleared (the engine never clears them itself).
+    /// Returns whether any cell content changed.
+    /// </summary>
+    private bool PopulateFrame(bool force)
     {
         int cols = _terminal.Cols;
         int rows = _terminal.Rows;
         if (_frame.Cols != cols || _frame.Rows != rows)
         {
             _frame.Resize(cols, rows);
+            force = true;
         }
 
+        var dirty = _renderState.Dirty;
+        if (!force && dirty == RenderStateDirty.False)
+        {
+            _lastDirtyState = 0;
+            return false;
+        }
+
+        bool full = force || dirty == RenderStateDirty.Full;
+        _lastDirtyState = full ? 2 : 1;
+        if (full)
+        {
+            // Palette / default-color changes always mark the terminal dirty,
+            // which yields a Full state — so colors only need re-reading here.
+            RefreshColors();
+        }
+
+        var defFg = _frame.Colors.DefaultForeground;
+        var defBg = _frame.Colors.DefaultBackground;
+
+        Span<byte> utf8Scratch = stackalloc byte[GraphemeScratchBytes];
+        var reader = _renderState.CreateFrameReader();
+        try
+        {
+            int rowIdx = 0;
+            while (rowIdx < rows && reader.NextRow())
+            {
+                bool rowDirty = reader.RowDirty;
+                if (rowDirty)
+                {
+                    reader.ClearRowDirty();
+                }
+
+                if (!full && !rowDirty)
+                {
+                    rowIdx++;
+                    continue;
+                }
+
+                var dstRow = _frame.RowData[rowIdx];
+                dstRow.WrapContinuation = reader.RowWrapContinuation;
+                if (reader.RowSelection is { } sel)
+                {
+                    dstRow.SelectionStart = sel.StartX;
+                    dstRow.SelectionEnd = sel.EndX;
+                }
+                else
+                {
+                    dstRow.SelectionStart = -1;
+                    dstRow.SelectionEnd = -1;
+                }
+
+                bool hasDecorations = false;
+                reader.BindRowCells();
+                int colIdx = 0;
+                while (colIdx < cols && reader.NextCell())
+                {
+                    FillCell(ref dstRow.Cells[colIdx], reader.Cell, ref reader, utf8Scratch, defFg, defBg, ref hasDecorations);
+                    colIdx++;
+                }
+
+                for (int c = colIdx; c < cols; c++)
+                {
+                    ClearCell(ref dstRow.Cells[c], defFg, defBg);
+                }
+
+                dstRow.HasDecorations = hasDecorations;
+                rowIdx++;
+            }
+
+            for (; rowIdx < rows; rowIdx++)
+            {
+                var dstRow = _frame.RowData[rowIdx];
+                dstRow.SelectionStart = -1;
+                dstRow.SelectionEnd = -1;
+                dstRow.WrapContinuation = false;
+                dstRow.HasDecorations = false;
+                for (int c = 0; c < cols; c++)
+                {
+                    ClearCell(ref dstRow.Cells[c], defFg, defBg);
+                }
+            }
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+
+        _renderState.ClearDirty();
+        return true;
+    }
+
+    private void RefreshColors()
+    {
         var colors = _renderState.Colors;
         for (int i = 0; i < 256 && i < colors.Palette.Length; i++)
         {
@@ -430,112 +650,204 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _frame.Colors.DefaultForeground = defFg;
         _frame.Colors.DefaultBackground = defBg;
         _frame.Colors.Cursor = colors.CursorHasValue ? ToRgba(colors.Cursor) : defFg;
+    }
 
-        int rowIdx = 0;
-        foreach (var srcRow in _renderState.Rows)
+    /// <summary>
+    /// Refreshes cursor and scrollbar state every tick (they are cheap and not
+    /// covered by row dirty tracking) and reports whether either changed.
+    /// </summary>
+    private bool RefreshCursorAndScrollbar()
+    {
+        bool inViewport = _renderState.CursorViewportHasValue;
+        var cursor = new CursorState
         {
-            if (rowIdx >= rows)
-            {
-                break;
-            }
-
-            var dstRow = _frame.RowData[rowIdx];
-            dstRow.WrapContinuation = srcRow.WrapContinuation;
-            if (srcRow.Selection is { } sel)
-            {
-                dstRow.SelectionStart = sel.StartX;
-                dstRow.SelectionEnd = sel.EndX;
-            }
-            else
-            {
-                dstRow.SelectionStart = -1;
-                dstRow.SelectionEnd = -1;
-            }
-
-            int colIdx = 0;
-            foreach (var cell in srcRow.Cells)
-            {
-                if (colIdx >= cols)
-                {
-                    break;
-                }
-
-                FillCell(ref dstRow.Cells[colIdx], cell, defFg, defBg);
-                colIdx++;
-            }
-
-            for (int c = colIdx; c < cols; c++)
-            {
-                ClearCell(ref dstRow.Cells[c], defFg, defBg);
-            }
-
-            rowIdx++;
-        }
-
-        for (; rowIdx < rows; rowIdx++)
-        {
-            var dstRow = _frame.RowData[rowIdx];
-            dstRow.SelectionStart = -1;
-            dstRow.SelectionEnd = -1;
-            dstRow.WrapContinuation = false;
-            for (int c = 0; c < cols; c++)
-            {
-                ClearCell(ref dstRow.Cells[c], defFg, defBg);
-            }
-        }
-
-        _frame.Cursor = new CursorState
-        {
-            X = _renderState.CursorViewportX,
-            Y = _renderState.CursorViewportY,
-            Visible = _renderState.CursorVisible && _renderState.CursorViewportHasValue,
+            X = inViewport ? _renderState.CursorViewportX : 0,
+            Y = inViewport ? _renderState.CursorViewportY : 0,
+            Visible = _renderState.CursorVisible && inViewport,
             Shape = ToCursorShape(_renderState.CursorStyle),
             Blinking = _renderState.CursorBlinking,
         };
 
-        var scrollbar = _terminal.Scrollbar;
-        _frame.Scrollbar = new ScrollbarState
+        bool changed =
+            cursor.X != _frame.Cursor.X
+            || cursor.Y != _frame.Cursor.Y
+            || cursor.Visible != _frame.Cursor.Visible
+            || cursor.Shape != _frame.Cursor.Shape
+            || cursor.Blinking != _frame.Cursor.Blinking;
+        _frame.Cursor = cursor;
+
+        var native = _terminal.Scrollbar;
+        var scrollbar = new ScrollbarState
         {
-            Offset = scrollbar.Offset,
-            ViewportHeight = scrollbar.ViewportHeight,
-            ScrollbackHeight = scrollbar.ScrollbackHeight,
+            Offset = native.Offset,
+            ViewportHeight = native.ViewportHeight,
+            ScrollbackHeight = native.ScrollbackHeight,
         };
+
+        changed |= scrollbar.Offset != _frame.Scrollbar.Offset
+            || scrollbar.ViewportHeight != _frame.Scrollbar.ViewportHeight
+            || scrollbar.ScrollbackHeight != _frame.Scrollbar.ScrollbackHeight;
+        _frame.Scrollbar = scrollbar;
+
+        return changed;
     }
 
-    private static void FillCell(ref FrameCell dst, GhosttyTypes.Cell cell, RgbaColor defFg, RgbaColor defBg)
+    private void FillCell(
+        ref FrameCell dst,
+        in VtRawCell cell,
+        ref VtFrameReader reader,
+        scoped Span<byte> utf8Scratch,
+        RgbaColor defFg,
+        RgbaColor defBg,
+        ref bool hasDecorations)
     {
-        dst.Grapheme = cell.HasText ? cell.Grapheme : null;
-        dst.Fg = cell.FgColor is { } fg ? ToRgba(fg) : defFg;
-        dst.Bg = cell.BgColor is { } bg ? ToRgba(bg) : defBg;
-
-        var style = cell.Style;
-
-        // Reverse video: the engine reports logical fg/bg plus an inverse flag, so
-        // resolve it to final draw colors here (the frontend draws Fg/Bg directly).
-        // The Inverse flag is still surfaced below as metadata.
-        if (style.Inverse)
+        string? grapheme = null;
+        if (cell.IsGraphemeCluster)
         {
-            (dst.Fg, dst.Bg) = (dst.Bg, dst.Fg);
+            int len = reader.ReadCellGraphemeUtf8(utf8Scratch);
+            if (len > 0)
+            {
+                grapheme = _graphemes.FromUtf8(utf8Scratch[..len]);
+            }
+            else if (len < 0)
+            {
+                grapheme = ReadOversizedGrapheme(ref reader, -len);
+            }
+        }
+        else
+        {
+            uint cp = cell.Codepoint;
+            if (cp != 0)
+            {
+                grapheme = _graphemes.FromCodepoint(cp);
+            }
         }
 
+        var fg = defFg;
+        var bg = cell.ContentTag switch
+        {
+            VtRawCell.TagBgColorPalette => _frame.Colors.Palette[cell.BgPaletteIndex],
+            VtRawCell.TagBgColorRgb => ToRgba(cell.BgRgb),
+            _ => defBg,
+        };
+
         var flags = CellFlags.None;
-        if (style.Bold) flags |= CellFlags.Bold;
-        if (style.Italic) flags |= CellFlags.Italic;
-        if (style.Faint) flags |= CellFlags.Faint;
-        if (style.Blink) flags |= CellFlags.Blink;
-        if (style.Inverse) flags |= CellFlags.Inverse;
-        if (style.Strikethrough) flags |= CellFlags.Strikethrough;
-        if (style.Invisible) flags |= CellFlags.Invisible;
-        if (style.Overline) flags |= CellFlags.Overline;
+        var underline = UnderlineStyle.None;
+        RgbaColor? underlineColor = null;
+
+        if (cell.HasStyling)
+        {
+            var style = reader.CellStyle;
+            fg = ResolveStyleColor(style.FgColor, defFg);
+            if (!cell.HasBgContent)
+            {
+                bg = ResolveStyleColor(style.BgColor, defBg);
+            }
+
+            if (style.Bold) flags |= CellFlags.Bold;
+            if (style.Italic) flags |= CellFlags.Italic;
+            if (style.Faint) flags |= CellFlags.Faint;
+            if (style.Blink) flags |= CellFlags.Blink;
+            if (style.Strikethrough) flags |= CellFlags.Strikethrough;
+            if (style.Invisible) flags |= CellFlags.Invisible;
+            if (style.Overline) flags |= CellFlags.Overline;
+
+            underline = (UnderlineStyle)Math.Clamp(style.Underline, 0, 5);
+
+            // Only RGB underline colors are surfaced; palette/none fall back to fg at draw time.
+            underlineColor = style.UnderlineColor.Tag == StyleColorTag.Rgb
+                ? ToRgba(style.UnderlineColor.Rgb)
+                : null;
+
+            // Reverse video: the engine reports logical fg/bg plus an inverse
+            // flag; resolve it to final draw colors here (the frontend draws
+            // Fg/Bg directly). The Inverse flag is still surfaced as metadata.
+            if (style.Inverse)
+            {
+                flags |= CellFlags.Inverse;
+                (fg, bg) = (bg, fg);
+            }
+        }
+
+        dst.Grapheme = grapheme;
+        dst.Fg = fg;
+        dst.Bg = bg;
         dst.Flags = flags;
-
-        dst.Underline = (UnderlineStyle)Math.Clamp(style.Underline, 0, 5);
+        dst.Underline = underline;
         dst.Width = ToCellWidth(cell.Wide);
+        dst.UnderlineColor = underlineColor;
 
-        // Only RGB underline colors are surfaced; palette/none fall back to fg at draw time.
-        dst.UnderlineColor = style.UnderlineColor.Tag == StyleColorTag.Rgb
-            ? ToRgba(style.UnderlineColor.Rgb)
-            : null;
+        if (underline != UnderlineStyle.None
+            || (flags & (CellFlags.Strikethrough | CellFlags.Overline)) != 0)
+        {
+            hasDecorations = true;
+        }
+    }
+
+    private string? ReadOversizedGrapheme(ref VtFrameReader reader, int requiredBytes)
+    {
+        var buffer = new byte[requiredBytes];
+        int len = reader.ReadCellGraphemeUtf8(buffer);
+        return len > 0 ? _graphemes.FromUtf8(buffer.AsSpan(0, len)) : null;
+    }
+
+    private RgbaColor ResolveStyleColor(in GhosttyTypes.StyleColor color, RgbaColor fallback) => color.Tag switch
+    {
+        StyleColorTag.Rgb => ToRgba(color.Rgb),
+        StyleColorTag.Palette => _frame.Colors.Palette[color.PaletteIndex],
+        _ => fallback,
+    };
+
+    /// <summary>
+    /// Interns grapheme strings so the per-tick frame rebuild allocates nothing
+    /// once warmed up. Single tick-thread use (like the rest of the surface).
+    /// </summary>
+    private sealed class GraphemeCache
+    {
+        private readonly string?[] _ascii = new string?[128];
+        private readonly Dictionary<uint, string> _codepoints = new();
+        private readonly Dictionary<string, string> _clusters = new();
+        private readonly Dictionary<string, string>.AlternateLookup<ReadOnlySpan<char>> _clusterLookup;
+
+        public GraphemeCache()
+        {
+            _clusterLookup = _clusters.GetAlternateLookup<ReadOnlySpan<char>>();
+        }
+
+        public string FromCodepoint(uint cp)
+        {
+            if (cp < 128)
+            {
+                return _ascii[cp] ??= ((char)cp).ToString();
+            }
+
+            if (!_codepoints.TryGetValue(cp, out var s))
+            {
+                s = cp <= 0xFFFF ? ((char)cp).ToString() : char.ConvertFromUtf32((int)cp);
+                _codepoints[cp] = s;
+            }
+
+            return s;
+        }
+
+        public string FromUtf8(ReadOnlySpan<byte> utf8)
+        {
+            // UTF-16 unit count never exceeds the UTF-8 byte count.
+            Span<char> chars = utf8.Length <= GraphemeScratchBytes
+                ? stackalloc char[utf8.Length]
+                : new char[utf8.Length];
+            int n = System.Text.Encoding.UTF8.GetChars(utf8, chars);
+            var span = chars[..n];
+
+            if (_clusterLookup.TryGetValue(span, out var s))
+            {
+                return s;
+            }
+
+            s = new string(span);
+            _clusters[s] = s;
+            return s;
+        }
     }
 
     private static void ClearCell(ref FrameCell dst, RgbaColor defFg, RgbaColor defBg)

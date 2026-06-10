@@ -358,6 +358,12 @@ public class TerminalMod
             controller.Configuration.Save();
         }
 
+        bool perfHud = TerminalWindow.ShowPerfHud;
+        if (ImGui.Checkbox("Show performance HUD", ref perfHud))
+        {
+            TerminalWindow.ShowPerfHud = perfHud;
+        }
+
         var target = controller.FocusTarget;
         if (target == null)
         {

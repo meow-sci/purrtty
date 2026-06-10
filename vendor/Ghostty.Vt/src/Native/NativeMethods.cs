@@ -82,6 +82,13 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_render_state_get(
         nint state, int data, void* @out);
 
+    // purrtty addition: GhosttyRenderStateOption (DIRTY=0). The engine never
+    // clears its dirty flags itself — the renderer must reset them after
+    // consuming a frame, or Dirty reads FULL forever.
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_render_state_set(
+        nint state, int option, void* value);
+
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_render_state_colors_get(
         nint state, void* out_colors);
@@ -102,6 +109,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_render_state_row_get(
         nint iterator, int data, void* @out);
+
+    // purrtty addition: GhosttyRenderStateRowOption (DIRTY=0) — clears the
+    // per-row dirty flag for the row the iterator is positioned on.
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_render_state_row_set(
+        nint iterator, int option, void* value);
 
     // --- RenderState row cell iterator ---
 
@@ -521,6 +534,16 @@ internal struct GhosttyColorRgbNative
     public byte R;
     public byte G;
     public byte B;
+}
+
+// purrtty addition. Native struct matching GhosttyBuffer (lib.Buffer):
+// { uint8_t* ptr, size_t cap, size_t len } — used by GRAPHEMES_UTF8 reads.
+[StructLayout(LayoutKind.Sequential)]
+internal struct GhosttyBufferNative
+{
+    public nint Ptr;
+    public nuint Cap;
+    public nuint Len;
 }
 
 // Native struct matching GhosttyKittyGraphicsPlacementRenderInfo (sized struct).

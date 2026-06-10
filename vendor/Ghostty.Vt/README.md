@@ -7,7 +7,13 @@ This directory is a **vendored, owned** copy of the managed `Ghostty.Vt` binding
 
 purrtty delegates all terminal emulation to this engine. We vendor the binding (rather than
 consume the NuGet package) so we can extend it at the source: configurable scrollback,
-selection (gesture / per-row / format), default cursor style & blink, and batched cell reads.
+selection (gesture / per-row / format), default cursor style & blink, and the render-hot frame
+read path in `src/RenderState.FrameReader.cs` — dirty-flag consumption
+(`ghostty_render_state_set` / `ghostty_render_state_row_set`), a forward-only
+`RenderFrameReader` (one reused cells handle, ~2 native calls per cell), `RawCell` (managed
+bit-decode of the packed `page.Cell` u64), UTF-8 grapheme reads, and `RawCellLayout.Validate()`
+(runtime cross-check of the decode against `ghostty_cell_get`; **must pass after any native pin
+bump** — it runs once at startup and as a test).
 
 ## Provenance
 

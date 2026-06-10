@@ -35,9 +35,28 @@ internal sealed class OscSidecar
 
     public void Feed(ReadOnlySpan<byte> data)
     {
-        foreach (var b in data)
+        int i = 0;
+        while (i < data.Length)
         {
-            FeedByte(b);
+            // Ground is the overwhelmingly common state for bulk output;
+            // vectorized IndexOf skips straight to the next ESC instead of
+            // walking every byte through the state machine.
+            if (_state == State.Ground)
+            {
+                int esc = data[i..].IndexOf(Esc);
+                if (esc < 0)
+                {
+                    return;
+                }
+
+                i += esc;
+                _state = State.Esc;
+                i++;
+                continue;
+            }
+
+            FeedByte(data[i]);
+            i++;
         }
     }
 

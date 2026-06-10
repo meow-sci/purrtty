@@ -110,11 +110,11 @@ Vendored binding (`vendor/Ghostty.Vt/`):
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)
 - Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`)
 - Native loader (KSA ALC): `src/Native/NativeLibraryResolver.cs` (ModuleInitializer + `SetDllImportResolver`)
-- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` + a **render-optimized cell reader** in `RenderState.cs` (`RenderStateCellEnumerator.Current` populates only the fields the frame builder draws — skipping content tag / semantic / hyperlink / protected / kitty placement — but reads style and pre-resolved fg/bg **unconditionally**: `has_styling` does NOT imply "has a color" (a cell erased to EOL under a background reports `has_styling == false` yet carries that bg — how htop paints rows), so gating colors on it drops fills. Use `GridRef.GetCell()` for the fully-populated cell)
+- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell.
 
 Backend (`purrTTY.Terminal/`):
 - Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`)
-- Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a content-pinned `GridRef` anchor that survives viewport scroll)
+- Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a content-pinned `GridRef` anchor that survives viewport scroll; **dirty-aware frame production** — see gotcha 12 — with cell fg/bg resolved managed-side from style + palette in `FillCell`, a per-surface `GraphemeCache` interning cell strings so steady-state rebuilds allocate nothing, DEC 2026 synchronized-output gating — gotcha 13 — and `LastFrameStats` for the perf HUD)
 - OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream)
 - Neutral input types: `Input/` (`TerminalKey`, `TerminalKeyEvent`, `TerminalMouseEvent`, `GridPoint`, `KeyModifiers`)
 - Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam)
@@ -138,8 +138,20 @@ Frontend (`purrTTY.Display/`):
   assemblies + user themes in `<config>/.purrTTY/themes/`). Theme TOML = alacritty-style `[colors.*]`
   sections; user-saved themes also carry `[font]` (family/size) and `[window]` (3 opacities) — those
   fields are optional and "keep current" when absent (bundled themes are colors-only).
-- Grid drawing: `Ghostty/FrameGridRenderer.cs` (per-cell bold/italic/bold-italic variant via
-  `Ghostty/FrameFonts.cs`; takes foreground/cell-background opacity multipliers)
+- Grid drawing: `Ghostty/FrameGridRenderer.cs` (bold/italic/bold-italic variant via
+  `Ghostty/FrameFonts.cs`; takes foreground/cell-background opacity multipliers). Submission is
+  **run-batched**: consecutive same-color backgrounds merge into one `AddRectFilled`; consecutive
+  same-font/same-color glyphs merge into one `AddText` from a reusable UTF-8 scratch (blank cells
+  inside a run are bridged with spaces). Batching is metric-gated: `TerminalWindow` measures each
+  variant's printable-ASCII advance against the cell width once per (family, size) — see
+  `IsAsciiMonospace` — and non-ASCII glyphs batch only after their individual advance is validated
+  by `GlyphBatchCache` (per-codepoint, cached). Anything unvalidated falls back to per-cell
+  `AddText`, which guarantees grid alignment. **Block Elements (U+2580–U+259F) never go through the
+  font at all**: they are drawn as exact rects (half/eighth blocks, quadrants; ░▒▓ as fg-alpha
+  fills), merged into horizontal strips — pixel-perfect coverage with no glyph-hinting seams, and
+  half-block "pixel" apps (doom, chafa) collapse into color-run strips. The decoration pass is
+  skipped for rows whose `FrameRow.HasDecorations` is false (computed by the backend). `Render`
+  returns `GridRenderStats` (draw-call counts) for the perf HUD.
 - Session-manager factory: `Ghostty/GhosttySessionManagerFactory.cs` (one `SessionManager` per window via
   `CreateSessionManager(config)`; `EnsureGameShellsDiscovered()` runs custom-shell discovery once)
 - Reused chrome: `Rendering/PurrTTYFontManager.cs` (font family registry → per-window `FrameFonts`),
@@ -158,7 +170,7 @@ Game/integration (`purrTTY.GameMod/`):
   New Tab / New Window (shell submenus filtered by `ShellAvailabilityChecker`, WSL distros via
   `WslDistributionDetector` — prewarmed at init; Game Console always offered), Theme (built-in +
   saved lists, Save Current As... modal with name input, Refresh), Font (size slider + family list),
-  Window (hide-chrome checkbox + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
+  Window (hide-chrome + performance-HUD checkboxes + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
 - Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
   to the build output and the deployed mod dir by the csproj.
 - Harmony patches: `Patcher.cs` (gates `KSA.Program.OnKey` via `GhosttyTerminalController.IsAnyTerminalActive`;
@@ -187,10 +199,14 @@ Custom shells:
    alone; `Text` is only for printable input.
 
 4. **Pre-resolved colors.** Push the theme via `Surface.SetTheme` so `TerminalFrame` cells carry
-   final RGB; the frontend draws them directly (no SGR resolution in the frontend). **Reverse
-   video (SGR 7) is resolved in `FillCell`** by swapping the cell's fg/bg: the engine reports
-   *logical* colors plus an inverse flag, and the frontend never swaps — so the swap must happen
-   in the backend. (The `Inverse` flag is still surfaced as metadata.)
+   final RGB; the frontend draws them directly (no SGR resolution in the frontend). Resolution
+   happens in `GhosttyTerminalSurface.FillCell` from the engine style + palette, mirroring the
+   native rules exactly: a `bg_color_*` content tag wins over the style bg (a blank cell erased
+   under a background carries its bg in the content tag while reporting no styling — how htop
+   paints rows); style palette/RGB colors otherwise; theme defaults as fallback; no bold-is-bright
+   promotion (the native C path passes no bold option either). **Reverse video (SGR 7) is resolved
+   in `FillCell`** by swapping the resolved fg/bg: the frontend never swaps. (The `Inverse` flag is
+   still surfaced as metadata.)
 
 5. **Custom shell discovery** is reflection-based; `GhosttySessionManagerFactory.EnsureGameShellsDiscovered`
    forces the `purrTTY.CustomShells` assembly to load before discovery (do not remove without replacing it).
@@ -233,7 +249,36 @@ Custom shells:
    otherwise. Reporting on **cell change**, not per pixel, matches xterm/ghostty granularity and keeps
    the PTY from flooding.
 
-## Common Workflows
+12. **Engine dirty flags are consume-and-clear; the frame rebuild honors them.** ghostty's
+   `RenderState` raises `Dirty` (False/Partial/Full) plus per-row dirty flags on `update()` and
+   **never lowers them** — `GhosttyTerminalSurface.PopulateFrame` clears both after consuming
+   (binding additions `ClearDirty`/`ClearRowDirty`); skip the clears and every tick rebuilds the
+   whole grid forever (the pre-optimization behavior). Per tick: `False` → no cell reads at all,
+   `Partial` → only dirty rows are refilled (clean rows keep their cached `FrameRow` contents —
+   safe because anything that shifts row identity — viewport scroll, resize, screen switch,
+   selection or palette change — yields `Full` from the engine), `Full`/`_pendingChange` → full
+   rebuild including colors. Cursor + scrollbar are read every tick (not covered by row dirt) and
+   compared, so `TerminalFrame.Generation`/`FrameChanged` move **only on real changes**. Don't set
+   `_pendingChange` when feeding PTY bytes — the engine decides whether they changed anything.
+
+13. **Synchronized output (DEC 2026) gates the frame, with a 1s safety timeout.** While an app has
+   mode 2026 set (batching a redraw), `BuildFrame` keeps feeding PTY bytes to the engine but skips
+   the render-state update + frame populate, so the previous *complete* frame stays on screen — no
+   mid-redraw tearing for apps that use it. If the mode stays set past `SyncOutputTimeout` (1s),
+   frames render live until the app clears it (a stuck app cannot freeze the terminal).
+
+14. **The ConPTY output pump must never sleep.** `ConPtyOutputPump` runs a blocking `ReadFile` loop
+   on a dedicated long-running thread with a 64 KB buffer; the pipe read itself blocks until data
+   arrives, so there is no loop to throttle. (A `Task.Delay(1)` after every 4 KB read previously
+   capped throughput at single-digit MB/s, which slowed fast TUIs *and* smeared their full-screen
+   redraws across many render ticks — the primary cause of visible tearing.) Teardown unblocks the
+   read by closing the pipe handle (ERROR_BROKEN_PIPE/ERROR_INVALID_HANDLE exit the loop quietly).
+
+15. **Perf HUD for render diagnostics.** Window menu → "Show performance HUD"
+   (`TerminalWindow.ShowPerfHud`, all windows) overlays per-tick numbers: engine write / update /
+   populate ms (`GhosttyTerminalSurface.LastFrameStats`), ImGui submit ms, dirty state
+   (clean/partial/full/sync-hold), PTY MB/s, and the renderer's draw-call breakdown
+   (`GridRenderStats`). Use it before optimizing anything further.
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`

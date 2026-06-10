@@ -5,7 +5,7 @@ using Ghostty.Vt.Types;
 
 namespace Ghostty.Vt;
 
-public sealed class RenderState : IDisposable
+public sealed partial class RenderState : IDisposable
 {
     private readonly RenderStateSafeHandle _handle;
 

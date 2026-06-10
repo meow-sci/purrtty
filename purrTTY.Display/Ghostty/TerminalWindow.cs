@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Theming;
 using purrTTY.Logging;
+using PurrTTY.Terminal.Ghostty;
 using PurrTTY.Terminal.Input;
 using PurrTTY.Terminal.Rendering;
 using PurrTTY.Terminal.Sessions;
@@ -109,6 +111,14 @@ public sealed class TerminalWindow : IDisposable
 
     private float _cellWidth = 8f;
     private float _cellHeight = 16f;
+
+    /// <summary>Debug overlay with frame-build / submit timings and draw-call counts (all windows).</summary>
+    public static bool ShowPerfHud { get; set; }
+
+    // Perf-HUD throughput tracking (bytes consumed per second, ~500ms window).
+    private long _hudAccumBytes;
+    private long _hudWindowStartTs;
+    private double _hudBytesPerSec;
 
     public int Id { get; }
     public SessionManager Sessions { get; }
@@ -254,8 +264,8 @@ public sealed class TerminalWindow : IDisposable
             return;
         }
 
-        var fonts = ResolveFonts();
         float fontSize = Settings.FontSize;
+        var fonts = ResolveFontsCached(fontSize);
         bool showChrome = !hideChromeWhenNotHovered || _wasHoveredLastFrame;
 
         var bg = Settings.Colors.Background;
@@ -357,13 +367,24 @@ public sealed class TerminalWindow : IDisposable
             session.Surface.SetMouseGeometry(
                 (int)(cols * _cellWidth), (int)(rows * _cellHeight), (int)_cellWidth, (int)_cellHeight);
 
+            long buildStart = Stopwatch.GetTimestamp();
             var frame = session.Surface.BuildFrame();
+            long submitStart = Stopwatch.GetTimestamp();
             bool cursorOn = !frame.Cursor.Blinking || cursorBlinkOn;
 
-            FrameGridRenderer.Render(
+            var renderStats = FrameGridRenderer.Render(
                 frame, ImGui.GetWindowDrawList(), canvasPos,
                 _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn,
                 Settings.ForegroundOpacity, Settings.CellBackgroundOpacity);
+
+            if (ShowPerfHud)
+            {
+                DrawPerfHud(
+                    session, canvasPos, avail, cols, rows,
+                    Stopwatch.GetElapsedTime(buildStart, submitStart).TotalMilliseconds,
+                    Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds,
+                    renderStats);
+            }
         }
         else if (_hadSessions && Sessions.SessionCount == 0)
         {
@@ -804,6 +825,57 @@ public sealed class TerminalWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// Debug overlay (top-right of the grid): frame-build vs ImGui-submit cost,
+    /// dirty state, PTY throughput, and draw-call counts from the renderer.
+    /// </summary>
+    private void DrawPerfHud(
+        TerminalSession session,
+        float2 canvasPos,
+        float2 avail,
+        int cols,
+        int rows,
+        double buildMs,
+        double submitMs,
+        GridRenderStats stats)
+    {
+        var frameStats = (session.Surface as GhosttyTerminalSurface)?.LastFrameStats ?? default;
+
+        _hudAccumBytes += frameStats.BytesConsumed;
+        if (_hudWindowStartTs == 0)
+        {
+            _hudWindowStartTs = Stopwatch.GetTimestamp();
+        }
+
+        var elapsed = Stopwatch.GetElapsedTime(_hudWindowStartTs);
+        if (elapsed.TotalMilliseconds >= 500)
+        {
+            _hudBytesPerSec = _hudAccumBytes / elapsed.TotalSeconds;
+            _hudAccumBytes = 0;
+            _hudWindowStartTs = Stopwatch.GetTimestamp();
+        }
+
+        string state = frameStats.SyncPaused
+            ? "sync-hold"
+            : frameStats.DirtyState switch { 0 => "clean", 1 => "partial", _ => "full" };
+
+        string l1 = $"grid {cols}x{rows}  build {buildMs:F2}ms (vt {frameStats.WriteMs:F2} upd {frameStats.UpdateMs:F2} pop {frameStats.PopulateMs:F2})";
+        string l2 = $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s";
+        string l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}";
+
+        float lineH = ImGui.GetTextLineHeight();
+        float w = Math.Max(ImGui.CalcTextSize(l1).X, Math.Max(ImGui.CalcTextSize(l2).X, ImGui.CalcTextSize(l3).X));
+        const float pad = 6f;
+
+        var drawList = ImGui.GetWindowDrawList();
+        var p0 = new float2(canvasPos.X + avail.X - w - pad * 2 - 4f, canvasPos.Y + 4f);
+        var p1 = new float2(p0.X + w + pad * 2, p0.Y + lineH * 3 + pad * 2);
+        drawList.AddRectFilled(p0, p1, 0xB0000000u);
+        drawList.AddText(new float2(p0.X + pad, p0.Y + pad), 0xFF7FFF7Fu, l1);
+        drawList.AddText(new float2(p0.X + pad, p0.Y + pad + lineH), 0xFF7FDFFFu, l2);
+        drawList.AddText(new float2(p0.X + pad, p0.Y + pad + lineH * 2), 0xFFFFBF7Fu, l3);
+    }
+
     private GridPoint MouseCell(float2 canvasPos, int cols, int rows)
     {
         var mouse = ImGui.GetMousePos();
@@ -904,6 +976,68 @@ public sealed class TerminalWindow : IDisposable
 
         _cellWidth = size.X > 0.5f ? size.X : fontSize * 0.6f;
         _cellHeight = size.Y > 0.5f ? size.Y : fontSize * 1.2f;
+    }
+
+    // Cached font resolution + ASCII run-batch validation. Recomputed when the
+    // family/size changes or when more fonts finish loading (variant fallbacks
+    // can resolve differently once their font appears).
+    private readonly GlyphBatchCache _glyphBatchCache = new();
+    private FrameFonts _cachedFonts;
+    private bool _hasCachedFonts;
+    private string? _cachedFontFamily;
+    private float _cachedFontSize;
+    private int _cachedLoadedFontCount;
+
+    private FrameFonts ResolveFontsCached(float fontSize)
+    {
+        int loadedCount = PurrTTYFontManager.LoadedFonts.Count;
+        if (_hasCachedFonts
+            && _cachedFontFamily == Settings.FontFamily
+            && _cachedFontSize == fontSize
+            && _cachedLoadedFontCount == loadedCount)
+        {
+            return _cachedFonts;
+        }
+
+        var fonts = ResolveFonts();
+        ComputeCellMetrics(fonts.Regular, fontSize);
+        _glyphBatchCache.Clear();
+        _cachedFonts = new FrameFonts(
+            fonts.Regular, fonts.Bold, fonts.Italic, fonts.BoldItalic,
+            IsAsciiMonospace(fonts.Regular, fontSize, _cellWidth),
+            IsAsciiMonospace(fonts.Bold, fontSize, _cellWidth),
+            IsAsciiMonospace(fonts.Italic, fontSize, _cellWidth),
+            IsAsciiMonospace(fonts.BoldItalic, fontSize, _cellWidth),
+            _glyphBatchCache);
+        _hasCachedFonts = true;
+        _cachedFontFamily = Settings.FontFamily;
+        _cachedFontSize = fontSize;
+        _cachedLoadedFontCount = loadedCount;
+        return _cachedFonts;
+    }
+
+    private static readonly string AsciiSample = CreateAsciiSample();
+
+    private static string CreateAsciiSample()
+    {
+        Span<char> chars = stackalloc char[94];
+        for (int i = 0; i < chars.Length; i++)
+        {
+            chars[i] = (char)('!' + i);
+        }
+
+        return new string(chars);
+    }
+
+    // A variant may batch ASCII runs only when its measured printable-ASCII
+    // advance matches the grid cell width exactly; otherwise the renderer
+    // falls back to per-cell placement to keep columns aligned.
+    private static bool IsAsciiMonospace(ImFontPtr font, float fontSize, float cellWidth)
+    {
+        ImGui.PushFont(font, fontSize);
+        var size = ImGui.CalcTextSize(AsciiSample);
+        ImGui.PopFont();
+        return Math.Abs(size.X - AsciiSample.Length * cellWidth) <= 0.5f;
     }
 
     private FrameFonts ResolveFonts()
