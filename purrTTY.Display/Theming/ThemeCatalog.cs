@@ -71,6 +71,29 @@ public sealed class ThemeCatalog
         return Find(theme.Name) ?? theme;
     }
 
+    /// <summary>
+    /// Deletes a user theme's backing file and refreshes the catalog. Returns
+    /// true when a matching user theme was found and removed; false if no such
+    /// user theme exists. Throws on filesystem failure so callers can surface it.
+    /// </summary>
+    public bool DeleteUserTheme(string name)
+    {
+        var theme = _user.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (theme?.FilePath is not { } filePath)
+        {
+            return false;
+        }
+
+        if (File.Exists(filePath))
+        {
+            File.Delete(filePath);
+        }
+
+        ModLog.Log.Debug($"ThemeCatalog: deleted user theme '{theme.Name}' ({filePath})");
+        Refresh();
+        return true;
+    }
+
     public static string GetBuiltInThemesDirectory()
     {
         var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)

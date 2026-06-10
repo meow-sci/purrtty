@@ -22,6 +22,7 @@ public class TerminalMod
 {
     private const string ToggleHotkeyPopupId = "purrTTY Hot Key Settings##purrtty_toggle_hotkey_modal";
     private const string SaveThemePopupId = "Save purrTTY Theme##purrtty_save_theme_modal";
+    private const string DeleteThemePopupId = "Delete purrTTY Theme##purrtty_delete_theme_modal";
 
     private GhosttyTerminalController? _controller;
     private bool _isDisposed;
@@ -37,6 +38,10 @@ public class TerminalMod
     private readonly ImInputString _themeNameInput = new(96);
     private bool _saveThemeModalOpenRequested;
     private string? _saveThemeError;
+
+    private bool _deleteThemeModalOpenRequested;
+    private string? _deleteThemeName;
+    private string? _deleteThemeError;
 
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
@@ -64,6 +69,11 @@ public class TerminalMod
     ///     Opens the save-theme-as dialog.
     /// </summary>
     internal static Action? OpenSaveThemeDialog;
+
+    /// <summary>
+    ///     Opens the delete-theme confirmation dialog for the named user theme.
+    /// </summary>
+    internal static Action<string>? OpenDeleteThemeDialog;
 
     /// <summary>
     ///     The live controller the game menus act on (null until initialized).
@@ -269,6 +279,19 @@ public class TerminalMod
             OpenSaveThemeDialog?.Invoke();
         }
 
+        if (controller.Catalog.UserThemes.Count > 0 && ImGui.BeginMenu("Delete Theme"))
+        {
+            foreach (var theme in controller.Catalog.UserThemes)
+            {
+                if (ImGui.MenuItem(theme.Name))
+                {
+                    OpenDeleteThemeDialog?.Invoke(theme.Name);
+                }
+            }
+
+            ImGui.EndMenu();
+        }
+
         if (ImGui.MenuItem("Refresh Themes"))
         {
             controller.Catalog.Refresh();
@@ -389,6 +412,7 @@ public class TerminalMod
         {
             bool modalVisible = RenderToggleHotkeyModal();
             modalVisible |= RenderSaveThemeModal();
+            modalVisible |= RenderDeleteThemeModal();
 
             // Handle terminal toggle keybind (dynamic, defaults to F12)
             if (!modalVisible && IsToggleHotkeyPressed())
@@ -549,6 +573,7 @@ public class TerminalMod
             GetToggleHotkeyShortcut = () => _toggleHotkey.ToShortcutString();
             OpenToggleHotkeySettings = RequestOpenToggleHotkeyModal;
             OpenSaveThemeDialog = RequestOpenSaveThemeModal;
+            OpenDeleteThemeDialog = RequestOpenDeleteThemeModal;
             MenuController = controller;
 
             _isInitialized = true;
@@ -710,6 +735,69 @@ public class TerminalMod
 
         ImGui.SameLine(0, gap);
         if (ImGui.Button(" Cancel ##purrtty_cancel_save_theme", new float2(buttonWidth, 0f)) || !open)
+        {
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+        return true;
+    }
+
+    private void RequestOpenDeleteThemeModal(string themeName)
+    {
+        if (!_isInitialized || _isDisposed || _controller == null || string.IsNullOrWhiteSpace(themeName))
+        {
+            return;
+        }
+
+        _deleteThemeName = themeName;
+        _deleteThemeError = null;
+        _deleteThemeModalOpenRequested = true;
+    }
+
+    private bool RenderDeleteThemeModal()
+    {
+        if (_deleteThemeModalOpenRequested)
+        {
+            _deleteThemeModalOpenRequested = false;
+            ImGui.OpenPopup(DeleteThemePopupId);
+        }
+
+        bool open = true;
+        ImGui.SetNextWindowSize(new float2(480f, 0f), ImGuiCond.Appearing);
+        if (!ImGui.BeginPopupModal(DeleteThemePopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            return false;
+        }
+
+        ImGui.TextWrapped($"Delete the saved theme '{_deleteThemeName}'? This permanently removes its file and cannot be undone.");
+
+        if (_deleteThemeError != null)
+        {
+            ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), _deleteThemeError);
+        }
+
+        ImGui.Spacing();
+
+        float availW = ImGui.GetContentRegionAvail().X;
+        const float gap = 8f;
+        float buttonWidth = (availW - gap) / 2f;
+
+        if (ImGui.Button(" Delete ##purrtty_confirm_delete_theme", new float2(buttonWidth, 0f)))
+        {
+            try
+            {
+                _controller?.Catalog.DeleteUserTheme(_deleteThemeName ?? string.Empty);
+                ImGui.CloseCurrentPopup();
+            }
+            catch (Exception ex)
+            {
+                _deleteThemeError = $"Delete failed: {ex.Message}";
+            }
+        }
+
+        ImGui.SameLine(0, gap);
+        if (ImGui.Button(" Cancel ##purrtty_cancel_delete_theme", new float2(buttonWidth, 0f)) || !open)
         {
             ImGui.CloseCurrentPopup();
         }
@@ -1018,6 +1106,7 @@ public class TerminalMod
             GetToggleHotkeyShortcut = null;
             OpenToggleHotkeySettings = null;
             OpenSaveThemeDialog = null;
+            OpenDeleteThemeDialog = null;
             MenuController = null;
 
             _isInitialized = false;
