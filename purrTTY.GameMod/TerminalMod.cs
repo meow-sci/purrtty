@@ -653,6 +653,12 @@ public class TerminalMod
 
         bool submitted = ImGui.InputText("##purrtty_theme_name", _themeNameInput, ImGuiInputTextFlags.EnterReturnsTrue);
 
+        // BRUTAL's InputText only recomputes ImInputString.Length when it returns true. With
+        // EnterReturnsTrue that's *only* on Enter, never on plain typing, so Length (and thus
+        // ToString()/Value) would stay empty while the user types — leaving the Save button
+        // permanently disabled. Re-evaluate the length from the buffer ourselves every frame.
+        _themeNameInput.EvaluateLength();
+
         string name = _themeNameInput.ToString().Trim();
         if (name.Length > 0 && _controller?.Catalog.UserThemeExists(name) == true)
         {
