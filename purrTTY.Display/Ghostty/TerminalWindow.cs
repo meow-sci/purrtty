@@ -552,7 +552,11 @@ public sealed class TerminalWindow : IDisposable
         var cell = MouseCell(canvasPos, cols, rows);
 
         // Selection gestures: single-click+drag selects cells, double-click selects
-        // a word, triple-click selects the logical line.
+        // a word, triple-click selects the logical line. A plain click that never
+        // drags clears the selection (it falls through to ClearSelection on press
+        // and the extend branch never fires), matching real terminals — without
+        // this, holding the button for a frame painted a one-cell selection that
+        // could never be deselected.
         if (gridHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
             int clicks = ImGui.GetMouseClickedCount(ImGuiMouseButton.Left);
@@ -568,12 +572,14 @@ public sealed class TerminalWindow : IDisposable
             }
             else
             {
+                // Clear now and record the anchor, but defer materializing the
+                // selection until the mouse actually drags past the threshold.
                 session.Surface.ClearSelection();
                 session.Surface.BeginSelectCells(cell);
                 _selecting = true;
             }
         }
-        else if (_selecting && ImGui.IsMouseDown(ImGuiMouseButton.Left))
+        else if (_selecting && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
         {
             AutoScrollForDrag(session, canvasPos, rows);
             session.Surface.ExtendSelectCells(cell);
