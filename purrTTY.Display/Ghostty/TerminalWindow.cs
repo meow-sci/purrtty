@@ -77,6 +77,9 @@ public sealed class TerminalWindow : IDisposable
     /// <summary>Pixels around the window rect that still count as "hovering" (covers resize grips).</summary>
     private const float HoverMargin = 8f;
 
+    /// <summary>ImGui popup id for the grid's right-click copy/paste context menu.</summary>
+    private const string GridContextMenuId = "##grid_context";
+
     private readonly string _imguiName;
 
     private TerminalTheme _engineTheme;
@@ -358,6 +361,13 @@ public sealed class TerminalWindow : IDisposable
             HandleInput(session, canvasPos, cols, rows, gridHovered);
         }
 
+        // Rendered unconditionally (not gated on focus) so the right-click
+        // copy/paste popup stays alive once opened, even as the mouse leaves the grid.
+        if (session != null)
+        {
+            DrawContextMenu();
+        }
+
         // Hover state feeding next frame's chrome visibility: mouse anywhere over
         // the window rect (plus a margin for resize grips), or an in-progress drag.
         var mouse = ImGui.GetMousePos();
@@ -589,11 +599,35 @@ public sealed class TerminalWindow : IDisposable
             _selecting = false;
         }
 
-        // Right-click copies the current selection.
+        // Right-click opens the copy/paste context menu over the grid.
         if (gridHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        {
+            ImGui.OpenPopup(GridContextMenuId);
+        }
+    }
+
+    // Right-click context menu over the grid: Copy (enabled only with a live
+    // selection) and Paste. Opened from HandleMouse and rendered every frame so
+    // the popup survives the mouse moving off the grid onto the menu itself.
+    private void DrawContextMenu()
+    {
+        if (!ImGui.BeginPopup(GridContextMenuId))
+        {
+            return;
+        }
+
+        bool hasSelection = !string.IsNullOrEmpty(Sessions.ActiveSession?.Surface.GetSelectionText());
+        if (ImGui.MenuItem("Copy", "Ctrl+Shift+C", false, hasSelection))
         {
             CopySelectionToClipboard();
         }
+
+        if (ImGui.MenuItem("Paste", "Ctrl+Shift+V"))
+        {
+            PasteFromClipboard();
+        }
+
+        ImGui.EndPopup();
     }
 
     private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, bool hovered)
