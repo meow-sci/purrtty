@@ -101,6 +101,12 @@ public sealed class TerminalWindow : IDisposable
     private Guid? _lastActiveSessionId;
     private (float2 Pos, float2 Size)? _pendingPlacement;
 
+    // Interactive-resize tracking for the grid snap (see TrackResizeSnap).
+    private float2 _trackedWindowSize;
+    private bool _windowSizeTracked;
+    private bool _userResizing;
+    private float2? _pendingSnapSize;
+
     private float _cellWidth = 8f;
     private float _cellHeight = 16f;
 
@@ -281,6 +287,11 @@ public sealed class TerminalWindow : IDisposable
             ImGui.SetNextWindowSize(placement.Size, ImGuiCond.Always);
             _pendingPlacement = null;
         }
+        else if (_pendingSnapSize is { } snapSize)
+        {
+            ImGui.SetNextWindowSize(snapSize, ImGuiCond.Always);
+            _pendingSnapSize = null;
+        }
         else
         {
             ImGui.SetNextWindowSize(new float2(880f, 520f), ImGuiCond.FirstUseEver);
@@ -327,6 +338,8 @@ public sealed class TerminalWindow : IDisposable
 
         int cols = Math.Max(1, (int)(avail.X / _cellWidth));
         int rows = Math.Max(1, (int)(avail.Y / _cellHeight));
+
+        TrackResizeSnap(windowSize, avail, cols, rows);
 
         var session = Sessions.ActiveSession;
         if (session != null)
@@ -743,6 +756,53 @@ public sealed class TerminalWindow : IDisposable
 
     private int AutoScrollStep(float overflowPixels)
         => Math.Clamp(1 + (int)(overflowPixels / Math.Max(1f, _cellHeight)), 1, 5);
+
+    /// <summary>
+    /// Snaps the window to the character grid when an interactive resize ends.
+    /// While a resize drag is in progress the terminal is resized live (cols/rows
+    /// floor-divide the content region, leaving a fractional-cell remainder); on
+    /// mouse release the window shrinks by that remainder so the grid fills the
+    /// content region exactly. The chrome contribution (menu strip, tab bar,
+    /// padding, border) is measured as <c>windowSize - avail</c> on the same
+    /// frame rather than computed from style metrics, so the target is exact for
+    /// any chrome configuration. A resize is only recognized when the size
+    /// changes while the left button is held, and the snap fires on release —
+    /// our own SetNextWindowSize applies with the mouse up, so it can never be
+    /// mistaken for a user resize (no feedback loop, no time-based guards).
+    /// </summary>
+    private void TrackResizeSnap(float2 windowSize, float2 avail, int cols, int rows)
+    {
+        if (!_windowSizeTracked)
+        {
+            _trackedWindowSize = windowSize;
+            _windowSizeTracked = true;
+            return;
+        }
+
+        bool sizeChanged =
+            Math.Abs(windowSize.X - _trackedWindowSize.X) > 0.5f ||
+            Math.Abs(windowSize.Y - _trackedWindowSize.Y) > 0.5f;
+        _trackedWindowSize = windowSize;
+
+        bool mouseDown = ImGui.IsMouseDown(ImGuiMouseButton.Left);
+        if (sizeChanged && mouseDown)
+        {
+            _userResizing = true;
+            return;
+        }
+
+        if (_userResizing && !mouseDown)
+        {
+            _userResizing = false;
+
+            float targetX = windowSize.X - (avail.X - cols * _cellWidth);
+            float targetY = windowSize.Y - (avail.Y - rows * _cellHeight);
+            if (Math.Abs(targetX - windowSize.X) > 0.5f || Math.Abs(targetY - windowSize.Y) > 0.5f)
+            {
+                _pendingSnapSize = new float2(targetX, targetY);
+            }
+        }
+    }
 
     private GridPoint MouseCell(float2 canvasPos, int cols, int rows)
     {

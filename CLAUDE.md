@@ -127,7 +127,12 @@ Frontend (`purrTTY.Display/`):
   tab bar hidden with one tab; per-window theme/font/opacity via `TerminalWindowSettings`; chrome hiding:
   transparent WindowBg/MenuBarBg + zero border + `Alpha=0` menu/tab strips when the mouse is not over the
   window, even while focused; menu-bar strip is the drag handle (no title bar) and an `InvisibleButton`
-  over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste)
+  over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste; grid snap:
+  when an interactive resize ends, `TrackResizeSnap` shrinks the window by the fractional-cell
+  remainder so the grid exactly fills the content region — chrome is *measured* as
+  `windowSize - avail`, not computed from style metrics, and a resize is recognized only as
+  size-change-while-LMB-held with the snap firing on release, so the snap's own
+  `SetNextWindowSize` can never re-trigger detection (no timers needed))
 - Theming: `Theming/` (`ThemeDefinition`/`ThemeColors` + `ToEngineTheme()`, `ThemeTomlFormat` (Tomlyn DOM
   read/write), `ThemeCatalog` — code-built "Default" + bundled `TerminalThemes/*.toml` beside the
   assemblies + user themes in `<config>/.purrTTY/themes/`). Theme TOML = alacritty-style `[colors.*]`
