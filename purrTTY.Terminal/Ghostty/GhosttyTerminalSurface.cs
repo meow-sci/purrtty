@@ -318,7 +318,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         }
 
         _mouseEvent.Action = (int)mouseEvent.Action;
-        _mouseEvent.Button = mouseEvent.Button == MouseButton.None ? -1 : (int)mouseEvent.Button;
+        _mouseEvent.Button = ToNativeButton(mouseEvent.Button);
         _mouseEvent.Modifiers = (int)mouseEvent.Modifiers;
         _mouseEvent.X = mouseEvent.X;
         _mouseEvent.Y = mouseEvent.Y;
@@ -576,6 +576,20 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         CursorShape.Underline => CursorVisualStyle.Underline,
         CursorShape.BlockHollow => CursorVisualStyle.BlockHollow,
         _ => CursorVisualStyle.Block,
+    };
+
+    // Map the renderer-neutral button to libghostty's GhosttyMouseButton enum
+    // (UNKNOWN=0, LEFT=1, RIGHT=2, MIDDLE=3, FOUR=4 = scroll-up, FIVE=5 = scroll-down).
+    // A negative value clears the button on the native event. NOTE: the neutral
+    // ordering differs (Left=0/Middle=1/Right=2), so a straight cast is wrong.
+    private static int ToNativeButton(MouseButton button) => button switch
+    {
+        MouseButton.Left => 1,
+        MouseButton.Right => 2,
+        MouseButton.Middle => 3,
+        MouseButton.ScrollUp => 4,
+        MouseButton.ScrollDown => 5,
+        _ => -1,
     };
 
     private void EnsureInboxCapacity(int required)

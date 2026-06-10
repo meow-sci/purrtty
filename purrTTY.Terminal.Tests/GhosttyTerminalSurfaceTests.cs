@@ -370,6 +370,53 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void EncodeMouse_SgrButtonsMapToWireCodes()
+    {
+        // Enable normal mouse tracking (1000) + SGR extended encoding (1006). The
+        // neutral MouseButton ordering (Left=0/Middle=1/Right=2) is NOT libghostty's
+        // (Left=1/Right=2/Middle=3), so the backend must translate — a straight cast
+        // would mis-send Left as "unknown" and Middle as "left".
+        using var surface = NewSurface(20, 5);
+        WriteText(surface, "\x1b[?1000h\x1b[?1006h");
+        surface.BuildFrame();
+        surface.SetMouseGeometry(160, 80, 8, 16);
+        Assert.That(surface.IsMouseTrackingEnabled, Is.True);
+
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Press, MouseButton.Left, 0, 0),
+            Is.EqualTo("\x1b[<0;1;1M"), "left press → SGR wire button 0 at cell (1,1)");
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Press, MouseButton.Middle, 0, 0),
+            Is.EqualTo("\x1b[<1;1;1M"), "middle press → SGR wire button 1");
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Press, MouseButton.Right, 0, 0),
+            Is.EqualTo("\x1b[<2;1;1M"), "right press → SGR wire button 2");
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Release, MouseButton.Left, 0, 0),
+            Is.EqualTo("\x1b[<0;1;1m"), "release uses a lowercase 'm' terminator");
+    }
+
+    [Test]
+    public void EncodeMouse_UsesSurfaceLocalPixels()
+    {
+        // The encoder converts surface-local pixels (0,0 = grid top-left) to cells,
+        // so the frontend must pass mouse-minus-canvas, not screen-global coords.
+        using var surface = NewSurface(20, 5);
+        WriteText(surface, "\x1b[?1000h\x1b[?1006h");
+        surface.BuildFrame();
+        surface.SetMouseGeometry(160, 80, 8, 16); // 8×16 cells
+
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Press, MouseButton.Left, 8, 16),
+            Is.EqualTo("\x1b[<0;2;2M"), "pixel (8,16) with 8×16 cells is cell (2,2)");
+        Assert.That(EncodeMouseSgr(surface, MouseAction.Press, MouseButton.Left, 24, 48),
+            Is.EqualTo("\x1b[<0;4;4M"), "pixel (24,48) is cell (4,4)");
+    }
+
+    private static string EncodeMouseSgr(ITerminalSurface surface, MouseAction action, MouseButton button, float x, float y)
+    {
+        var ev = new TerminalMouseEvent { Action = action, Button = button, X = x, Y = y };
+        Span<byte> buf = stackalloc byte[32];
+        int n = surface.EncodeMouse(ev, buf);
+        return Encoding.ASCII.GetString(buf[..n]);
+    }
+
+    [Test]
     public void BracketedPaste_WrapsWhenModeEnabled()
     {
         using var surface = NewSurface();

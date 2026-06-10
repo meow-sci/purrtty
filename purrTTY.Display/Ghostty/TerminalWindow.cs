@@ -537,23 +537,19 @@ public sealed class TerminalWindow : IDisposable
 
     private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool gridHovered)
     {
-        // Wheel scrolling (viewport scrollback when the app isn't tracking the mouse).
-        if (gridHovered && io.MouseWheel != 0 && !session.Surface.IsMouseTrackingEnabled)
+        if (session.Surface.IsMouseTrackingEnabled)
+        {
+            HandleAppMouse(session, io, canvasPos, gridHovered);
+            return;
+        }
+
+        // Wheel scrolls the viewport scrollback when the app isn't tracking the mouse.
+        if (gridHovered && io.MouseWheel != 0)
         {
             session.Surface.ScrollBy(-(int)Math.Round(io.MouseWheel * 3));
         }
 
         var cell = MouseCell(canvasPos, cols, rows);
-
-        if (session.Surface.IsMouseTrackingEnabled)
-        {
-            if (gridHovered || _selecting)
-            {
-                HandleAppMouse(session, io, cell);
-            }
-
-            return;
-        }
 
         // Selection gestures: single-click+drag selects cells, double-click selects
         // a word, triple-click selects the logical line.
@@ -594,12 +590,16 @@ public sealed class TerminalWindow : IDisposable
         }
     }
 
-    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, GridPoint cell)
+    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, bool hovered)
     {
-        var pos = ImGui.GetMousePos();
+        // libghostty's mouse encoder expects surface-local pixels (0,0 = top-left of
+        // the terminal grid), not ImGui's screen-global mouse position.
+        var pos = ImGui.GetMousePos() - canvasPos;
         var mods = ReadModifiers(io);
 
-        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        // Press is gated on hover (the click must land on the grid); release fires
+        // unconditionally so a drag that ends off-grid still reports button-up.
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Left, mods, pos);
         }
@@ -607,7 +607,7 @@ public sealed class TerminalWindow : IDisposable
         {
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Left, mods, pos);
         }
-        else if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
         {
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Right, mods, pos);
         }
@@ -615,10 +615,20 @@ public sealed class TerminalWindow : IDisposable
         {
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Right, mods, pos);
         }
-
-        if (io.MouseWheel != 0)
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Middle))
         {
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Middle, mods, pos);
+        }
+        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Middle))
+        {
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Middle, mods, pos);
+        }
+
+        // Wheel reports as a scroll-button press (libghostty buttons 4/5).
+        if (hovered && io.MouseWheel != 0)
+        {
+            var button = io.MouseWheel > 0 ? MouseButton.ScrollUp : MouseButton.ScrollDown;
+            EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
         }
     }
 

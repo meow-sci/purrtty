@@ -205,6 +205,20 @@ Custom shells:
    does not change when chrome fades in on hover. Only style colors/alpha may differ between the
    hidden and shown states, never layout.
 
+9. **Mouse needs a canvas `InvisibleButton`.** `TerminalWindow.Render` reserves the grid rect with
+   `ImGui.InvisibleButton("##grid", ...)` over the painted frame. The window is title-bar-less, so
+   without an item under the cursor ImGui treats a body click-drag as a **window move** — text
+   selection silently breaks and the window slides instead. The button also supplies the
+   `IsItemHovered` (`gridHovered`) state the mouse handlers gate on; the menu-bar strip stays the
+   drag handle. Input is dispatched while the window holds ImGui focus. The grid is painted via the
+   draw list, so the button stays invisible.
+
+10. **Neutral `MouseButton` is remapped, not cast.** The renderer-neutral `MouseButton`
+   (Left=0/Middle=1/Right=2) is **not** libghostty's order (Left=1/Right=2/Middle=3; scroll = 4/5).
+   `GhosttyTerminalSurface.EncodeMouse` translates via `ToNativeButton` — a straight `(int)` cast
+   mis-sends every button (Left→UNKNOWN, Middle→Left). App-mouse coordinates are **surface-local**
+   (mouse − canvas), not screen-global, since the engine's encoder maps pixels→cells itself.
+
 ## Common Workflows
 
 ### Changing terminal/rendering behavior
