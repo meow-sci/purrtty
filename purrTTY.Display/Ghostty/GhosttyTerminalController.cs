@@ -1,79 +1,32 @@
-using Brutal.ImGuiApi;
 using Brutal.Numerics;
+using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
-using purrTTY.Display.Rendering;
+using purrTTY.Display.Theming;
 using purrTTY.Display.Types;
-using PurrTTY.Terminal.Input;
-using PurrTTY.Terminal.Rendering;
-using PurrTTY.Terminal.Sessions;
-using TerminalTheme = PurrTTY.Terminal.TerminalTheme;
-using TKeyMods = PurrTTY.Terminal.Input.KeyModifiers;
+using purrTTY.Logging;
 
 namespace purrTTY.Display.Ghostty;
 
 /// <summary>
-/// A clean ImGui terminal controller driven entirely by the renderer-neutral
-/// libghostty-vt backend. Each frame it ticks the active session's surface
-/// (<c>BuildFrame</c>), draws the resulting <see cref="TerminalFrame"/>, and
-/// forwards input through the surface (keys/mouse encoded by the engine,
-/// selection via engine gestures). Replaces the legacy emulator-coupled
-/// controller; advanced chrome (settings panel, opacity, hover-hide,
-/// window-state persistence) is intentionally deferred.
+/// Multi-window terminal controller. Manages a set of <see cref="TerminalWindow"/>s
+/// (each owning its sessions/tabs and per-window theme), routes the game-menu
+/// actions (new tab/window, theme application, font/opacity changes) to the
+/// focused window, and persists display defaults plus the first window's
+/// geometry through <see cref="ThemeConfiguration"/>.
 /// </summary>
 public sealed class GhosttyTerminalController : ITerminalController
 {
-    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] NamedKeys =
-    {
-        (ImGuiKey.Enter, TerminalKey.Enter),
-        (ImGuiKey.KeypadEnter, TerminalKey.Enter),
-        (ImGuiKey.Backspace, TerminalKey.Backspace),
-        (ImGuiKey.Tab, TerminalKey.Tab),
-        (ImGuiKey.Escape, TerminalKey.Escape),
-        (ImGuiKey.UpArrow, TerminalKey.ArrowUp),
-        (ImGuiKey.DownArrow, TerminalKey.ArrowDown),
-        (ImGuiKey.RightArrow, TerminalKey.ArrowRight),
-        (ImGuiKey.LeftArrow, TerminalKey.ArrowLeft),
-        (ImGuiKey.Home, TerminalKey.Home),
-        (ImGuiKey.End, TerminalKey.End),
-        (ImGuiKey.Delete, TerminalKey.Delete),
-        (ImGuiKey.Insert, TerminalKey.Insert),
-        (ImGuiKey.PageUp, TerminalKey.PageUp),
-        (ImGuiKey.PageDown, TerminalKey.PageDown),
-        (ImGuiKey.F1, TerminalKey.F1), (ImGuiKey.F2, TerminalKey.F2), (ImGuiKey.F3, TerminalKey.F3),
-        (ImGuiKey.F4, TerminalKey.F4), (ImGuiKey.F5, TerminalKey.F5), (ImGuiKey.F6, TerminalKey.F6),
-        (ImGuiKey.F7, TerminalKey.F7), (ImGuiKey.F8, TerminalKey.F8), (ImGuiKey.F9, TerminalKey.F9),
-        (ImGuiKey.F10, TerminalKey.F10), (ImGuiKey.F11, TerminalKey.F11), (ImGuiKey.F12, TerminalKey.F12),
-    };
+    private readonly ThemeConfiguration _config;
+    private readonly ThemeCatalog _catalog;
+    private readonly List<TerminalWindow> _windows = new();
 
-    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] LetterKeys =
-    {
-        (ImGuiKey.A, TerminalKey.A), (ImGuiKey.B, TerminalKey.B), (ImGuiKey.C, TerminalKey.C),
-        (ImGuiKey.D, TerminalKey.D), (ImGuiKey.E, TerminalKey.E), (ImGuiKey.F, TerminalKey.F),
-        (ImGuiKey.G, TerminalKey.G), (ImGuiKey.H, TerminalKey.H), (ImGuiKey.I, TerminalKey.I),
-        (ImGuiKey.J, TerminalKey.J), (ImGuiKey.K, TerminalKey.K), (ImGuiKey.L, TerminalKey.L),
-        (ImGuiKey.M, TerminalKey.M), (ImGuiKey.N, TerminalKey.N), (ImGuiKey.O, TerminalKey.O),
-        (ImGuiKey.P, TerminalKey.P), (ImGuiKey.Q, TerminalKey.Q), (ImGuiKey.R, TerminalKey.R),
-        (ImGuiKey.S, TerminalKey.S), (ImGuiKey.T, TerminalKey.T), (ImGuiKey.U, TerminalKey.U),
-        (ImGuiKey.V, TerminalKey.V), (ImGuiKey.W, TerminalKey.W), (ImGuiKey.X, TerminalKey.X),
-        (ImGuiKey.Y, TerminalKey.Y), (ImGuiKey.Z, TerminalKey.Z),
-    };
-
-    private readonly SessionManager _sessionManager;
-    private readonly TerminalFontConfig _fontConfig;
-    private readonly TerminalTheme _theme;
-    private readonly RgbaColor _selectionColor = new(0x33, 0x55, 0x88, 0xAA);
-
+    private TerminalWindow? _lastFocusedWindow;
+    private int _nextWindowId = 1;
     private bool _isVisible;
-    private bool _hasFocus;
-    private bool _wantFocus;
+    private bool _hadAnyFocus;
     private bool _disposed;
     private TextSelection _selection;
-
-    private float _cellWidth = 8f;
-    private float _cellHeight = 16f;
-
-    private bool _selecting;
 
     private double _blinkTimer;
     private bool _cursorOn = true;
@@ -81,9 +34,9 @@ public sealed class GhosttyTerminalController : ITerminalController
     private static volatile bool _anyTerminalActive;
 
     /// <summary>
-    /// True when a terminal is visible and focused. Used by the host's
+    /// True when a terminal window is visible and focused. Used by the host's
     /// <c>KSA.Program.OnKey</c> Harmony patch to suppress game key handling while
-    /// the terminal is capturing input.
+    /// a terminal is capturing input.
     /// </summary>
     public static bool IsAnyTerminalActive => _anyTerminalActive;
 
@@ -93,49 +46,239 @@ public sealed class GhosttyTerminalController : ITerminalController
     public event EventHandler<DataInputEventArgs>? DataInput;
     public event EventHandler<FocusChangedEventArgs>? FocusChanged;
 
-    public GhosttyTerminalController(SessionManager sessionManager, TerminalFontConfig fontConfig)
+    public GhosttyTerminalController(ThemeConfiguration config, ThemeCatalog catalog)
     {
-        _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
-        _fontConfig = fontConfig ?? throw new ArgumentNullException(nameof(fontConfig));
-        _theme = DefaultTheme.Create();
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+    }
 
-        foreach (var session in _sessionManager.Sessions)
+    public ThemeCatalog Catalog => _catalog;
+    public ThemeConfiguration Configuration => _config;
+    public IReadOnlyList<TerminalWindow> Windows => _windows;
+
+    /// <summary>
+    /// The window menu actions act on: the focused window when there is one,
+    /// otherwise the most recently focused (or first) open window.
+    /// </summary>
+    public TerminalWindow? FocusTarget
+    {
+        get
         {
-            WireSession(session);
+            var focused = _windows.FirstOrDefault(w => w.IsOpen && w.HasFocus);
+            if (focused != null)
+            {
+                return focused;
+            }
+
+            if (_lastFocusedWindow is { IsOpen: true })
+            {
+                return _lastFocusedWindow;
+            }
+
+            return _windows.FirstOrDefault(w => w.IsOpen);
+        }
+    }
+
+    /// <summary>Opens a new terminal window and starts a session in it.</summary>
+    public TerminalWindow OpenWindow(ProcessLaunchOptions? launchOptions = null, string? sessionTitle = null)
+    {
+        var sessions = GhosttySessionManagerFactory.CreateSessionManager(_config);
+        var settings = CreateWindowSettingsFromDefaults();
+
+        float2? position = null;
+        float2? size = null;
+        if (_windows.Count == 0 && _config.TryGetTerminalWindowState(out var savedPos, out var savedSize))
+        {
+            position = savedPos;
+            size = savedSize;
+        }
+        else if (FocusTarget is { HasObservedGeometry: true } reference)
+        {
+            position = reference.LastKnownPosition + new float2(40f, 40f);
+            size = reference.LastKnownSize;
         }
 
-        _sessionManager.SessionCreated += (_, e) => WireSession(e.Session);
+        var window = new TerminalWindow(_nextWindowId++, sessions, settings, position, size);
+        window.KeyboardSuppression = () => KeyboardSuppression?.Invoke() ?? false;
+        window.FocusChanged += OnWindowFocusChanged;
+        window.DataInput += bytes => DataInput?.Invoke(this, new DataInputEventArgs(bytes));
+        _windows.Add(window);
+        _lastFocusedWindow ??= window;
+
+        StartSession(window, launchOptions, sessionTitle);
+        window.RequestFocus();
+        return window;
     }
 
-    private void WireSession(TerminalSession session)
+    /// <summary>Starts a session as a new tab in the focused window (or a new window when none exists).</summary>
+    public void OpenTab(ProcessLaunchOptions? launchOptions = null, string? sessionTitle = null)
     {
-        session.Surface.SetTheme(_theme);
-        // OSC 52: an app asked to set the system clipboard. (A clipboard *query*
-        // — Text == null — would need an OSC 52 reply written back to the PTY;
-        // that round-trip is deferred.)
-        session.Surface.ClipboardRequested += OnClipboardRequested;
-    }
-
-    private static void OnClipboardRequested(PurrTTY.Terminal.ClipboardRequest request)
-    {
-        if (!string.IsNullOrEmpty(request.Text))
+        var target = FocusTarget;
+        if (target == null)
         {
-            ImGui.SetClipboardText(request.Text);
+            OpenWindow(launchOptions, sessionTitle);
+            return;
+        }
+
+        StartSession(target, launchOptions, sessionTitle);
+        target.RequestFocus();
+    }
+
+    private static void StartSession(TerminalWindow window, ProcessLaunchOptions? launchOptions, string? title)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await window.Sessions.CreateSessionAsync(title, launchOptions);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Log.Debug($"GhosttyTerminalController: failed to start session: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>Applies a theme to the focused window and persists it as the default for new windows.</summary>
+    public bool ApplyTheme(ThemeDefinition theme)
+    {
+        var target = FocusTarget;
+        if (target == null)
+        {
+            return false;
+        }
+
+        target.ApplyTheme(theme);
+        PersistDisplayDefaults(target);
+        return true;
+    }
+
+    /// <summary>
+    /// Saves the focused window's current settings (colors + font + opacities) as
+    /// a user theme TOML file and makes it the window's current theme.
+    /// </summary>
+    public ThemeDefinition? SaveFocusedWindowAsTheme(string name)
+    {
+        var target = FocusTarget;
+        if (target == null || string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var saved = _catalog.SaveUserTheme(target.SnapshotAsTheme(name.Trim()));
+        target.Settings.ThemeName = saved.Name;
+        PersistDisplayDefaults(target);
+        return saved;
+    }
+
+    /// <summary>
+    /// Writes a window's display settings into the config as the defaults for
+    /// new windows, and saves the config file.
+    /// </summary>
+    public void PersistDisplayDefaults(TerminalWindow? window = null)
+    {
+        window ??= FocusTarget;
+        if (window == null)
+        {
+            return;
+        }
+
+        _config.SyncRuntimeDisplaySettings(
+            window.Settings.ThemeName,
+            window.Settings.FontFamily,
+            window.Settings.FontSize,
+            window.Settings.BackgroundOpacity,
+            window.Settings.ForegroundOpacity,
+            window.Settings.CellBackgroundOpacity);
+        _config.Save();
+    }
+
+    private TerminalWindowSettings CreateWindowSettingsFromDefaults()
+    {
+        var theme = _catalog.Find(_config.SelectedThemeName) ?? _catalog.Default;
+        var settings = new TerminalWindowSettings
+        {
+            ThemeName = theme.Name,
+            Colors = theme.Colors.Clone(),
+            FontFamily = _config.FontFamily ?? "Hack",
+            FontSize = Math.Clamp(_config.FontSize ?? 32f, LayoutConstants.MIN_FONT_SIZE, LayoutConstants.MAX_FONT_SIZE),
+            BackgroundOpacity = Math.Clamp(_config.BackgroundOpacity, 0f, 1f),
+            ForegroundOpacity = Math.Clamp(_config.ForegroundOpacity, 0f, 1f),
+            CellBackgroundOpacity = Math.Clamp(_config.CellBackgroundOpacity, 0f, 1f),
+        };
+
+        // A theme that carries display settings (user-saved) overrides the loose defaults.
+        if (theme.FontFamily is { } family)
+        {
+            settings.FontFamily = family;
+        }
+
+        if (theme.FontSize is { } size)
+        {
+            settings.FontSize = Math.Clamp(size, LayoutConstants.MIN_FONT_SIZE, LayoutConstants.MAX_FONT_SIZE);
+        }
+
+        if (theme.BackgroundOpacity is { } bg)
+        {
+            settings.BackgroundOpacity = Math.Clamp(bg, 0f, 1f);
+        }
+
+        if (theme.ForegroundOpacity is { } fg)
+        {
+            settings.ForegroundOpacity = Math.Clamp(fg, 0f, 1f);
+        }
+
+        if (theme.CellBackgroundOpacity is { } cell)
+        {
+            settings.CellBackgroundOpacity = Math.Clamp(cell, 0f, 1f);
+        }
+
+        return settings;
+    }
+
+    private void OnWindowFocusChanged(TerminalWindow window, bool focused)
+    {
+        if (focused)
+        {
+            _lastFocusedWindow = window;
         }
     }
 
     public bool IsVisible
     {
         get => _isVisible;
-        set => _isVisible = value;
+        set
+        {
+            if (_isVisible == value)
+            {
+                return;
+            }
+
+            _isVisible = value;
+            if (value)
+            {
+                if (!_windows.Any(w => w.IsOpen))
+                {
+                    OpenWindow();
+                }
+                else
+                {
+                    FocusTarget?.RequestFocus();
+                }
+            }
+            else
+            {
+                PersistWindowState();
+            }
+        }
     }
 
-    public bool HasFocus => _hasFocus;
-    public bool IsInputCaptureActive => _isVisible && _hasFocus;
+    public bool HasFocus => _windows.Any(w => w.IsOpen && w.HasFocus);
+    public bool IsInputCaptureActive => _isVisible && HasFocus;
 
-    public bool ShouldCaptureInput() => _isVisible && _hasFocus;
+    public bool ShouldCaptureInput() => IsInputCaptureActive;
 
-    public void ForceFocus() => _wantFocus = true;
+    public void ForceFocus() => FocusTarget?.RequestFocus();
 
     public void Update(float deltaTime)
     {
@@ -149,350 +292,68 @@ public sealed class GhosttyTerminalController : ITerminalController
 
     public void Render()
     {
-        if (!_isVisible || _disposed)
+        if (_disposed || !_isVisible)
         {
             _anyTerminalActive = false;
             return;
         }
 
-        var fonts = ResolveFonts();
-        float fontSize = _fontConfig.FontSize;
-
-        var bg = _theme.DefaultBackground;
-        ImGui.PushStyleColor(ImGuiCol.WindowBg, new float4(bg.R / 255f, bg.G / 255f, bg.B / 255f, 0.95f));
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0f, 0f));
-
-        var flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
-                    | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.MenuBar;
-
-        if (_wantFocus)
+        // Prune windows closed last frame (close button / last tab closed).
+        for (int i = _windows.Count - 1; i >= 0; i--)
         {
-            ImGui.SetNextWindowFocus();
-            _wantFocus = false;
-        }
-
-        ImGui.Begin("purrTTY", ref _isVisible, flags);
-        ImGui.PopStyleVar();
-
-        UpdateFocusState(ImGui.IsWindowFocused());
-        _anyTerminalActive = _hasFocus;
-        RenderMenuBar();
-
-        var canvasPos = ImGui.GetCursorScreenPos();
-        var avail = ImGui.GetContentRegionAvail();
-
-        ComputeCellMetrics(fonts.Regular, fontSize);
-
-        int cols = Math.Max(1, (int)(avail.X / _cellWidth));
-        int rows = Math.Max(1, (int)(avail.Y / _cellHeight));
-
-        var session = _sessionManager.ActiveSession;
-        if (session != null)
-        {
-            if (cols != session.Surface.Cols || rows != session.Surface.Rows)
+            if (!_windows[i].IsOpen)
             {
-                session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
-                session.UpdateTerminalDimensions(cols, rows);
-                session.ProcessManager.Resize(cols, rows);
-                _sessionManager.UpdateLastKnownTerminalDimensions(cols, rows);
-            }
-
-            session.Surface.SetMouseGeometry(
-                (int)(cols * _cellWidth), (int)(rows * _cellHeight), (int)_cellWidth, (int)_cellHeight);
-
-            var frame = session.Surface.BuildFrame();
-            bool cursorOn = !frame.Cursor.Blinking || _cursorOn;
-
-            FrameGridRenderer.Render(
-                frame, ImGui.GetWindowDrawList(), canvasPos,
-                _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn);
-
-            if (_hasFocus)
-            {
-                HandleInput(session, canvasPos, cols, rows);
-            }
-        }
-
-        ImGui.End();
-        ImGui.PopStyleColor();
-    }
-
-    private void RenderMenuBar()
-    {
-        if (!ImGui.BeginMenuBar())
-        {
-            return;
-        }
-
-        var sessions = _sessionManager.Sessions;
-        if (sessions.Count <= 1)
-        {
-            ImGui.TextDisabled(_sessionManager.ActiveSession?.Title ?? "purrTTY");
-        }
-        else
-        {
-            var active = _sessionManager.ActiveSession;
-            foreach (var session in sessions)
-            {
-                bool isActive = ReferenceEquals(session, active);
-                if (ImGui.MenuItem(session.Title, "", isActive) && !isActive)
+                if (ReferenceEquals(_lastFocusedWindow, _windows[i]))
                 {
-                    _sessionManager.SwitchToSession(session.Id);
+                    _lastFocusedWindow = null;
                 }
+
+                _windows[i].Dispose();
+                _windows.RemoveAt(i);
             }
         }
 
-        ImGui.EndMenuBar();
+        if (_windows.Count == 0)
+        {
+            // Every window was closed; hide until the next toggle recreates one.
+            _isVisible = false;
+            _anyTerminalActive = false;
+            return;
+        }
+
+        bool hideChrome = _config.HideUiWhenNotHovered;
+        bool anyFocused = false;
+        foreach (var window in _windows)
+        {
+            window.Render(hideChrome, _cursorOn);
+            anyFocused |= window.HasFocus;
+        }
+
+        _anyTerminalActive = anyFocused;
+        if (anyFocused != _hadAnyFocus)
+        {
+            FocusChanged?.Invoke(this, new FocusChangedEventArgs(anyFocused, _hadAnyFocus));
+            _hadAnyFocus = anyFocused;
+        }
     }
 
-    private void HandleInput(TerminalSession session, float2 canvasPos, int cols, int rows)
+    /// <summary>Persists the primary window's geometry/grid so the next run restores it.</summary>
+    public void PersistWindowState()
     {
-        var io = ImGui.GetIO();
-        HandleKeyboard(session, io);
-        HandleMouse(session, io, canvasPos, cols, rows);
-    }
-
-    private void HandleKeyboard(TerminalSession session, ImGuiIOPtr io)
-    {
-        if (KeyboardSuppression?.Invoke() == true)
+        var window = _windows.FirstOrDefault(w => w.IsOpen && w.HasObservedGeometry);
+        if (window == null)
         {
             return;
         }
 
-        var mods = ReadModifiers(io);
-
-        foreach (var (imguiKey, key) in NamedKeys)
-        {
-            if (ImGui.IsKeyPressed(imguiKey))
-            {
-                EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
-            }
-        }
-
-        if (io.KeyCtrl)
-        {
-            foreach (var (imguiKey, key) in LetterKeys)
-            {
-                if (ImGui.IsKeyPressed(imguiKey))
-                {
-                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
-                }
-            }
-        }
-
-        // Printable text. Skip when Ctrl/Alt are held (those are command combos
-        // handled above and do not represent typed text).
-        if (!io.KeyCtrl && !io.KeyAlt && io.InputQueueCharacters.Count > 0)
-        {
-            for (int i = 0; i < io.InputQueueCharacters.Count; i++)
-            {
-                char ch = (char)io.InputQueueCharacters[i];
-                if (ch >= 32 && ch != 127)
-                {
-                    Send(session, System.Text.Encoding.UTF8.GetBytes(ch.ToString()));
-                }
-            }
-        }
+        var (cols, rows) = window.Sessions.LastKnownTerminalDimensions;
+        _config.SetTerminalWindowState(window.LastKnownPosition, window.LastKnownSize, cols, rows);
+        _config.Save();
     }
-
-    private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows)
-    {
-        bool hovered = ImGui.IsWindowHovered();
-
-        // Wheel scrolling (viewport scrollback when the app isn't tracking the mouse).
-        if (hovered && io.MouseWheel != 0 && !session.Surface.IsMouseTrackingEnabled)
-        {
-            session.Surface.ScrollBy(-(int)Math.Round(io.MouseWheel * 3));
-        }
-
-        var cell = MouseCell(canvasPos, cols, rows);
-
-        if (session.Surface.IsMouseTrackingEnabled)
-        {
-            HandleAppMouse(session, io, cell);
-            return;
-        }
-
-        // Selection gestures: single-click+drag selects cells, double-click selects
-        // a word, triple-click selects the logical line.
-        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-        {
-            int clicks = ImGui.GetMouseClickedCount(ImGuiMouseButton.Left);
-            if (clicks >= 3)
-            {
-                session.Surface.SelectLine(cell);
-                _selecting = false;
-            }
-            else if (clicks == 2)
-            {
-                session.Surface.SelectWord(cell);
-                _selecting = false;
-            }
-            else
-            {
-                session.Surface.ClearSelection();
-                session.Surface.BeginSelectCells(cell);
-                _selecting = true;
-            }
-        }
-        else if (_selecting && ImGui.IsMouseDown(ImGuiMouseButton.Left))
-        {
-            AutoScrollForDrag(session, canvasPos, rows);
-            session.Surface.ExtendSelectCells(cell);
-        }
-        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
-        {
-            _selecting = false;
-        }
-
-        // Right-click copies the current selection.
-        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-        {
-            CopySelectionToClipboard();
-        }
-    }
-
-    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, GridPoint cell)
-    {
-        var pos = ImGui.GetMousePos();
-        var mods = ReadModifiers(io);
-
-        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-        {
-            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Left, mods, pos);
-        }
-        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
-        {
-            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Left, mods, pos);
-        }
-        else if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-        {
-            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Right, mods, pos);
-        }
-        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Right))
-        {
-            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Right, mods, pos);
-        }
-
-        if (io.MouseWheel != 0)
-        {
-            var button = io.MouseWheel > 0 ? MouseButton.Middle : MouseButton.Middle;
-            EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
-        }
-    }
-
-    // While dragging a selection, scroll the viewport when the cursor leaves the
-    // grid vertically. Speed accelerates with how far past the edge the cursor is
-    // (capped), so a small overshoot creeps and a big one races.
-    private void AutoScrollForDrag(TerminalSession session, float2 canvasPos, int rows)
-    {
-        float mouseY = ImGui.GetMousePos().Y;
-        float top = canvasPos.Y;
-        float bottom = canvasPos.Y + rows * _cellHeight;
-
-        if (mouseY < top)
-        {
-            session.Surface.ScrollBy(-AutoScrollStep(top - mouseY));
-        }
-        else if (mouseY > bottom)
-        {
-            session.Surface.ScrollBy(AutoScrollStep(mouseY - bottom));
-        }
-    }
-
-    private int AutoScrollStep(float overflowPixels)
-        => Math.Clamp(1 + (int)(overflowPixels / Math.Max(1f, _cellHeight)), 1, 5);
-
-    private GridPoint MouseCell(float2 canvasPos, int cols, int rows)
-    {
-        var mouse = ImGui.GetMousePos();
-        int col = Math.Clamp((int)((mouse.X - canvasPos.X) / _cellWidth), 0, Math.Max(0, cols - 1));
-        int row = Math.Clamp((int)((mouse.Y - canvasPos.Y) / _cellHeight), 0, Math.Max(0, rows - 1));
-        return new GridPoint(col, row);
-    }
-
-    private void EncodeAndSend(TerminalSession session, in TerminalKeyEvent keyEvent)
-    {
-        Span<byte> buf = stackalloc byte[64];
-        int n = session.Surface.EncodeKey(keyEvent, buf);
-        if (n > 0)
-        {
-            Send(session, buf[..n]);
-        }
-    }
-
-    private void EncodeMouseAndSend(TerminalSession session, MouseAction action, MouseButton button, TKeyMods mods, float2 pos)
-    {
-        var ev = new TerminalMouseEvent
-        {
-            Action = action,
-            Button = button,
-            Modifiers = mods,
-            X = pos.X,
-            Y = pos.Y,
-        };
-        Span<byte> buf = stackalloc byte[64];
-        int n = session.Surface.EncodeMouse(ev, buf);
-        if (n > 0)
-        {
-            Send(session, buf[..n]);
-        }
-    }
-
-    private void Send(TerminalSession session, ReadOnlySpan<byte> bytes)
-    {
-        session.SendInput(bytes);
-        DataInput?.Invoke(this, new DataInputEventArgs(bytes.ToArray()));
-    }
-
-    private static TKeyMods ReadModifiers(ImGuiIOPtr io)
-    {
-        var mods = TKeyMods.None;
-        if (io.KeyShift) mods |= TKeyMods.Shift;
-        if (io.KeyCtrl) mods |= TKeyMods.Ctrl;
-        if (io.KeyAlt) mods |= TKeyMods.Alt;
-        return mods;
-    }
-
-    private void UpdateFocusState(bool nowFocused)
-    {
-        if (nowFocused == _hasFocus)
-        {
-            return;
-        }
-
-        bool previous = _hasFocus;
-        _hasFocus = nowFocused;
-        FocusChanged?.Invoke(this, new FocusChangedEventArgs(nowFocused, previous));
-    }
-
-    private void ComputeCellMetrics(ImFontPtr font, float fontSize)
-    {
-        ImGui.PushFont(font, fontSize);
-        var size = ImGui.CalcTextSize("M");
-        ImGui.PopFont();
-
-        _cellWidth = size.X > 0.5f ? size.X : fontSize * 0.6f;
-        _cellHeight = size.Y > 0.5f ? size.Y : fontSize * 1.2f;
-    }
-
-    private FrameFonts ResolveFonts()
-    {
-        var regular = ResolveFontByName(_fontConfig.RegularFontName) ?? ImGui.GetFont();
-        var bold = ResolveFontByName(_fontConfig.BoldFontName) ?? regular;
-        var italic = ResolveFontByName(_fontConfig.ItalicFontName) ?? regular;
-        var boldItalic = ResolveFontByName(_fontConfig.BoldItalicFontName) ?? regular;
-        return new FrameFonts(regular, bold, italic, boldItalic);
-    }
-
-    private static ImFontPtr? ResolveFontByName(string? name)
-        => !string.IsNullOrEmpty(name) && PurrTTYFontManager.LoadedFonts.TryGetValue(name, out var font)
-            ? font
-            : null;
 
     public (int width, int height) GetTerminalDimensions()
     {
-        var session = _sessionManager.ActiveSession;
+        var session = FocusTarget?.Sessions.ActiveSession;
         return session != null ? (session.Surface.Cols, session.Surface.Rows) : (80, 24);
     }
 
@@ -503,13 +364,13 @@ public sealed class GhosttyTerminalController : ITerminalController
             throw new ArgumentException("Terminal dimensions must be positive.");
         }
 
-        var session = _sessionManager.ActiveSession;
+        var session = FocusTarget?.Sessions.ActiveSession;
         if (session == null)
         {
             return;
         }
 
-        session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
+        session.Surface.Resize(cols, rows);
         session.ProcessManager.Resize(cols, rows);
         session.UpdateTerminalDimensions(cols, rows);
     }
@@ -518,35 +379,9 @@ public sealed class GhosttyTerminalController : ITerminalController
 
     public void SetSelection(TextSelection selection) => _selection = selection;
 
-    public bool CopySelectionToClipboard()
-    {
-        var text = _sessionManager.ActiveSession?.Surface.GetSelectionText();
-        if (string.IsNullOrEmpty(text))
-        {
-            return false;
-        }
+    public bool CopySelectionToClipboard() => FocusTarget?.CopySelectionToClipboard() ?? false;
 
-        ImGui.SetClipboardText(text);
-        return true;
-    }
-
-    public void PasteFromClipboard()
-    {
-        var session = _sessionManager.ActiveSession;
-        if (session == null)
-        {
-            return;
-        }
-
-        var text = ImGui.GetClipboardText();
-        if (string.IsNullOrEmpty(text))
-        {
-            return;
-        }
-
-        var encoded = session.Surface.EncodePaste(System.Text.Encoding.UTF8.GetBytes(text));
-        Send(session, encoded);
-    }
+    public void PasteFromClipboard() => FocusTarget?.PasteFromClipboard();
 
     public void Dispose()
     {
@@ -555,8 +390,17 @@ public sealed class GhosttyTerminalController : ITerminalController
             return;
         }
 
+        PersistWindowState();
+
         _disposed = true;
         _anyTerminalActive = false;
-        _sessionManager.Dispose();
+
+        foreach (var window in _windows)
+        {
+            window.Dispose();
+        }
+
+        _windows.Clear();
+        _lastFocusedWindow = null;
     }
 }

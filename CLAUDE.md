@@ -120,10 +120,25 @@ Backend (`purrTTY.Terminal/`):
 - Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam)
 
 Frontend (`purrTTY.Display/`):
-- Controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs`)
-- Grid drawing: `Ghostty/FrameGridRenderer.cs` (per-cell bold/italic/bold-italic variant via `Ghostty/FrameFonts.cs`); default palette: `Ghostty/DefaultTheme.cs`
-- New session factory: `Ghostty/GhosttySessionManagerFactory.cs` (persisted `ThemeConfiguration`)
-- Reused chrome: `Rendering/PurrTTYFontManager.cs`, `Configuration/` (fonts, theme config, shell config)
+- Multi-window controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs`;
+  manages a list of `TerminalWindow`s, routes game-menu actions to the focused window, persists
+  display defaults + first-window geometry through a single shared `ThemeConfiguration` instance)
+- Per-window terminal: `Ghostty/TerminalWindow.cs` (owns a `SessionManager` whose sessions are tabs —
+  tab bar hidden with one tab; per-window theme/font/opacity via `TerminalWindowSettings`; chrome hiding:
+  transparent WindowBg/MenuBarBg + zero border + `Alpha=0` menu/tab strips when the mouse is not over the
+  window, even while focused; menu-bar strip is the drag handle (no title bar) and an `InvisibleButton`
+  over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste)
+- Theming: `Theming/` (`ThemeDefinition`/`ThemeColors` + `ToEngineTheme()`, `ThemeTomlFormat` (Tomlyn DOM
+  read/write), `ThemeCatalog` — code-built "Default" + bundled `TerminalThemes/*.toml` beside the
+  assemblies + user themes in `<config>/.purrTTY/themes/`). Theme TOML = alacritty-style `[colors.*]`
+  sections; user-saved themes also carry `[font]` (family/size) and `[window]` (3 opacities) — those
+  fields are optional and "keep current" when absent (bundled themes are colors-only).
+- Grid drawing: `Ghostty/FrameGridRenderer.cs` (per-cell bold/italic/bold-italic variant via
+  `Ghostty/FrameFonts.cs`; takes foreground/cell-background opacity multipliers)
+- Session-manager factory: `Ghostty/GhosttySessionManagerFactory.cs` (one `SessionManager` per window via
+  `CreateSessionManager(config)`; `EnsureGameShellsDiscovered()` runs custom-shell discovery once)
+- Reused chrome: `Rendering/PurrTTYFontManager.cs` (font family registry → per-window `FrameFonts`),
+  `Configuration/` (fonts, `ThemeConfiguration` = global defaults/hotkey/geometry, shell config)
 
 PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 - ConPTY host: `Process/*`, `ProcessManager.cs`; interface: `IProcessManager.cs`
@@ -131,8 +146,19 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
 
 Game/integration (`purrTTY.GameMod/`):
-- Lifecycle + window toggle: `TerminalMod.cs` (constructs `GhosttySessionManagerFactory` + `GhosttyTerminalController`)
-- Harmony patches: `Patcher.cs` (gates `KSA.Program.OnKey` via `GhosttyTerminalController.IsAnyTerminalActive`), `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
+- Lifecycle + toggle + game menus: `TerminalMod.cs`. The full menu content lives in
+  `TerminalMod.DrawMenuContent()` and is registered two ways with identical content: via the
+  `[ModMenuEntry("purrTTY")]` attribute when the ModMenu companion mod is present, and via the
+  `Patcher.cs` `DrawMenuBar` transpiler fallback otherwise. Menus: Toggle Terminal / Toggle Hotkey,
+  New Tab / New Window (shell submenus filtered by `ShellAvailabilityChecker`, WSL distros via
+  `WslDistributionDetector` — prewarmed at init; Game Console always offered), Theme (built-in +
+  saved lists, Save Current As... modal with name input, Refresh), Font (size slider + family list),
+  Window (hide-chrome checkbox + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
+- Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
+  to the build output and the deployed mod dir by the csproj.
+- Harmony patches: `Patcher.cs` (gates `KSA.Program.OnKey` via `GhosttyTerminalController.IsAnyTerminalActive`;
+  `Patch03_HotkeyGuard` blocks `GameSettings.OnKeyAll` while `ImGui.GetIO().WantTextInput` is set so typing
+  in mod text fields never fires game hotkeys), `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
 
 Custom shells:
 - Contract: `purrTTY.CustomShellContract/` (`ICustomShell`, `CustomShellRegistry`, `BaseLineBufferedShell`)
@@ -161,15 +187,36 @@ Custom shells:
    *logical* colors plus an inverse flag, and the frontend never swaps — so the swap must happen
    in the backend. (The `Inverse` flag is still surfaced as metadata.)
 
-5. **Custom shell discovery** is reflection-based; `GhosttySessionManagerFactory` forces the
-   `purrTTY.CustomShells` assembly to load before discovery (do not remove without replacing it).
+5. **Custom shell discovery** is reflection-based; `GhosttySessionManagerFactory.EnsureGameShellsDiscovered`
+   forces the `purrTTY.CustomShells` assembly to load before discovery (do not remove without replacing it).
+   It runs once at mod init so Game Console sessions can be launched from the menus at any time.
+
+6. **One `ThemeConfiguration` instance.** The controller owns the loaded config; every writer
+   (display defaults, hotkey, window geometry) must mutate **that** instance before `Save()`, or a
+   later save from another path silently reverts fields (the hotkey modal reads it via
+   `controller.Configuration` for exactly this reason).
+
+7. **Per-window display state lives in `TerminalWindowSettings`,** not in the config: the config only
+   stores the *defaults for new windows* (last applied theme/font/opacities) plus the first window's
+   geometry. "Save Current As..." snapshots the focused window's settings into a user theme TOML.
+
+8. **Chrome hiding must keep the layout stable.** While hidden, the menu strip and tab bar are still
+   submitted (alpha 0 / transparent style colors) so the grid size — and therefore the PTY size —
+   does not change when chrome fades in on hover. Only style colors/alpha may differ between the
+   hidden and shown states, never layout.
 
 ## Common Workflows
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`
 - Drawing: `purrTTY.Display/Ghostty/FrameGridRenderer.cs`
+- Window/tab/chrome/input behavior: `purrTTY.Display/Ghostty/TerminalWindow.cs`
 - Add a backend integration test in `purrTTY.Terminal.Tests` and run it.
+
+### Adding or changing themes
+- Bundled color schemes: drop an alacritty-style TOML into `purrTTY.GameMod/TerminalThemes/`.
+- Format/parsing: `purrTTY.Display/Theming/ThemeTomlFormat.cs`; discovery: `ThemeCatalog.cs`.
+- User themes are written to `<config>/.purrTTY/themes/` by the Save Current As... menu action.
 
 ### Extending the engine binding
 1. Add the native P/Invoke in `vendor/Ghostty.Vt/src/Native/` (verify the symbol exists in the dylib with `nm`).

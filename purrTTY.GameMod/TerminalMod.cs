@@ -1,25 +1,29 @@
 using Brutal.ImGuiApi;
+using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
-using purrTTY.Display.Controllers;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Rendering;
+using purrTTY.Display.Theming;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
 using float2 = Brutal.Numerics.float2;
+using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.GameMod;
 
 /// <summary>
 ///     KSA game mod for purrTTY terminal emulator.
-///     Provides a terminal window that can be toggled with a configurable hotkey.
+///     Provides multi-window, multi-tab terminal sessions toggled with a
+///     configurable hotkey and driven from the top-level game menus.
 /// </summary>
 [StarMapMod]
 public class TerminalMod
 {
     private const string ToggleHotkeyPopupId = "purrTTY Hot Key Settings##purrtty_toggle_hotkey_modal";
+    private const string SaveThemePopupId = "Save purrTTY Theme##purrtty_save_theme_modal";
 
-    private ITerminalController? _controller;
+    private GhosttyTerminalController? _controller;
     private bool _isDisposed;
     private bool _isInitialized;
     private bool _terminalVisible;
@@ -29,6 +33,10 @@ public class TerminalMod
     private bool _isCapturingToggleHotkey;
     private bool _toggleHotkeyModalOpenRequested;
     private bool _suppressNextTerminalKeyboardInputFrame;
+
+    private readonly ImInputString _themeNameInput = new(96);
+    private bool _saveThemeModalOpenRequested;
+    private string? _saveThemeError;
 
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
@@ -53,6 +61,18 @@ public class TerminalMod
     internal static Action? OpenToggleHotkeySettings;
 
     /// <summary>
+    ///     Opens the save-theme-as dialog.
+    /// </summary>
+    internal static Action? OpenSaveThemeDialog;
+
+    /// <summary>
+    ///     The live controller the game menus act on (null until initialized).
+    /// </summary>
+    internal static GhosttyTerminalController? MenuController;
+
+    private static List<(string Label, ShellType Type)>? s_shellMenuEntries;
+
+    /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
     /// </summary>
     public bool ImmediateUnload => false;
@@ -60,13 +80,13 @@ public class TerminalMod
     [ModMenuEntry("purrTTY")]
     public static void DrawMenu()
     {
-        DrawToggleMenuItem();
+        DrawMenuContent();
     }
 
     /// <summary>
-    ///     Draws the shared menu item used by both ModMenu and the fallback injected menu.
+    ///     Draws the shared menu content used by both ModMenu and the fallback injected menu.
     /// </summary>
-    internal static void DrawToggleMenuItem()
+    internal static void DrawMenuContent()
     {
         var isVisible = GetIsVisible?.Invoke() ?? false;
         var hotkeyShortcut = GetToggleHotkeyShortcut?.Invoke() ?? ToggleHotkeyBinding.Default.ToShortcutString();
@@ -80,8 +100,278 @@ public class TerminalMod
         {
             OpenToggleHotkeySettings?.Invoke();
         }
+
+        var controller = MenuController;
+        if (controller == null)
+        {
+            return;
+        }
+
+        ImGui.Separator();
+
+        if (ImGui.BeginMenu("New Tab"))
+        {
+            DrawShellItems(controller, options =>
+            {
+                controller.OpenTab(options);
+                controller.IsVisible = true;
+            });
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("New Window"))
+        {
+            DrawShellItems(controller, options =>
+            {
+                controller.OpenWindow(options);
+                controller.IsVisible = true;
+            });
+            ImGui.EndMenu();
+        }
+
+        ImGui.Separator();
+
+        if (ImGui.BeginMenu("Theme"))
+        {
+            DrawThemeMenu(controller);
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("Font"))
+        {
+            DrawFontMenu(controller);
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("Window"))
+        {
+            DrawWindowMenu(controller);
+            ImGui.EndMenu();
+        }
     }
 
+    private static void DrawShellItems(GhosttyTerminalController controller, Action<ProcessLaunchOptions> launch)
+    {
+        foreach (var (label, shellType) in GetShellMenuEntries())
+        {
+            if (shellType == ShellType.Wsl)
+            {
+                DrawWslItems(launch);
+                continue;
+            }
+
+            if (ImGui.MenuItem(label))
+            {
+                launch(CreateLaunchOptionsFor(controller, shellType));
+            }
+        }
+    }
+
+    private static void DrawWslItems(Action<ProcessLaunchOptions> launch)
+    {
+        var distributions = WslDistributionDetector.GetInstalledDistributions();
+        if (distributions.Count == 0)
+        {
+            if (ImGui.MenuItem("WSL2"))
+            {
+                launch(ProcessLaunchOptions.CreateWsl());
+            }
+
+            return;
+        }
+
+        if (ImGui.BeginMenu("WSL2"))
+        {
+            foreach (var distribution in distributions)
+            {
+                if (ImGui.MenuItem(distribution.DisplayName))
+                {
+                    launch(ProcessLaunchOptions.CreateWsl(distribution.Name));
+                }
+            }
+
+            ImGui.EndMenu();
+        }
+    }
+
+    private static ProcessLaunchOptions CreateLaunchOptionsFor(GhosttyTerminalController controller, ShellType shellType)
+        => shellType switch
+        {
+            ShellType.PowerShell => ProcessLaunchOptions.CreatePowerShell(),
+            ShellType.PowerShellCore => ProcessLaunchOptions.CreatePowerShellCore(),
+            ShellType.Cmd => ProcessLaunchOptions.CreateCmd(),
+            ShellType.CustomGame => ProcessLaunchOptions.CreateCustomGame(
+                controller.Configuration.DefaultCustomGameShellId ?? "GameConsoleShell"),
+            _ => ProcessLaunchOptions.CreateDefault(),
+        };
+
+    /// <summary>
+    ///     Shells offered in the New Tab / New Window menus. Availability is
+    ///     probed once per process (shell installs do not change mid-game).
+    /// </summary>
+    private static List<(string Label, ShellType Type)> GetShellMenuEntries()
+    {
+        if (s_shellMenuEntries != null)
+        {
+            return s_shellMenuEntries;
+        }
+
+        var entries = new List<(string, ShellType)>();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            entries.Add(("Default Shell", ShellType.Auto));
+        }
+
+        foreach (var (shellType, label) in new[]
+                 {
+                     (ShellType.PowerShell, "PowerShell"),
+                     (ShellType.PowerShellCore, "PowerShell Core"),
+                     (ShellType.Cmd, "Command Prompt"),
+                     (ShellType.Wsl, "WSL2"),
+                 })
+        {
+            if (ShellAvailabilityChecker.IsShellAvailable(shellType))
+            {
+                entries.Add((label, shellType));
+            }
+        }
+
+        entries.Add(("Game Console", ShellType.CustomGame));
+
+        s_shellMenuEntries = entries;
+        return entries;
+    }
+
+    private static void DrawThemeMenu(GhosttyTerminalController controller)
+    {
+        var target = controller.FocusTarget;
+        ImGui.TextDisabled(target != null ? $"Window: {target.Title}" : "No terminal window open");
+        ImGui.Separator();
+
+        string currentTheme = target?.Settings.ThemeName
+                              ?? controller.Configuration.SelectedThemeName
+                              ?? "Default";
+
+        DrawThemeItems(controller, controller.Catalog.BuiltInThemes, currentTheme);
+
+        if (controller.Catalog.UserThemes.Count > 0)
+        {
+            ImGui.Separator();
+            ImGui.TextDisabled("Saved Themes");
+            DrawThemeItems(controller, controller.Catalog.UserThemes, currentTheme);
+        }
+
+        ImGui.Separator();
+
+        if (ImGui.MenuItem("Save Current As..."))
+        {
+            OpenSaveThemeDialog?.Invoke();
+        }
+
+        if (ImGui.MenuItem("Refresh Themes"))
+        {
+            controller.Catalog.Refresh();
+        }
+    }
+
+    private static void DrawThemeItems(
+        GhosttyTerminalController controller,
+        IReadOnlyList<ThemeDefinition> themes,
+        string currentTheme)
+    {
+        foreach (var theme in themes)
+        {
+            bool selected = theme.Name.Equals(currentTheme, StringComparison.OrdinalIgnoreCase);
+            if (ImGui.MenuItem(theme.Name, "", selected))
+            {
+                controller.ApplyTheme(theme);
+            }
+        }
+    }
+
+    private static void DrawFontMenu(GhosttyTerminalController controller)
+    {
+        var target = controller.FocusTarget;
+        if (target == null)
+        {
+            ImGui.TextDisabled("No terminal window open");
+            return;
+        }
+
+        int fontSize = (int)target.Settings.FontSize;
+        ImGui.Text("Size");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(180f);
+        if (ImGui.SliderInt("##purrtty_font_size", ref fontSize, 4, 72))
+        {
+            target.Settings.FontSize = fontSize;
+        }
+
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            controller.PersistDisplayDefaults(target);
+        }
+
+        ImGui.Separator();
+
+        foreach (var family in PurrTTYFontManager.GetAvailableFontFamilies())
+        {
+            bool selected = family.Equals(target.Settings.FontFamily, StringComparison.OrdinalIgnoreCase);
+            if (ImGui.MenuItem(family, "", selected) && !selected)
+            {
+                target.Settings.FontFamily = family;
+                controller.PersistDisplayDefaults(target);
+            }
+        }
+    }
+
+    private static void DrawWindowMenu(GhosttyTerminalController controller)
+    {
+        bool hideChrome = controller.Configuration.HideUiWhenNotHovered;
+        if (ImGui.Checkbox("Hide chrome when not hovered", ref hideChrome))
+        {
+            controller.Configuration.HideUiWhenNotHovered = hideChrome;
+            controller.Configuration.Save();
+        }
+
+        var target = controller.FocusTarget;
+        if (target == null)
+        {
+            return;
+        }
+
+        ImGui.Separator();
+
+        DrawOpacitySlider(controller, target, "Background Opacity", "##purrtty_bg_opacity",
+            () => target.Settings.BackgroundOpacity, v => target.Settings.BackgroundOpacity = v);
+        DrawOpacitySlider(controller, target, "Foreground Opacity", "##purrtty_fg_opacity",
+            () => target.Settings.ForegroundOpacity, v => target.Settings.ForegroundOpacity = v);
+        DrawOpacitySlider(controller, target, "Cell Background Opacity", "##purrtty_cellbg_opacity",
+            () => target.Settings.CellBackgroundOpacity, v => target.Settings.CellBackgroundOpacity = v);
+    }
+
+    private static void DrawOpacitySlider(
+        GhosttyTerminalController controller,
+        TerminalWindow target,
+        string label,
+        string id,
+        Func<float> get,
+        Action<float> set)
+    {
+        int percent = (int)MathF.Round(get() * 100f);
+        ImGui.Text(label);
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.SliderInt(id, ref percent, 0, 100, "%d%%"))
+        {
+            set(Math.Clamp(percent, 0, 100) / 100f);
+        }
+
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            controller.PersistDisplayDefaults(target);
+        }
+    }
 
     /// <summary>
     ///     Called after the GUI is rendered.
@@ -90,7 +380,6 @@ public class TerminalMod
     [StarMapAfterGui]
     public void OnAfterUi(double dt)
     {
-        // ModLog.Log.Debug("purrTTY OnAfterUi");
         if (!_isInitialized || _isDisposed)
         {
             return;
@@ -98,10 +387,11 @@ public class TerminalMod
 
         try
         {
-            bool hotkeyModalVisible = RenderToggleHotkeyModal();
+            bool modalVisible = RenderToggleHotkeyModal();
+            modalVisible |= RenderSaveThemeModal();
 
             // Handle terminal toggle keybind (dynamic, defaults to F12)
-            if (!hotkeyModalVisible && IsToggleHotkeyPressed())
+            if (!modalVisible && IsToggleHotkeyPressed())
             {
                 bool wasVisible = IsTerminalVisible;
                 ToggleTerminal();
@@ -135,7 +425,6 @@ public class TerminalMod
     [StarMapBeforeGui]
     public void OnBeforeUi(double dt)
     {
-        // ModLog.Log.Debug("purrTTY OnBeforeUi");
         // No pre-UI logic needed currently
     }
 
@@ -149,11 +438,6 @@ public class TerminalMod
         try
         {
             Patcher.patch();
-
-            // Note: GameConsoleShell is automatically discovered via CustomShellRegistry.DiscoverShells()
-            // No manual registration needed - it will be found when GetAvailableShells() is called
-
-            // Reserved for optional game-integration services independent of terminal emulation
 
             InitializeTerminal();
         }
@@ -216,7 +500,7 @@ public class TerminalMod
     }
 
     /// <summary>
-    ///     Initializes the terminal emulator and related components.
+    ///     Initializes the terminal controller and related components.
     ///     Guards against double initialization.
     /// </summary>
     private void InitializeTerminal()
@@ -236,41 +520,36 @@ public class TerminalMod
             // Load fonts first
             PurrTTYFontManager.LoadFonts();
 
-            // Create the libghostty-vt-backed session manager with persisted shell configuration.
-            var sessionManager = GhosttySessionManagerFactory.CreateWithPersistedConfiguration(
-                maxSessions: 20);
-            _ = sessionManager.CreateSessionAsync().Result;
+            // Game-console shells are launchable from the menus at any time.
+            GhosttySessionManagerFactory.EnsureGameShellsDiscovered();
 
-            ModLog.Log.Debug($"purrTTY online");
+            // Prewarm the WSL distribution cache off-thread so the first New Tab /
+            // New Window menu open does not stall on `wsl --list`.
+            if (OperatingSystem.IsWindows())
+            {
+                _ = Task.Run(() => WslDistributionDetector.GetInstalledDistributions());
+            }
 
-            var fontConfig = TerminalFontConfig.CreateForGameMod();
-            ModLog.Log.Debug(
-                $"purrTTY GameMod using explicit font configuration: Regular={fontConfig.RegularFontName}, Bold={fontConfig.BoldFontName}");
-            var controller = new GhosttyTerminalController(sessionManager, fontConfig);
+            var themeConfig = ThemeConfiguration.Load();
+            var catalog = new ThemeCatalog();
+
+            var controller = new GhosttyTerminalController(themeConfig, catalog);
             controller.KeyboardSuppression = ConsumeKeyboardInputSuppression;
             _controller = controller;
 
-            // Option 2: Automatic detection (alternative approach - convenient for development)
-            // Uncomment the following lines to use automatic detection instead:
-            // ModLog.Log.Debug("purrTTY GameMod using automatic font detection");
-            // _controller = new TerminalController(sessionManager);
+            // Pre-open the first window so its default shell is ready before the
+            // terminal is first toggled visible.
+            controller.OpenWindow();
+            controller.IsVisible = _terminalVisible;
 
-            // Option 3: Explicit automatic detection (alternative approach - shows detection explicitly)
-            // Uncomment the following lines to use explicit automatic detection:
-            // var autoConfig = FontContextDetector.DetectAndCreateConfig();
-            // ModLog.Log.Debug($"purrTTY GameMod using detected font configuration: Regular={autoConfig.RegularFontName}, Bold={autoConfig.BoldFontName}");
-            // _controller = new TerminalController(sessionManager, autoConfig);
-
-            // NOTE: The session manager already starts the shell process based on persisted configuration.
-            // The shell (whether CustomGame, PowerShell, WSL, etc.) is started when CreateSessionAsync() is called above.
-            // Do NOT start a separate shell process here - that would result in two shells running simultaneously.
-
-            _controller.IsVisible = _terminalVisible;
+            ModLog.Log.Debug("purrTTY online");
 
             Toggle = ToggleTerminal;
             GetIsVisible = () => IsTerminalVisible;
             GetToggleHotkeyShortcut = () => _toggleHotkey.ToShortcutString();
             OpenToggleHotkeySettings = RequestOpenToggleHotkeyModal;
+            OpenSaveThemeDialog = RequestOpenSaveThemeModal;
+            MenuController = controller;
 
             _isInitialized = true;
             ModLog.Log.Debug($"purrTTY GameMod: Terminal initialized successfully. Press {_toggleHotkey.ToDisplayString()} to toggle.");
@@ -302,12 +581,7 @@ public class TerminalMod
             return;
         }
 
-        bool previousVisibility = IsTerminalVisible;
-        ModLog.Log.Debug(
-            $"DEBUG: SetTerminalVisibility called, changing visibility from {previousVisibility} to {isVisible}");
-
         _terminalVisible = isVisible;
-
         if (_controller != null)
         {
             _controller.IsVisible = isVisible;
@@ -337,6 +611,105 @@ public class TerminalMod
     private bool IsToggleHotkeyPressed()
     {
         return _toggleHotkey.MatchesPress(ImGui.GetIO());
+    }
+
+    private void RequestOpenSaveThemeModal()
+    {
+        if (!_isInitialized || _isDisposed || _controller == null)
+        {
+            return;
+        }
+
+        _themeNameInput.Clear();
+        _saveThemeError = null;
+        _saveThemeModalOpenRequested = true;
+    }
+
+    private bool RenderSaveThemeModal()
+    {
+        if (_saveThemeModalOpenRequested)
+        {
+            _saveThemeModalOpenRequested = false;
+            ImGui.OpenPopup(SaveThemePopupId);
+        }
+
+        bool open = true;
+        ImGui.SetNextWindowSize(new float2(560f, 0f), ImGuiCond.Appearing);
+        if (!ImGui.BeginPopupModal(SaveThemePopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            return false;
+        }
+
+        ImGui.Text("Save the focused window's colors, font, and opacity settings as a theme.");
+        ImGui.Spacing();
+
+        ImGui.Text("Name");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGui.IsWindowAppearing())
+        {
+            ImGui.SetKeyboardFocusHere();
+        }
+
+        bool submitted = ImGui.InputText("##purrtty_theme_name", _themeNameInput, ImGuiInputTextFlags.EnterReturnsTrue);
+
+        string name = _themeNameInput.ToString().Trim();
+        if (name.Length > 0 && _controller?.Catalog.UserThemeExists(name) == true)
+        {
+            ImGui.TextColored(new float4(1f, 0.8f, 0.3f, 1f), $"A saved theme named '{name}' already exists and will be overwritten.");
+        }
+
+        if (_saveThemeError != null)
+        {
+            ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), _saveThemeError);
+        }
+
+        ImGui.Spacing();
+
+        float availW = ImGui.GetContentRegionAvail().X;
+        const float gap = 8f;
+        float buttonWidth = (availW - gap) / 2f;
+        bool canSave = name.Length > 0;
+
+        if (!canSave)
+        {
+            ImGui.BeginDisabled();
+        }
+
+        bool saveClicked = ImGui.Button(" Save ##purrtty_save_theme", new float2(buttonWidth, 0f));
+
+        if (!canSave)
+        {
+            ImGui.EndDisabled();
+        }
+
+        if ((saveClicked || submitted) && canSave)
+        {
+            try
+            {
+                if (_controller?.SaveFocusedWindowAsTheme(name) != null)
+                {
+                    ImGui.CloseCurrentPopup();
+                }
+                else
+                {
+                    _saveThemeError = "No terminal window to save settings from.";
+                }
+            }
+            catch (Exception ex)
+            {
+                _saveThemeError = $"Save failed: {ex.Message}";
+            }
+        }
+
+        ImGui.SameLine(0, gap);
+        if (ImGui.Button(" Cancel ##purrtty_cancel_save_theme", new float2(buttonWidth, 0f)) || !open)
+        {
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.EndPopup();
+        return true;
     }
 
     private void RequestOpenToggleHotkeyModal()
@@ -582,7 +955,9 @@ public class TerminalMod
 
         try
         {
-            var config = ThemeConfiguration.Load();
+            // Use the controller's live configuration instance so a later display
+            // settings save does not clobber the new hotkey with stale values.
+            var config = _controller?.Configuration ?? ThemeConfiguration.Load();
             _toggleHotkey.WriteToConfiguration(config);
             config.Save();
             ModLog.Log.Debug($"purrTTY GameMod: Toggle hotkey updated to {_toggleHotkey.ToDisplayString()}");
@@ -627,7 +1002,8 @@ public class TerminalMod
 
         try
         {
-            // Dispose components (the controller disposes the session manager, which handles process cleanup)
+            // Dispose components (the controller disposes its windows, whose session
+            // managers handle process cleanup)
             _controller?.Dispose();
             _controller = null;
 
@@ -635,6 +1011,8 @@ public class TerminalMod
             GetIsVisible = null;
             GetToggleHotkeyShortcut = null;
             OpenToggleHotkeySettings = null;
+            OpenSaveThemeDialog = null;
+            MenuController = null;
 
             _isInitialized = false;
             _isDisposed = true;

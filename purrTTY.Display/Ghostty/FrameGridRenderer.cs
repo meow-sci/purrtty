@@ -14,6 +14,10 @@ internal static class FrameGridRenderer
     public static uint ToU32(RgbaColor c)
         => c.R | ((uint)c.G << 8) | ((uint)c.B << 16) | ((uint)c.A << 24);
 
+    public static uint ToU32(RgbaColor c, float opacity)
+        => c.R | ((uint)c.G << 8) | ((uint)c.B << 16)
+           | ((uint)(byte)Math.Clamp(c.A * opacity, 0f, 255f) << 24);
+
     public static void Render(
         TerminalFrame frame,
         ImDrawListPtr drawList,
@@ -23,7 +27,9 @@ internal static class FrameGridRenderer
         FrameFonts fonts,
         float fontSize,
         RgbaColor selectionColor,
-        bool cursorOn)
+        bool cursorOn,
+        float foregroundOpacity = 1f,
+        float cellBackgroundOpacity = 1f)
     {
         var defaultBg = frame.Colors.DefaultBackground;
 
@@ -50,7 +56,7 @@ internal static class FrameGridRenderer
                     drawList.AddRectFilled(
                         new float2(x, y),
                         new float2(x + cellWidth * span, y + cellHeight),
-                        ToU32(bg));
+                        ToU32(bg, cellBackgroundOpacity));
                 }
             }
         }
@@ -74,7 +80,7 @@ internal static class FrameGridRenderer
                 }
 
                 float x = origin.X + c * cellWidth;
-                drawList.AddText(fonts.Select(cell.Flags), fontSize, new float2(x, y), ToU32(cell.Fg), cell.Grapheme);
+                drawList.AddText(fonts.Select(cell.Flags), fontSize, new float2(x, y), ToU32(cell.Fg, foregroundOpacity), cell.Grapheme);
             }
         }
 
@@ -94,7 +100,7 @@ internal static class FrameGridRenderer
                 float span = cell.Width == CellWidth.Wide ? 2f : 1f;
                 float x = origin.X + c * cellWidth;
                 float x2 = x + cellWidth * span;
-                uint lineColor = ToU32(cell.UnderlineColor ?? cell.Fg);
+                uint lineColor = ToU32(cell.UnderlineColor ?? cell.Fg, foregroundOpacity);
 
                 if (cell.Underline != UnderlineStyle.None)
                 {
@@ -109,12 +115,12 @@ internal static class FrameGridRenderer
                 if ((cell.Flags & CellFlags.Strikethrough) != 0)
                 {
                     float sy = y + cellHeight * 0.5f;
-                    drawList.AddLine(new float2(x, sy), new float2(x2, sy), ToU32(cell.Fg), 1.0f);
+                    drawList.AddLine(new float2(x, sy), new float2(x2, sy), ToU32(cell.Fg, foregroundOpacity), 1.0f);
                 }
 
                 if ((cell.Flags & CellFlags.Overline) != 0)
                 {
-                    drawList.AddLine(new float2(x, y + 1f), new float2(x2, y + 1f), ToU32(cell.Fg), 1.0f);
+                    drawList.AddLine(new float2(x, y + 1f), new float2(x2, y + 1f), ToU32(cell.Fg, foregroundOpacity), 1.0f);
                 }
             }
         }
@@ -124,7 +130,7 @@ internal static class FrameGridRenderer
             && frame.Cursor.X >= 0 && frame.Cursor.X < frame.Cols
             && frame.Cursor.Y >= 0 && frame.Cursor.Y < frame.Rows)
         {
-            DrawCursor(frame, drawList, origin, cellWidth, cellHeight, fonts, fontSize);
+            DrawCursor(frame, drawList, origin, cellWidth, cellHeight, fonts, fontSize, foregroundOpacity);
         }
     }
 
@@ -135,11 +141,12 @@ internal static class FrameGridRenderer
         float cellWidth,
         float cellHeight,
         FrameFonts fonts,
-        float fontSize)
+        float fontSize,
+        float foregroundOpacity)
     {
         float x = origin.X + frame.Cursor.X * cellWidth;
         float y = origin.Y + frame.Cursor.Y * cellHeight;
-        uint cursorColor = ToU32(frame.Colors.Cursor);
+        uint cursorColor = ToU32(frame.Colors.Cursor, foregroundOpacity);
         var min = new float2(x, y);
         var max = new float2(x + cellWidth, y + cellHeight);
 
