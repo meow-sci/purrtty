@@ -261,10 +261,15 @@ public sealed class TerminalWindow : IDisposable
         ImGui.PushStyleColor(ImGuiCol.WindowBg, windowBg);
         if (!showChrome)
         {
-            // The menu-bar strip background is part of the window decorations
-            // drawn during Begin, so it has to be hidden via style color here.
-            ImGui.PushStyleColor(ImGuiCol.MenuBarBg, new float4(0f, 0f, 0f, 0f));
-            colorPushes++;
+            // The menu-bar strip background and the resize grip are part of the
+            // window decorations drawn during Begin, so they have to be hidden
+            // via style colors here. The grip stays functional while invisible.
+            var transparent = new float4(0f, 0f, 0f, 0f);
+            ImGui.PushStyleColor(ImGuiCol.MenuBarBg, transparent);
+            ImGui.PushStyleColor(ImGuiCol.ResizeGrip, transparent);
+            ImGui.PushStyleColor(ImGuiCol.ResizeGripHovered, transparent);
+            ImGui.PushStyleColor(ImGuiCol.ResizeGripActive, transparent);
+            colorPushes += 4;
         }
 
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0f, 0f));
