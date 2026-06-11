@@ -63,6 +63,16 @@ internal static class UnixPtyOutputPump
                     continue; // timeout — re-check cancellation
                 }
 
+                if ((pollFd.revents & UnixPtyNative.POLLNVAL) != 0)
+                {
+                    // fd is not open — without this exit the loop would spin at the
+                    // poll cadence until cancellation.
+                    onProcessError(
+                        new InvalidOperationException("poll reported POLLNVAL: PTY master fd is not open"),
+                        "PTY master fd invalid (POLLNVAL)");
+                    break;
+                }
+
                 if ((pollFd.revents & (UnixPtyNative.POLLIN | UnixPtyNative.POLLHUP | UnixPtyNative.POLLERR)) == 0)
                 {
                     continue;

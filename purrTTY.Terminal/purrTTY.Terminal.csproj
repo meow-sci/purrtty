@@ -16,6 +16,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Integration tests pin internal PTY-layer contracts (argv quoting, input queue). -->
+    <InternalsVisibleTo Include="purrTTY.Terminal.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../vendor/Ghostty.Vt/Ghostty.Vt.csproj" />
     <ProjectReference Include="../purrTTY.Logging/purrTTY.Logging.csproj" />
     <!-- ICustomShell + CustomShellRegistry (namespace purrTTY.Core.Terminal) used by

@@ -78,12 +78,14 @@ internal static class ProcessLifecycleManager
             }
         }
 
-        // Wait for read task to complete
+        // Wait briefly for the read task; full drain + handle cleanup happens in
+        // CleanupProcess (the pump only unblocks once the pseudoconsole is closed
+        // there, so an unbounded await here could hang teardown).
         if (outputReadTask != null)
         {
             try
             {
-                await outputReadTask;
+                await Task.WhenAny(outputReadTask, Task.Delay(2000));
             }
             catch (OperationCanceledException)
             {
@@ -149,46 +151,38 @@ internal static class ProcessLifecycleManager
             return IntPtr.Zero; // Use parent process environment
         }
 
-        try
+        // Merge current environment with additional variables. Windows env var
+        // names are case-insensitive — an Ordinal merge can produce "Path" and
+        // "PATH" duplicates in the block.
+        var envVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            // Merge current environment with additional variables
-            var envVars = Environment.GetEnvironmentVariables();
-            foreach (var kvp in additionalVariables)
+            if (entry.Key?.ToString() is { Length: > 0 } key)
             {
-                if (!string.IsNullOrEmpty(kvp.Key))
-                {
-                    envVars[kvp.Key] = kvp.Value ?? string.Empty;
-                }
+                envVars[key] = entry.Value?.ToString() ?? string.Empty;
             }
-
-            // Build environment block string: "NAME=VALUE\0NAME2=VALUE2\0\0"
-            var envBlock = new System.Text.StringBuilder();
-            foreach (System.Collections.DictionaryEntry entry in envVars)
-            {
-                // Skip null keys or values
-                if (entry.Key == null || entry.Value == null)
-                    continue;
-                
-                string key = entry.Key.ToString() ?? string.Empty;
-                string value = entry.Value.ToString() ?? string.Empty;
-                
-                if (!string.IsNullOrEmpty(key))
-                {
-                    envBlock.Append($"{key}={value}\0");
-                }
-            }
-            envBlock.Append("\0"); // Final null terminator
-
-            // Allocate unmanaged memory for Unicode environment block
-            string envString = envBlock.ToString();
-            IntPtr envBlockPtr = Marshal.StringToHGlobalUni(envString);
-            return envBlockPtr;
         }
-        catch (Exception)
+
+        foreach (var kvp in additionalVariables)
         {
-            // If environment block creation fails, return IntPtr.Zero to use parent environment
-            return IntPtr.Zero;
+            if (!string.IsNullOrEmpty(kvp.Key))
+            {
+                envVars[kvp.Key] = kvp.Value ?? string.Empty;
+            }
         }
+
+        // Build environment block string: "NAME=VALUE\0NAME2=VALUE2\0\0".
+        // CreateProcessW requires the block sorted alphabetically by name,
+        // case-insensitively.
+        var envBlock = new System.Text.StringBuilder();
+        foreach (string key in envVars.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+        {
+            envBlock.Append($"{key}={envVars[key]}\0");
+        }
+        envBlock.Append('\0'); // Final null terminator
+
+        // Allocate unmanaged memory for Unicode environment block
+        return Marshal.StringToHGlobalUni(envBlock.ToString());
     }
 
     /// <summary>
@@ -199,14 +193,29 @@ internal static class ProcessLifecycleManager
     /// <returns>A managed Process object</returns>
     internal static SysProcess WrapProcessHandle(ConPtyNative.PROCESS_INFORMATION processInfo, EventHandler onProcessExited)
     {
-        var process = SysProcess.GetProcessById(processInfo.dwProcessId);
-        process.EnableRaisingEvents = true;
-        process.Exited += onProcessExited;
-
-        // Close process and thread handles (we have the Process object now)
-        ConPtyNative.CloseHandle(processInfo.hProcess);
-        ConPtyNative.CloseHandle(processInfo.hThread);
-
-        return process;
+        try
+        {
+            var process = SysProcess.GetProcessById(processInfo.dwProcessId);
+            process.EnableRaisingEvents = true;
+            process.Exited += onProcessExited;
+            return process;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            // The child exited before we could re-attach by PID. Read the exit code
+            // off the raw handle (still valid — closed in the finally) and report a
+            // failed start instead of leaking the handles.
+            uint exitCode = 0;
+            _ = ConPtyNative.GetExitCodeProcess(processInfo.hProcess, out exitCode);
+            throw new ProcessStartException(
+                $"Shell process exited immediately with code {exitCode} before it could be attached", ex);
+        }
+        finally
+        {
+            // Close process and thread handles on every path (success keeps the
+            // managed Process object's own handle).
+            ConPtyNative.CloseHandle(processInfo.hProcess);
+            ConPtyNative.CloseHandle(processInfo.hThread);
+        }
     }
 }

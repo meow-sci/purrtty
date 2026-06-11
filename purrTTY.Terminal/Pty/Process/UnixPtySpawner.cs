@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace purrTTY.Core.Terminal.Process;
 
@@ -29,7 +30,8 @@ internal static class UnixPtySpawner
         string? workingDirectory,
         IDictionary<string, string>? environmentOverrides,
         int width,
-        int height)
+        int height,
+        ILogger? logger = null)
     {
         int masterFd = UnixPtyNative.posix_openpt(UnixPtyNative.O_RDWR | UnixPtyNative.O_NOCTTY);
         if (masterFd < 0)
@@ -74,7 +76,14 @@ internal static class UnixPtySpawner
             {
                 slaveFd = OpenSlave(slavePath, shellPath);
                 var winSize = new UnixPtyNative.WinSize { ws_row = (ushort)height, ws_col = (ushort)width };
-                _ = UnixPtyNative.WinSizeIoctl(slaveFd, UnixPtyNative.TIOCSWINSZ, ref winSize);
+                if (UnixPtyNative.WinSizeIoctl(slaveFd, UnixPtyNative.TIOCSWINSZ, ref winSize) != 0)
+                {
+                    // Not fatal — the shell just starts with default dimensions until
+                    // the first Resize — but it must not fail silently.
+                    logger?.LogWarning(
+                        "Initial TIOCSWINSZ on {Slave} failed: {Error}",
+                        slavePath, Marshal.GetLastPInvokeErrorMessage());
+                }
 
                 int pid = SpawnChild(shellPath, arguments, workingDirectory, environmentOverrides, slavePath);
                 return new SpawnResult(masterFd, pid, slavePath);

@@ -17,14 +17,14 @@ Test suite was run during the review: **287 tests, 0 failures, 2 skipped.**
 |---|---------|----------|--------|
 | 1 | Game keyboard black hole: `IsAnyTerminalActive` stuck `true` after hiding a focused terminal | CRITICAL | 1 line |
 | 2 | ~~Native use-after-free: surface disposed on pool thread during tab close while tick thread may be in `BuildFrame`~~ **FIXED** (A1) | CRITICAL | small |
-| 3 | Double `FreeHGlobal` of env block on `CreateProcess` failure → Windows heap corruption | CRITICAL | 1 line |
+| 3 | ~~Double `FreeHGlobal` of env block on `CreateProcess` failure → Windows heap corruption~~ **FIXED** (B1) | CRITICAL | 1 line |
 | 4 | ~~Unbounded `_inbox` growth for hidden terminal / inactive tabs~~ **FIXED** (A3) **[2x]** | MAJOR | medium |
 | 5 | ~~Cross-thread `SetTheme` on session create races tick-thread `BuildFrame`~~ **FIXED** (A2) **[2x]** | MAJOR | small |
 | 6 | ~~Drag-selection anchor is an untracked native `GridRef` — dangles if scrollback prunes mid-drag~~ **FIXED** (A4) **[2x]** | MAJOR | medium |
 | 7 | Linux/macOS first run: default shell is PowerShell → dead empty window | MAJOR | tiny |
 | 8 | All-or-nothing Harmony `PatchAll`: one drifted target kills the whole mod | MAJOR | small |
 | 9 | Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`; deploy never cleans stale DLLs | MAJOR | tiny |
-| 10 | ConPTY: handle-close races, exit-path output loss, blocking writes on render thread, unquoted command line | MAJOR | medium |
+| 10 | ~~ConPTY: handle-close races, exit-path output loss, blocking writes on render thread, unquoted command line~~ **FIXED** (B3–B7) | MAJOR | medium |
 
 ---
 
@@ -81,6 +81,27 @@ thread-pool threads.
 ---
 
 ## B. PTY / process layer
+
+> **STATUS 2026-06-11: B1–B9 all FIXED** (branch `feature/fable-review`). B1/B2: each native
+> allocation now has exactly one free path. B3+B5: all PTY input goes through a new bounded
+> `PtyInputQueue` (1 MiB cap, drop+report on overflow) drained by a dedicated writer thread on
+> both backends — the render tick thread never issues the blocking write; the fd/handle is closed
+> only after the writer thread joins (join-before-close replaces lock-across-write), and is
+> deliberately **leaked** if a pump thread fails to stop (fd/handle-reuse hazard). B4: exit
+> handler snapshots `Id`/`ExitCode` defensively. B6: ConPTY teardown closes the pseudoconsole
+> first (conhost flushes + breaks the pipes), waits for the output pump to drain (≤2 s), then
+> closes the pipe handles. B7: `ResolveShellCommandLine` quotes the shell path and every argument
+> per Windows argv rules (`AppendQuotedArgument`); the bare-space `ResolveShellCommand` is gone.
+> B8: both managers carry a per-start generation token; stale teardown (timed-out waiter, late
+> `Exited` callback) no-ops after a restart. B9: `WrapProcessHandle` handles an already-exited
+> child without leaking the raw handles; read-token-under-lock + `_starting` double-start guard
+> in both managers; env block merged case-insensitively and sorted (CreateProcessW contract),
+> creation failures logged not swallowed; `Auto` on Windows offers WSL only when ≥1 distribution
+> is detected; `CustomShellPtyBridge.Write` observes faults of the fire-and-forget write;
+> `POLLNVAL` exits the Unix pump loop; initial `TIOCSWINSZ` failure is logged; dead
+> `CleanupHandles`/`CleanupPseudoConsole`/`ValidateProcessRunning` helpers deleted. New
+> cross-platform tests: `PtyInputContractTests` (argv quoting incl. the space-containing-arg
+> case from F7.3, queue ordering/overflow/failure semantics). See CLAUDE.md gotcha 20.
 
 ### B1. CRITICAL — Double `Marshal.FreeHGlobal` of the environment block on CreateProcess failure
 - `purrTTY.Terminal/Pty/ProcessManager.cs:149-175`: catch frees `envBlock` (:160-163), then the `finally` frees it again (:171-174) before the rethrow. `envBlock` is non-null in every real launch (`ProcessLaunchOptions.CreateDefault()` always sets TERM etc.). Any `CreateProcessW` failure (bad shell path, broken WSL, AV interference) double-frees → silent native heap corruption that can surface far away.

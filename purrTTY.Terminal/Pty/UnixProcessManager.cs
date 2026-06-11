@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PtyInputQueue = purrTTY.Core.Terminal.Process.PtyInputQueue;
 using ShellCommandResolver = purrTTY.Core.Terminal.Process.ShellCommandResolver;
 using UnixPtyNative = purrTTY.Core.Terminal.Process.UnixPtyNative;
 using UnixPtyOutputPump = purrTTY.Core.Terminal.Process.UnixPtyOutputPump;
@@ -14,11 +15,21 @@ namespace purrTTY.Core.Terminal;
 ///     (posix_openpt + posix_spawnp). The Unix counterpart of the ConPTY-based
 ///     <see cref="ProcessManager"/>; selected by <c>TerminalSessionFactory</c> on
 ///     non-Windows hosts.
+///
+///     Threading model: all fields are guarded by <see cref="_stateLock"/>, which is
+///     never held across a blocking call. Input is written by a dedicated
+///     <see cref="PtyInputQueue"/> thread — write(2) on a pty master blocks while the
+///     child's input queue is full (busy/SIGSTOPped/XOFF'd child + a large paste), and
+///     Write is called on the render tick thread. The master fd is closed only after
+///     both the reader and the writer thread have provably stopped using it; if either
+///     fails to stop in time the fd is deliberately leaked instead (closing an fd
+///     under a blocked syscall races fd reuse elsewhere in the process). Each start
+///     gets a generation token so a stale teardown (timed-out waiter from a previous
+///     run) can never destroy a freshly restarted session.
 /// </summary>
 public class UnixProcessManager : IProcessManager
 {
     private readonly object _stateLock = new();
-    private readonly object _writeLock = new();
     private readonly ILogger _logger;
 
     private int _masterFd = -1;
@@ -26,9 +37,12 @@ public class UnixProcessManager : IProcessManager
     private bool _exited;
     private int? _exitCode;
     private bool _disposed;
+    private bool _starting;
+    private int _generation;
     private Task? _readerTask;
     private Task? _waiterTask;
     private CancellationTokenSource? _readCancellationSource;
+    private PtyInputQueue? _inputQueue;
 
     /// <summary>
     ///     Creates a new UnixProcessManager with optional logging.
@@ -100,61 +114,78 @@ public class UnixProcessManager : IProcessManager
                 "UnixProcessManager only supports Linux/macOS; use ProcessManager (ConPTY) on Windows");
         }
 
+        int generation;
         lock (_stateLock)
         {
-            if (_pid != 0)
+            if (_pid != 0 || _starting)
             {
                 throw new InvalidOperationException(
                     "A process is already running. Stop the current process before starting a new one.");
             }
+
+            _starting = true;
+            generation = ++_generation;
         }
 
-        (string shellPath, string[] argv) = ShellCommandResolver.ResolveShellCommandArgv(options);
-
-        string? workingDirectory = options.WorkingDirectory ?? Environment.CurrentDirectory;
-
-        UnixPtySpawner.SpawnResult spawn;
         try
         {
-            spawn = UnixPtySpawner.Spawn(
-                shellPath,
-                argv,
-                workingDirectory,
-                options.EnvironmentVariables,
-                options.InitialWidth,
-                options.InitialHeight);
+            (string shellPath, string[] argv) = ShellCommandResolver.ResolveShellCommandArgv(options);
+
+            string? workingDirectory = options.WorkingDirectory ?? Environment.CurrentDirectory;
+
+            UnixPtySpawner.SpawnResult spawn;
+            try
+            {
+                spawn = UnixPtySpawner.Spawn(
+                    shellPath,
+                    argv,
+                    workingDirectory,
+                    options.EnvironmentVariables,
+                    options.InitialWidth,
+                    options.InitialHeight,
+                    _logger);
+            }
+            catch (Exception ex) when (ex is not ProcessStartException)
+            {
+                throw new ProcessStartException($"Failed to start shell process: {ex.Message}", ex, shellPath);
+            }
+
+            _logger.LogDebug("Spawned '{Shell}' pid {Pid} on {Slave}", shellPath, spawn.Pid, spawn.SlavePath);
+
+            lock (_stateLock)
+            {
+                _masterFd = spawn.MasterFd;
+                _pid = spawn.Pid;
+                _exited = false;
+                _exitCode = null;
+                _readCancellationSource = new CancellationTokenSource();
+                _inputQueue = new PtyInputQueue(
+                    "purrTTY pty input",
+                    chunk => WriteChunkToPty(chunk, spawn.Pid),
+                    (exception, message) => ProcessError?.Invoke(this, new ProcessErrorEventArgs(exception, message, spawn.Pid)));
+
+                _readerTask = UnixPtyOutputPump.ReadOutputAsync(
+                    spawn.MasterFd,
+                    data => DataReceived?.Invoke(this, new DataReceivedEventArgs(data)),
+                    (exception, message) => ProcessError?.Invoke(this, new ProcessErrorEventArgs(exception, message, spawn.Pid)),
+                    _readCancellationSource.Token);
+
+                _waiterTask = Task.Factory.StartNew(
+                    () => WaitForExit(spawn.Pid, generation),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+            }
+
+            return Task.CompletedTask;
         }
-        catch (Exception ex) when (ex is not ProcessStartException)
+        finally
         {
-            throw new ProcessStartException($"Failed to start shell process: {ex.Message}", ex, shellPath);
+            lock (_stateLock)
+            {
+                _starting = false;
+            }
         }
-
-        _logger.LogDebug("Spawned '{Shell}' pid {Pid} on {Slave}", shellPath, spawn.Pid, spawn.SlavePath);
-
-        CancellationToken readToken;
-        lock (_stateLock)
-        {
-            _masterFd = spawn.MasterFd;
-            _pid = spawn.Pid;
-            _exited = false;
-            _exitCode = null;
-            _readCancellationSource = new CancellationTokenSource();
-            readToken = _readCancellationSource.Token;
-        }
-
-        _readerTask = UnixPtyOutputPump.ReadOutputAsync(
-            spawn.MasterFd,
-            data => DataReceived?.Invoke(this, new DataReceivedEventArgs(data)),
-            (exception, message) => ProcessError?.Invoke(this, new ProcessErrorEventArgs(exception, message, spawn.Pid)),
-            readToken);
-
-        _waiterTask = Task.Factory.StartNew(
-            () => WaitForExit(spawn.Pid),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -168,11 +199,13 @@ public class UnixProcessManager : IProcessManager
         int pid;
         bool running;
         Task? waiterTask;
+        int generation;
         lock (_stateLock)
         {
             pid = _pid;
             running = _pid != 0 && !_exited;
             waiterTask = _waiterTask;
+            generation = _generation;
         }
 
         try
@@ -195,11 +228,17 @@ public class UnixProcessManager : IProcessManager
         }
         finally
         {
-            CleanupProcess();
+            CleanupProcess(generation);
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    ///     Queues data for the shell's PTY. The write itself happens on a dedicated
+    ///     writer thread (write(2) on the master can block indefinitely while the
+    ///     child is not reading, and this is called on the render tick thread); write
+    ///     failures surface through <see cref="ProcessError"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
     public void Write(ReadOnlySpan<byte> data)
     {
         ThrowIfDisposed();
@@ -209,7 +248,7 @@ public class UnixProcessManager : IProcessManager
             return;
         }
 
-        int pid;
+        PtyInputQueue? queue;
         lock (_stateLock)
         {
             if (_pid == 0 || _exited)
@@ -217,20 +256,10 @@ public class UnixProcessManager : IProcessManager
                 throw new InvalidOperationException("No process is running");
             }
 
-            pid = _pid;
+            queue = _inputQueue;
         }
 
-        // _masterFd is re-read under _writeLock: the close in CleanupProcess holds
-        // the same lock, so the fd can neither be stale nor recycled mid-write.
-        lock (_writeLock)
-        {
-            if (_masterFd < 0)
-            {
-                throw new InvalidOperationException("No process is running");
-            }
-
-            WriteAll(_masterFd, data, pid);
-        }
+        queue?.Write(data);
     }
 
     /// <inheritdoc />
@@ -252,17 +281,12 @@ public class UnixProcessManager : IProcessManager
     {
         ThrowIfDisposed();
 
+        // The ioctl runs under the lock (it never blocks) so teardown — which
+        // invalidates _masterFd under the same lock before closing it — cannot
+        // close the fd mid-call.
         lock (_stateLock)
         {
-            if (_pid == 0 || _exited)
-            {
-                throw new InvalidOperationException("No process is running");
-            }
-        }
-
-        lock (_writeLock)
-        {
-            if (_masterFd < 0)
+            if (_pid == 0 || _exited || _masterFd < 0)
             {
                 throw new InvalidOperationException("No process is running");
             }
@@ -290,7 +314,13 @@ public class UnixProcessManager : IProcessManager
                 // Ignore errors during disposal
             }
 
-            CleanupProcess();
+            int generation;
+            lock (_stateLock)
+            {
+                generation = _generation;
+            }
+
+            CleanupProcess(generation);
             _disposed = true;
         }
     }
@@ -298,9 +328,11 @@ public class UnixProcessManager : IProcessManager
     /// <summary>
     ///     Dedicated waiter thread: reaps the child, lets the reader drain the PTY's
     ///     buffered tail, then cleans up and raises ProcessExited (mirroring the
-    ///     cleanup-then-raise order of the ConPTY manager).
+    ///     cleanup-then-raise order of the ConPTY manager). A stale waiter (this
+    ///     manager restarted while it was still waiting) must touch nothing: the
+    ///     generation check makes both the state update and the cleanup no-ops.
     /// </summary>
-    private void WaitForExit(int pid)
+    private void WaitForExit(int pid, int generation)
     {
         int status = 0;
         int result;
@@ -314,6 +346,12 @@ public class UnixProcessManager : IProcessManager
         Task? readerTask;
         lock (_stateLock)
         {
+            if (generation != _generation)
+            {
+                _logger.LogDebug("Stale waiter for pid {Pid} superseded by restart; ignoring exit", pid);
+                return;
+            }
+
             _exited = true;
             _exitCode = exitCode;
             readerTask = _readerTask;
@@ -331,7 +369,7 @@ public class UnixProcessManager : IProcessManager
             // reader errors are reported through ProcessError
         }
 
-        CleanupProcess();
+        CleanupProcess(generation);
 
         ProcessExited?.Invoke(this, new ProcessExitedEventArgs(exitCode, pid));
     }
@@ -342,6 +380,27 @@ public class UnixProcessManager : IProcessManager
         {
             _ = UnixPtyNative.kill(pid, signal);
         }
+    }
+
+    /// <summary>
+    ///     Writes one queued input chunk to the master fd. Runs on the input queue's
+    ///     writer thread only. The fd snapshot is safe to use outside the lock because
+    ///     teardown closes the fd only after this thread has joined (or leaks it).
+    /// </summary>
+    private void WriteChunkToPty(byte[] chunk, int pid)
+    {
+        int fd;
+        lock (_stateLock)
+        {
+            fd = _masterFd;
+        }
+
+        if (fd < 0)
+        {
+            return; // torn down — drop
+        }
+
+        WriteAll(fd, chunk, pid);
     }
 
     private static void WriteAll(int fd, ReadOnlySpan<byte> data, int pid)
@@ -372,19 +431,41 @@ public class UnixProcessManager : IProcessManager
     }
 
     /// <summary>
-    ///     Idempotent teardown: stops the reader, then closes the master fd only
-    ///     after the reader thread has exited (closing under a blocked read races
-    ///     against fd reuse elsewhere in the process).
+    ///     Idempotent, generation-guarded teardown: stops the reader and the input
+    ///     writer, then closes the master fd only once both threads have provably
+    ///     stopped using it. If either thread fails to stop in time, the single fd is
+    ///     deliberately leaked — closing it under a blocked read/write races fd reuse
+    ///     elsewhere in the process, which is far worse than one lost descriptor.
     /// </summary>
-    private void CleanupProcess()
+    private void CleanupProcess(int generation)
     {
         Task? readerTask;
         CancellationTokenSource? cts;
+        PtyInputQueue? inputQueue;
+        int masterFd;
+
         lock (_stateLock)
         {
+            if (generation != _generation)
+            {
+                return; // stale teardown after a restart
+            }
+
             cts = _readCancellationSource;
             _readCancellationSource = null;
             readerTask = _readerTask;
+            _readerTask = null;
+            inputQueue = _inputQueue;
+            _inputQueue = null;
+
+            // Invalidate the fd for new callers; the close happens below, after the
+            // pump threads are out of it.
+            masterFd = _masterFd;
+            _masterFd = -1;
+
+            // Allow restart on the same manager (SessionManager.RestartSession
+            // stops and re-starts the same instance). ExitCode is kept.
+            _pid = 0;
         }
 
         if (cts != null)
@@ -399,38 +480,41 @@ public class UnixProcessManager : IProcessManager
             }
         }
 
+        // The reader blocks in poll(100ms), so cancellation is observed promptly;
+        // the writer unblocks with EPIPE once the child is dead (Stop ensures that
+        // before cleanup).
+        bool readerExited = true;
         if (readerTask != null && !readerTask.IsCompleted)
         {
             try
             {
-                readerTask.Wait(1000);
+                readerExited = readerTask.Wait(1000);
             }
             catch
             {
                 // reader errors are reported through ProcessError
+                readerExited = readerTask.IsCompleted;
             }
         }
 
-        lock (_stateLock)
+        bool writerExited = inputQueue?.Shutdown(1000) ?? true;
+        if (writerExited)
         {
-            _readerTask = null;
+            inputQueue?.Dispose();
+        }
 
-            // _writeLock serializes the close against in-flight Write/Resize so a
-            // recycled fd number can never be touched by a stale writer. A writer
-            // blocked on a full pty buffer unblocks with EPIPE once the child dies
-            // (which Stop ensures before cleanup).
-            lock (_writeLock)
+        if (masterFd >= 0)
+        {
+            if (readerExited && writerExited)
             {
-                if (_masterFd >= 0)
-                {
-                    _ = UnixPtyNative.close(_masterFd);
-                    _masterFd = -1;
-                }
+                _ = UnixPtyNative.close(masterFd);
             }
-
-            // Allow restart on the same manager (SessionManager.RestartSession
-            // stops and re-starts the same instance). ExitCode is kept.
-            _pid = 0;
+            else
+            {
+                _logger.LogWarning(
+                    "PTY pump thread still running at cleanup (reader exited: {Reader}, writer exited: {Writer}); leaking master fd {Fd}",
+                    readerExited, writerExited, masterFd);
+            }
         }
     }
 

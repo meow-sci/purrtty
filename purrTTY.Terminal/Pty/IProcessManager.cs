@@ -39,19 +39,22 @@ public interface IProcessManager : IDisposable
     Task StopAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    ///     Writes data to the shell process stdin.
+    ///     Writes data to the shell process stdin. Never blocks: the real PTY
+    ///     backends queue the bytes for a dedicated writer thread (a PTY write can
+    ///     block indefinitely while the child is not reading its input, and this is
+    ///     called on the render tick thread). Write failures are reported through
+    ///     <see cref="ProcessError"/> rather than thrown.
     /// </summary>
     /// <param name="data">The data to write</param>
     /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
-    /// <exception cref="ProcessWriteException">Thrown if writing to the process fails</exception>
     void Write(ReadOnlySpan<byte> data);
 
     /// <summary>
-    ///     Writes string data to the shell process stdin.
+    ///     Writes string data to the shell process stdin (same non-blocking,
+    ///     queued semantics as the byte overload).
     /// </summary>
     /// <param name="text">The text to write (will be converted to UTF-8)</param>
     /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
-    /// <exception cref="ProcessWriteException">Thrown if writing to the process fails</exception>
     void Write(string text);
 
     /// <summary>

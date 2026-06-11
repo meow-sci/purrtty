@@ -157,9 +157,26 @@ public class CustomShellPtyBridge : IProcessManager
 
         try
         {
-            // Convert span to memory and send to custom shell asynchronously
-            // We don't await this to maintain the synchronous interface contract
-            _ = _customShell.WriteInputAsync(data.ToArray(), CancellationToken.None);
+            // Convert span to memory and send to custom shell asynchronously; the
+            // synchronous interface contract means we cannot await. For the built-in
+            // BaseLineBufferedShell the call completes synchronously, so ordering is
+            // preserved; third-party fully-async shells get no cross-call ordering
+            // guarantee here, and their faults are observed below instead of being
+            // silently swallowed by the abandoned task.
+            Task writeTask = _customShell.WriteInputAsync(data.ToArray(), CancellationToken.None);
+            if (!writeTask.IsCompletedSuccessfully)
+            {
+                writeTask.ContinueWith(
+                    task =>
+                    {
+                        Exception error = task.Exception!.GetBaseException();
+                        ProcessError?.Invoke(this, new ProcessErrorEventArgs(
+                            error, $"Custom shell input write failed: {error.Message}", _processId));
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted,
+                    TaskScheduler.Default);
+            }
         }
         catch (Exception ex)
         {

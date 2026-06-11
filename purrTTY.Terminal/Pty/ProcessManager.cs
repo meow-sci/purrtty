@@ -11,6 +11,7 @@ using ProcessCleanup = purrTTY.Core.Terminal.Process.ProcessCleanup;
 using ProcessEvents = purrTTY.Core.Terminal.Process.ProcessEvents;
 using ProcessLifecycleManager = purrTTY.Core.Terminal.Process.ProcessLifecycleManager;
 using ProcessStateManager = purrTTY.Core.Terminal.Process.ProcessStateManager;
+using PtyInputQueue = purrTTY.Core.Terminal.Process.PtyInputQueue;
 using ShellCommandResolver = purrTTY.Core.Terminal.Process.ShellCommandResolver;
 using StartupInfoBuilder = purrTTY.Core.Terminal.Process.StartupInfoBuilder;
 using SysProcess = System.Diagnostics.Process;
@@ -21,18 +22,29 @@ namespace purrTTY.Core.Terminal;
 ///     Manages shell processes using Windows Pseudoconsole (ConPTY) for true PTY functionality.
 ///     Follows Microsoft's recommended approach from:
 ///     https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
+///
+///     Threading model: all fields are guarded by <see cref="_processLock"/>, which is
+///     never held across a blocking call. Input is written by a dedicated
+///     <see cref="PtyInputQueue"/> thread (a blocked WriteFile must never run on the
+///     render tick thread); the input write handle is closed only after that thread
+///     has joined, so the writer can use its snapshot of the handle without holding a
+///     lock across the blocking write. Each StartAsync gets a generation token so a
+///     stale teardown (timed-out waiter, late Exited callback) can never destroy a
+///     freshly restarted session.
 /// </summary>
 public class ProcessManager : IProcessManager
 {
     private readonly object _processLock = new();
     private Process.ConPtyNative.COORD _currentSize;
     private bool _disposed;
-    private IntPtr _inputReadHandle = IntPtr.Zero;
+    private bool _starting;
+    private int _generation;
     private IntPtr _inputWriteHandle = IntPtr.Zero;
     private IntPtr _outputReadHandle = IntPtr.Zero;
     private Task? _outputReadTask;
-    private IntPtr _outputWriteHandle = IntPtr.Zero;
     private SysProcess? _process;
+    private EventHandler? _exitedHandler;
+    private PtyInputQueue? _inputQueue;
 
     private IntPtr _pseudoConsole = IntPtr.Zero;
     private CancellationTokenSource? _readCancellationSource;
@@ -96,13 +108,17 @@ public class ProcessManager : IProcessManager
             throw new PlatformNotSupportedException("ConPTY is only supported on Windows 10 version 1809 and later");
         }
 
+        int generation;
         lock (_processLock)
         {
-            if (_process != null)
+            if (_process != null || _starting)
             {
                 throw new InvalidOperationException(
                     "A process is already running. Stop the current process before starting a new one.");
             }
+
+            _starting = true;
+            generation = ++_generation;
         }
 
         try
@@ -112,99 +128,91 @@ public class ProcessManager : IProcessManager
 
             // Create communication pipes and pseudoconsole
             var pipeHandles = ConPtyPipeManager.CreatePipesAndPseudoConsole(_currentSize);
-            _inputWriteHandle = pipeHandles.InputWriteHandle;
-            _outputReadHandle = pipeHandles.OutputReadHandle;
-            _pseudoConsole = pipeHandles.PseudoConsole;
+            lock (_processLock)
+            {
+                _inputWriteHandle = pipeHandles.InputWriteHandle;
+                _outputReadHandle = pipeHandles.OutputReadHandle;
+                _pseudoConsole = pipeHandles.PseudoConsole;
+            }
 
             // Prepare startup information
             var startupInfo = StartupInfoBuilder.Create();
 
             // Initialize process thread attribute list with pseudoconsole
-            try
-            {
-                startupInfo.lpAttributeList = AttributeListBuilder.CreateAttributeListWithPseudoConsole(_pseudoConsole);
-            }
-            catch (ProcessStartException)
-            {
-                CleanupPseudoConsole();
-                throw;
-            }
+            startupInfo.lpAttributeList = AttributeListBuilder.CreateAttributeListWithPseudoConsole(pipeHandles.PseudoConsole);
 
             // Create environment block from launch options
             IntPtr envBlock = IntPtr.Zero;
-            try
-            {
-                envBlock = ProcessLifecycleManager.CreateEnvironmentBlock(options.EnvironmentVariables);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to create environment block, using parent environment");
-            }
-
-            // Resolve shell command
-            (string shellPath, string shellArgs) = ShellCommandResolver.ResolveShellCommand(options);
-            string commandLine = string.IsNullOrEmpty(shellArgs) ? shellPath : $"{shellPath} {shellArgs}";
-
-            // Create the process
             ConPtyNative.PROCESS_INFORMATION processInfo;
             try
             {
+                try
+                {
+                    envBlock = ProcessLifecycleManager.CreateEnvironmentBlock(options.EnvironmentVariables);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to create environment block, using parent environment");
+                }
+
+                // Resolve shell command (quoted per Windows argv rules — paths and
+                // arguments containing spaces survive the child's re-tokenization)
+                (string shellPath, string commandLine) = ShellCommandResolver.ResolveShellCommandLine(options);
+
                 processInfo = ProcessLifecycleManager.CreateProcess(
                     commandLine,
                     options.WorkingDirectory ?? Environment.CurrentDirectory,
                     ref startupInfo,
                     envBlock);
-            }
-            catch
-            {
-                if (envBlock != IntPtr.Zero)
+
+                // Wrap the process handle in a Process object for lifecycle management.
+                // The handler captures this start's generation so a late Exited callback
+                // can never tear down a restarted session.
+                var exitedHandler = new EventHandler((sender, e) => OnProcessExited(sender, e, generation));
+                var process = ProcessLifecycleManager.WrapProcessHandle(processInfo, exitedHandler);
+
+                lock (_processLock)
                 {
-                    Marshal.FreeHGlobal(envBlock);
+                    _process = process;
+                    _exitedHandler = exitedHandler;
+                    _readCancellationSource = new CancellationTokenSource();
+                    CancellationToken readToken = _readCancellationSource.Token;
+                    _outputReadTask = ReadOutputAsync(readToken);
+                    _inputQueue = new PtyInputQueue(
+                        "purrTTY ConPTY input",
+                        WriteChunkToPipe,
+                        (exception, message) => OnProcessError(new ProcessErrorEventArgs(exception, message, ProcessId)));
                 }
-                AttributeListBuilder.FreeAttributeList(startupInfo.lpAttributeList);
-                CleanupPseudoConsole();
-                throw;
+
+                // Validate that the process started successfully
+                await ProcessLifecycleManager.ValidateProcessStartAsync(process, shellPath, cancellationToken);
             }
             finally
             {
-                // Free environment block after process creation
                 if (envBlock != IntPtr.Zero)
                 {
                     Marshal.FreeHGlobal(envBlock);
                 }
-            }
 
-            // Clean up startup info
-            AttributeListBuilder.FreeAttributeList(startupInfo.lpAttributeList);
-
-            // Wrap the process handle in a Process object for lifecycle management
-            var process = ProcessLifecycleManager.WrapProcessHandle(processInfo, OnProcessExited);
-
-            lock (_processLock)
-            {
-                _process = process;
-                _readCancellationSource = new CancellationTokenSource();
-            }
-
-            // Start reading output
-            CancellationToken readToken = _readCancellationSource.Token;
-            _outputReadTask = ReadOutputAsync(readToken);
-
-            // Validate that the process started successfully
-            try
-            {
-                await ProcessLifecycleManager.ValidateProcessStartAsync(process, shellPath, cancellationToken);
-            }
-            catch
-            {
-                CleanupProcess();
-                throw;
+                AttributeListBuilder.FreeAttributeList(startupInfo.lpAttributeList);
             }
         }
-        catch (Exception ex) when (!(ex is ProcessStartException))
+        catch (Exception ex)
         {
-            CleanupProcess();
+            CleanupProcess(generation);
+            if (ex is ProcessStartException)
+            {
+                throw;
+            }
+
             throw new ProcessStartException($"Failed to start shell process: {ex.Message}", ex);
+        }
+        finally
+        {
+            lock (_processLock)
+            {
+                _starting = false;
+            }
         }
     }
 
@@ -220,12 +228,14 @@ public class ProcessManager : IProcessManager
         SysProcess? processToStop;
         CancellationTokenSource? cancellationSource;
         Task? readTask;
+        int generation;
 
         lock (_processLock)
         {
             processToStop = _process;
             cancellationSource = _readCancellationSource;
             readTask = _outputReadTask;
+            generation = _generation;
         }
 
         try
@@ -234,36 +244,46 @@ public class ProcessManager : IProcessManager
         }
         finally
         {
-            CleanupProcess();
+            CleanupProcess(generation);
         }
     }
 
     /// <summary>
-    ///     Writes data to the shell process stdin via ConPTY.
+    ///     Queues data for the shell process stdin via ConPTY. The write itself happens
+    ///     on a dedicated writer thread (a pty write can block indefinitely when the
+    ///     child stops reading, and this is called on the render tick thread); write
+    ///     failures surface through <see cref="ProcessError"/>.
     /// </summary>
     /// <param name="data">The data to write</param>
     /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
-    /// <exception cref="ProcessWriteException">Thrown if writing to the process fails</exception>
     public void Write(ReadOnlySpan<byte> data)
     {
         ThrowIfDisposed();
 
-        SysProcess? currentProcess;
-        lock (_processLock)
+        if (data.IsEmpty)
         {
-            currentProcess = _process;
+            return;
         }
 
-        ProcessStateManager.ValidateProcessRunning(currentProcess, _inputWriteHandle);
-        ConPtyInputWriter.Write(data, _inputWriteHandle, currentProcess!, args => OnProcessError(args));
+        PtyInputQueue? queue;
+        lock (_processLock)
+        {
+            if (_process == null || _inputWriteHandle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("No process is currently running");
+            }
+
+            queue = _inputQueue;
+        }
+
+        queue?.Write(data);
     }
 
     /// <summary>
-    ///     Writes string data to the shell process stdin.
+    ///     Queues string data for the shell process stdin.
     /// </summary>
     /// <param name="text">The text to write (will be converted to UTF-8)</param>
     /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
-    /// <exception cref="ProcessWriteException">Thrown if writing to the process fails</exception>
     public void Write(string text)
     {
         if (string.IsNullOrEmpty(text))
@@ -271,16 +291,7 @@ public class ProcessManager : IProcessManager
             return;
         }
 
-        ThrowIfDisposed();
-
-        SysProcess? currentProcess;
-        lock (_processLock)
-        {
-            currentProcess = _process;
-        }
-
-        ProcessStateManager.ValidateProcessRunning(currentProcess, _inputWriteHandle);
-        ConPtyInputWriter.Write(text, _inputWriteHandle, currentProcess!, args => OnProcessError(args));
+        Write(Encoding.UTF8.GetBytes(text));
     }
 
     /// <summary>
@@ -300,23 +311,22 @@ public class ProcessManager : IProcessManager
             throw new PlatformNotSupportedException("ConPTY resizing is only supported on Windows");
         }
 
-        SysProcess? currentProcess;
+        // The resize runs under the lock so teardown (which nulls _pseudoConsole
+        // under the same lock before closing it) cannot close the handle mid-call.
         lock (_processLock)
         {
-            currentProcess = _process;
+            ProcessStateManager.ValidateProcessForResize(_process, _pseudoConsole);
+
+            var newSize = new ConPtyNative.COORD((short)width, (short)height);
+            int result = ConPtyNative.ResizePseudoConsole(_pseudoConsole, newSize);
+
+            if (result != 0)
+            {
+                throw new InvalidOperationException($"Failed to resize pseudoconsole: Win32 error {result}");
+            }
+
+            _currentSize = newSize;
         }
-
-        ProcessStateManager.ValidateProcessForResize(currentProcess, _pseudoConsole);
-
-        var newSize = new ConPtyNative.COORD((short)width, (short)height);
-        int result = ConPtyNative.ResizePseudoConsole(_pseudoConsole, newSize);
-
-        if (result != 0)
-        {
-            throw new InvalidOperationException($"Failed to resize pseudoconsole: Win32 error {result}");
-        }
-
-        _currentSize = newSize;
     }
 
     /// <summary>
@@ -335,7 +345,13 @@ public class ProcessManager : IProcessManager
                 // Ignore errors during disposal
             }
 
-            CleanupProcess();
+            int generation;
+            lock (_processLock)
+            {
+                generation = _generation;
+            }
+
+            CleanupProcess(generation);
             _disposed = true;
         }
     }
@@ -344,9 +360,9 @@ public class ProcessManager : IProcessManager
     ///     Reads data from the ConPTY output pipe asynchronously and raises DataReceived events.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    private async Task ReadOutputAsync(CancellationToken cancellationToken)
+    private Task ReadOutputAsync(CancellationToken cancellationToken)
     {
-        await ConPtyOutputPump.ReadOutputAsync(
+        return ConPtyOutputPump.ReadOutputAsync(
             _outputReadHandle,
             () => ProcessId,
             data => OnDataReceived(new DataReceivedEventArgs(data)),
@@ -355,11 +371,34 @@ public class ProcessManager : IProcessManager
     }
 
     /// <summary>
-    ///     Handles process exit events.
+    ///     Writes one queued input chunk to the ConPTY input pipe. Runs on the input
+    ///     queue's writer thread only. The handle snapshot is safe to use outside the
+    ///     lock because teardown closes the handle only after this thread has joined.
     /// </summary>
-    private void OnProcessExited(object? sender, EventArgs e)
+    private void WriteChunkToPipe(byte[] chunk)
     {
-        ProcessEvents.HandleProcessExited(sender, e, CleanupProcess, ProcessExited, this);
+        IntPtr handle;
+        int? processId;
+        lock (_processLock)
+        {
+            handle = _inputWriteHandle;
+            processId = _process?.Id;
+        }
+
+        if (handle == IntPtr.Zero)
+        {
+            return; // torn down — drop
+        }
+
+        ConPtyInputWriter.WriteAll(handle, chunk, processId);
+    }
+
+    /// <summary>
+    ///     Handles process exit events for the start that installed this handler.
+    /// </summary>
+    private void OnProcessExited(object? sender, EventArgs e, int generation)
+    {
+        ProcessEvents.HandleProcessExited(sender, e, () => CleanupProcess(generation), ProcessExited, this);
     }
 
     /// <summary>
@@ -379,50 +418,103 @@ public class ProcessManager : IProcessManager
     }
 
     /// <summary>
-    ///     Cleans up process resources including ConPTY handles.
+    ///     Cleans up process resources including ConPTY handles. No-ops if
+    ///     <paramref name="generation"/> is stale (a restart superseded it).
+    ///     Teardown order matters: close the pseudoconsole FIRST — conhost flushes its
+    ///     remaining output and breaks both pipes, which ends the output pump without
+    ///     yanking the read handle out from under a blocked ReadFile and unblocks a
+    ///     writer stuck on a full input pipe — then drain the pump, join the writer,
+    ///     and only then close the pipe handles.
     /// </summary>
-    private void CleanupProcess()
+    private void CleanupProcess(int generation)
     {
+        Task? readTask;
+        PtyInputQueue? inputQueue;
+        IntPtr pseudoConsole;
+        IntPtr inputWrite;
+        IntPtr outputRead;
+
         lock (_processLock)
         {
+            if (generation != _generation)
+            {
+                return; // stale teardown (timed-out waiter / late exit callback) after a restart
+            }
+
             _readCancellationSource?.Cancel();
             _readCancellationSource?.Dispose();
             _readCancellationSource = null;
 
-            ProcessCleanup.CleanupProcess(_process, OnProcessExited);
+            ProcessCleanup.CleanupProcess(_process, _exitedHandler);
             _process = null;
+            _exitedHandler = null;
 
+            readTask = _outputReadTask;
             _outputReadTask = null;
 
-            CleanupPseudoConsole();
+            inputQueue = _inputQueue;
+            _inputQueue = null;
+
+            pseudoConsole = _pseudoConsole;
+            _pseudoConsole = IntPtr.Zero;
+            inputWrite = _inputWriteHandle;
+            _inputWriteHandle = IntPtr.Zero;
+            outputRead = _outputReadHandle;
+            _outputReadHandle = IntPtr.Zero;
         }
-    }
 
-    /// <summary>
-    ///     Cleans up ConPTY-specific resources.
-    /// </summary>
-    private void CleanupPseudoConsole()
-    {
-        ProcessCleanup.CleanupPseudoConsole(_pseudoConsole, _inputReadHandle, _inputWriteHandle, _outputReadHandle, _outputWriteHandle);
+        if (pseudoConsole != IntPtr.Zero)
+        {
+            ConPtyNative.ClosePseudoConsole(pseudoConsole);
+        }
 
-        _pseudoConsole = IntPtr.Zero;
-        _inputWriteHandle = IntPtr.Zero;
-        _outputReadHandle = IntPtr.Zero;
-        _inputReadHandle = IntPtr.Zero;
-        _outputWriteHandle = IntPtr.Zero;
-    }
+        // Drain: let the pump deliver the tail output (final prompt, a short
+        // command's entire result) before its handle goes away.
+        bool readerExited = true;
+        if (readTask != null)
+        {
+            try
+            {
+                readerExited = readTask.Wait(2000);
+            }
+            catch
+            {
+                readerExited = readTask.IsCompleted;
+            }
+        }
 
-    /// <summary>
-    ///     Cleans up pipe handles.
-    /// </summary>
-    private void CleanupHandles()
-    {
-        ProcessCleanup.CleanupHandles(_inputReadHandle, _inputWriteHandle, _outputReadHandle, _outputWriteHandle);
+        bool writerExited = inputQueue?.Shutdown(2000) ?? true;
+        if (writerExited)
+        {
+            inputQueue?.Dispose();
+        }
 
-        _inputWriteHandle = IntPtr.Zero;
-        _outputReadHandle = IntPtr.Zero;
-        _inputReadHandle = IntPtr.Zero;
-        _outputWriteHandle = IntPtr.Zero;
+        // Close a handle only when its pump thread is provably out of it; otherwise
+        // leak it — closing a handle another thread is blocked on races Win32 handle
+        // recycling (the write could land in an unrelated kernel object).
+        if (readerExited)
+        {
+            if (outputRead != IntPtr.Zero)
+            {
+                ConPtyNative.CloseHandle(outputRead);
+            }
+        }
+        else
+        {
+            _logger.LogWarning("ConPTY output pump did not exit in time; leaking the output read handle");
+        }
+
+        if (writerExited)
+        {
+            if (inputWrite != IntPtr.Zero)
+            {
+                ConPtyNative.CloseHandle(inputWrite);
+            }
+        }
+        else
+        {
+            _logger.LogWarning("ConPTY input writer did not exit in time; leaking the input write handle");
+        }
     }
 
     /// <summary>

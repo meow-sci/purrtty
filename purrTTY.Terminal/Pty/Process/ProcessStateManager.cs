@@ -64,25 +64,6 @@ internal static class ProcessStateManager
     }
 
     /// <summary>
-    ///     Validates that a process is running and the input handle is available.
-    /// </summary>
-    /// <param name="process">The process to check</param>
-    /// <param name="inputWriteHandle">The input write handle to check</param>
-    /// <exception cref="InvalidOperationException">Thrown if no process is running or input handle is not available</exception>
-    internal static void ValidateProcessRunning(SysProcess? process, IntPtr inputWriteHandle)
-    {
-        if (process == null || process.HasExited)
-        {
-            throw new InvalidOperationException("No process is currently running");
-        }
-
-        if (inputWriteHandle == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("Input handle is not available");
-        }
-    }
-
-    /// <summary>
     ///     Validates that a process is running and the pseudoconsole is available for resizing.
     /// </summary>
     /// <param name="process">The process to check</param>

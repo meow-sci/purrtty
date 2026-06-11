@@ -7,17 +7,71 @@ namespace purrTTY.Core.Terminal.Process;
 internal static class ShellCommandResolver
 {
     /// <summary>
-    ///     Resolves the shell command and arguments based on the launch options,
-    ///     joined into a single command-line string (ConPTY/CreateProcess form).
+    ///     Resolves the shell command and arguments based on the launch options, built
+    ///     into a single CreateProcess command line with each token quoted per the
+    ///     Windows argv rules — a bare-space join is the join-then-split bug the Unix
+    ///     side documents: an unquoted <c>C:\Program Files\...</c> path or any argument
+    ///     containing spaces gets re-tokenized by the child.
     /// </summary>
     /// <param name="options">The launch options</param>
-    /// <returns>A tuple of shell path and arguments string</returns>
+    /// <returns>A tuple of shell path and the full quoted command line (including argv[0])</returns>
     /// <exception cref="ProcessStartException">Thrown if the shell cannot be resolved</exception>
-    internal static (string shellPath, string arguments) ResolveShellCommand(ProcessLaunchOptions options)
+    internal static (string shellPath, string commandLine) ResolveShellCommandLine(ProcessLaunchOptions options)
     {
         (string shellPath, string[] argv) = ResolveShellCommandArgv(options);
-        string arguments = argv.Length > 0 ? string.Join(" ", argv) : string.Empty;
-        return (shellPath, arguments);
+
+        var commandLine = new System.Text.StringBuilder();
+        AppendQuotedArgument(commandLine, shellPath);
+        foreach (string argument in argv)
+        {
+            commandLine.Append(' ');
+            AppendQuotedArgument(commandLine, argument);
+        }
+
+        return (shellPath, commandLine.ToString());
+    }
+
+    private static readonly char[] CharsRequiringQuotes = [' ', '\t', '"'];
+
+    /// <summary>
+    ///     Appends one argument quoted per the MSVCRT/CommandLineToArgvW rules:
+    ///     backslashes are literal except when they precede a double quote, where each
+    ///     is doubled and the quote itself is backslash-escaped.
+    /// </summary>
+    internal static void AppendQuotedArgument(System.Text.StringBuilder builder, string argument)
+    {
+        if (argument.Length > 0 && argument.IndexOfAny(CharsRequiringQuotes) < 0)
+        {
+            builder.Append(argument);
+            return;
+        }
+
+        builder.Append('"');
+        int pendingBackslashes = 0;
+        foreach (char c in argument)
+        {
+            if (c == '\\')
+            {
+                pendingBackslashes++;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                builder.Append('\\', pendingBackslashes * 2 + 1);
+                builder.Append('"');
+                pendingBackslashes = 0;
+                continue;
+            }
+
+            builder.Append('\\', pendingBackslashes);
+            builder.Append(c);
+            pendingBackslashes = 0;
+        }
+
+        // Trailing backslashes must be doubled so they don't escape the closing quote.
+        builder.Append('\\', pendingBackslashes * 2);
+        builder.Append('"');
     }
 
     /// <summary>
@@ -52,21 +106,29 @@ internal static class ShellCommandResolver
     {
         if (OperatingSystem.IsWindows())
         {
-            // Try WSL first (new default), then PowerShell, then cmd
+            // Try WSL first (new default), then PowerShell, then cmd. WSL is only
+            // eligible when at least one distribution is detected: wsl.exe ships with
+            // stock Windows even when WSL was never set up, so executable presence is
+            // not evidence of a working WSL and a bare `wsl` yields a dead session.
             try
             {
-                return ResolveWsl(options);
+                if (WslDistributionDetector.GetInstalledDistributions().Count > 0)
+                {
+                    return ResolveWsl(options);
+                }
             }
             catch
             {
-                try
-                {
-                    return ResolvePowerShell(options);
-                }
-                catch
-                {
-                    return ResolveCmd(options);
-                }
+                // Detection failure ⇒ treat as no usable WSL and fall through.
+            }
+
+            try
+            {
+                return ResolvePowerShell(options);
+            }
+            catch
+            {
+                return ResolveCmd(options);
             }
         }
 

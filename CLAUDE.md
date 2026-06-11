@@ -100,7 +100,9 @@ dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v qui
 ```
 
 `purrTTY.Terminal.Tests` (NUnit) validates frame production, theming, selection, OSC sidecar,
-key/mouse encoding, bracketed paste, DSR replies, scrollback, and the session-wiring data flow.
+key/mouse encoding, bracketed paste, DSR replies, scrollback, the session-wiring data flow, and
+the PTY input contracts (`PtyInputContractTests`: Windows argv quoting + `PtyInputQueue`
+ordering/overflow/failure semantics — pure logic, runs on every host OS).
 `UnixProcessManagerTests` exercises the POSIX pty backend against real `/bin/sh` children
 (output, exit codes, pty echo, initial winsize, working directory, shell detection); it runs on
 macOS (dev) and linux-x64 (CI) and self-skips on Windows — this is the pre-player coverage for
@@ -199,9 +201,14 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
   ConPTY on Windows (`ProcessManager.cs` + `Process/ConPty*` etc.) and POSIX pty on Linux/macOS
   (`UnixProcessManager.cs` + `Process/UnixPtyNative.cs` / `UnixPtySpawner.cs` /
   `UnixPtyOutputPump.cs`) — see gotcha 16
-- Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommand` (joined string,
-  ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec; never join-then-split, it
-  corrupts arguments containing spaces). `Auto` on Unix = `$SHELL`, then zsh/bash/sh from PATH.
+- Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommandLine` (quoted
+  CreateProcess command line, ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec);
+  never join-then-split — Windows args are quoted per CommandLineToArgvW rules
+  (`AppendQuotedArgument`), Unix args stay discrete. `Auto` on Unix = `$SHELL`, then zsh/bash/sh
+  from PATH; `Auto` on Windows offers WSL only when `WslDistributionDetector` finds ≥1 distro,
+  then PowerShell, then cmd.
+- Input queue: `Process/PtyInputQueue.cs` — bounded queue + dedicated writer thread used by both
+  managers (gotcha 20).
 - Shell detection for menus: `ShellAvailabilityChecker.cs` (platform-aware; `IsShellAvailable`
   cached per shell type), `WslDistributionDetector.cs` (Windows; `wsl --list --quiet` with a
   bounded 15s wait + kill), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`, deduped by
@@ -326,8 +333,13 @@ Custom shells:
    on a dedicated long-running thread with a 64 KB buffer; the pipe read itself blocks until data
    arrives, so there is no loop to throttle. (A `Task.Delay(1)` after every 4 KB read previously
    capped throughput at single-digit MB/s, which slowed fast TUIs *and* smeared their full-screen
-   redraws across many render ticks — the primary cause of visible tearing.) Teardown unblocks the
-   read by closing the pipe handle (ERROR_BROKEN_PIPE/ERROR_INVALID_HANDLE exit the loop quietly).
+   redraws across many render ticks — the primary cause of visible tearing.) Teardown closes the
+   **pseudoconsole first** — conhost flushes its remaining output and breaks the pipes
+   (ERROR_BROKEN_PIPE/ERROR_INVALID_HANDLE exit the loop quietly) — then waits ≤2 s for the pump
+   to drain the tail before closing the pipe handles, so a short command's final output is not
+   truncated and the read handle is never yanked from under a blocked `ReadFile`. A handle whose
+   pump thread fails to stop is **leaked, never closed** (Win32 handle recycling means a write
+   through a recycled handle value lands in an unrelated kernel object).
 
 15. **Perf HUD for render diagnostics.** Window menu → "Show performance HUD"
    (`TerminalWindow.ShowPerfHud`, all windows) overlays per-tick numbers: engine write / update /
@@ -351,9 +363,10 @@ Custom shells:
      ModuleInitializer DllImportResolver maps it to `libc.so.6` / `libSystem.B.dylib`.
    - The output pump (`UnixPtyOutputPump`) mirrors gotcha 14 — no sleeping — but blocks in
      `poll(100ms)` instead of `read` so teardown can cancel without closing the fd under a blocked
-     read; exit is detected by EOF (macOS) / EIO (Linux) after the child dies, and a waiter thread
-     `waitpid`s for the real exit code. `CleanupProcess` closes the master only behind the write
-     lock and after the reader joins (fd-reuse race), and resets `_pid` so
+     read (`POLLNVAL` also exits the loop); exit is detected by EOF (macOS) / EIO (Linux) after
+     the child dies, and a waiter thread `waitpid`s for the real exit code. `CleanupProcess`
+     closes the master fd only after **both** the reader and the input-writer threads have joined
+     (deliberately leaking the fd if either fails to stop — fd-reuse race), and resets `_pid` so
      `SessionManager.RestartSession` can reuse the manager.
    - Working directory uses `posix_spawn_file_actions_addchdir_np` (glibc ≥ 2.29 / macOS ≥ 10.15)
      with a graceful skip when the entry point is missing.
@@ -389,6 +402,23 @@ Custom shells:
    and disposes the native surface before returning (callers must be on the tick thread;
    `TerminalWindow.CloseSession` deliberately blocks on it) and backgrounds only the PTY/process
    teardown. `Activate`/`Deactivate`/session events are raised outside `SessionManager._lock`.
+
+20. **PTY input is queued, never written on the tick thread.** `IProcessManager.Write` on both
+   real backends enqueues into a bounded `PtyInputQueue` (`Pty/Process/PtyInputQueue.cs`; 1 MiB
+   cap, overflow drops the chunk and reports once per episode) drained by a dedicated writer
+   thread: a PTY write blocks indefinitely while the child is not reading its input (SIGSTOPped/
+   XOFF'd child + a large paste), and Write is called on the render tick thread (user input and
+   engine `PtyReply` during `BuildFrame`). Write *failures* therefore surface via `ProcessError`,
+   not exceptions (only "no process running" still throws synchronously). The fd/handle the
+   writer uses is closed only **after the writer thread joins** — join-before-close replaces
+   holding a lock across the blocking write, and a stuck pump means the fd/handle is leaked, not
+   closed (gotchas 14/16). Each `StartAsync` carries a **generation token**; `CleanupProcess` and
+   the exit/waiter callbacks no-op when stale, so a timed-out teardown from a previous run can
+   never destroy a freshly restarted session. On Windows the command line is built by
+   `ShellCommandResolver.ResolveShellCommandLine` with per-argument quoting
+   (`AppendQuotedArgument`, CommandLineToArgvW rules) — never bare-space-join argv; it is the
+   same join-then-split corruption the Unix side documents. Contracts pinned by
+   `PtyInputContractTests`.
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`

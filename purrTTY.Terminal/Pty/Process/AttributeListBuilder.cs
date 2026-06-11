@@ -22,16 +22,19 @@ internal static class AttributeListBuilder
 
         // Allocate memory for the attribute list
         IntPtr attributeList = Marshal.AllocHGlobal(attributeListSize);
+        bool initialized = false;
 
+        // Cleanup happens in exactly one place (the catch) so no failure path can
+        // free the list twice — a double FreeHGlobal silently corrupts the native heap.
         try
         {
             // Initialize the attribute list
             if (!ConPtyNative.InitializeProcThreadAttributeList(attributeList, 1, 0, ref attributeListSize))
             {
-                int error = Marshal.GetLastWin32Error();
-                Marshal.FreeHGlobal(attributeList);
-                throw new ProcessStartException($"Failed to initialize attribute list: {error}");
+                throw new ProcessStartException($"Failed to initialize attribute list: {Marshal.GetLastWin32Error()}");
             }
+
+            initialized = true;
 
             // Set the pseudoconsole attribute
             if (!ConPtyNative.UpdateProcThreadAttribute(
@@ -43,25 +46,19 @@ internal static class AttributeListBuilder
                     IntPtr.Zero,
                     IntPtr.Zero))
             {
-                int error = Marshal.GetLastWin32Error();
-                ConPtyNative.DeleteProcThreadAttributeList(attributeList);
-                Marshal.FreeHGlobal(attributeList);
-                throw new ProcessStartException($"Failed to set pseudoconsole attribute: {error}");
+                throw new ProcessStartException($"Failed to set pseudoconsole attribute: {Marshal.GetLastWin32Error()}");
             }
 
             return attributeList;
         }
         catch
         {
-            // If any exception occurs after allocation, ensure cleanup
-            try
+            if (initialized)
             {
-                Marshal.FreeHGlobal(attributeList);
+                ConPtyNative.DeleteProcThreadAttributeList(attributeList);
             }
-            catch
-            {
-                // Ignore cleanup errors during exception handling
-            }
+
+            Marshal.FreeHGlobal(attributeList);
             throw;
         }
     }

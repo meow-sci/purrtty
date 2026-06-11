@@ -30,6 +30,9 @@ internal static class ConPtyNative
     internal static extern bool CloseHandle(IntPtr hObject);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool InitializeProcThreadAttributeList(IntPtr lpAttributeList, int dwAttributeCount,
         int dwFlags, ref IntPtr lpSize);
 

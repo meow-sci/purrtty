@@ -79,6 +79,7 @@ internal static class UnixPtyNative
     internal const short POLLIN = 0x01;
     internal const short POLLERR = 0x08;
     internal const short POLLHUP = 0x10;
+    internal const short POLLNVAL = 0x20; // same value on Linux and macOS
 
     internal const int EINTR = 4;
     internal const int EIO = 5;

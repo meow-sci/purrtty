@@ -25,8 +25,20 @@ internal static class ProcessEvents
     {
         if (sender is SysProcess process)
         {
-            int exitCode = process.ExitCode;
-            int processId = process.Id;
+            // The Exited callback races CleanupProcess (which disposes the Process)
+            // on the threadpool: snapshot both properties defensively — an unhandled
+            // throw here would take down the whole process.
+            int exitCode = 0;
+            int processId = 0;
+            try
+            {
+                processId = process.Id;
+                exitCode = process.ExitCode;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.ComponentModel.Win32Exception)
+            {
+                // Process disposed (or its handle closed) before we could read it.
+            }
 
             // Clean up resources
             cleanupProcess();

@@ -1,72 +1,41 @@
 using System.Runtime.InteropServices;
-using System.Text;
-using SysProcess = System.Diagnostics.Process;
 
 namespace purrTTY.Core.Terminal.Process;
 
 /// <summary>
-///     Handles synchronous writing to ConPTY input pipe.
-///     Manages the write operation, buffer handling, and error reporting for ConPTY input.
+///     Performs the blocking WriteFile to the ConPTY input pipe. Called only from the
+///     <see cref="PtyInputQueue"/> writer thread — never from the render tick thread,
+///     because the pipe write blocks while the child is not reading its input.
 /// </summary>
 internal static class ConPtyInputWriter
 {
     /// <summary>
-    ///     Writes data to the ConPTY input pipe.
+    ///     Writes the whole buffer to the pipe, looping on partial writes.
     /// </summary>
-    /// <param name="data">The data to write</param>
     /// <param name="inputWriteHandle">The input pipe handle to write to</param>
-    /// <param name="currentProcess">The current process (for error reporting)</param>
-    /// <param name="onProcessError">Callback invoked when an error occurs (receives ProcessErrorEventArgs)</param>
+    /// <param name="buffer">The bytes to write</param>
+    /// <param name="processId">Process id for error reporting (may be null)</param>
     /// <exception cref="ProcessWriteException">Thrown if writing fails</exception>
-    internal static void Write(
-        ReadOnlySpan<byte> data,
-        IntPtr inputWriteHandle,
-        SysProcess currentProcess,
-        Action<ProcessErrorEventArgs> onProcessError)
+    internal static void WriteAll(IntPtr inputWriteHandle, byte[] buffer, int? processId)
     {
-        try
+        int offset = 0;
+        while (offset < buffer.Length)
         {
-            byte[] buffer = data.ToArray();
-            if (!ConPtyNative.WriteFile(inputWriteHandle, buffer, (uint)buffer.Length, out uint bytesWritten, IntPtr.Zero))
+            // WriteFile has no offset parameter for byte[]; re-slice on the rare
+            // partial write (anonymous pipes normally complete in one call).
+            byte[] chunk = offset == 0 ? buffer : buffer[offset..];
+            if (!ConPtyNative.WriteFile(inputWriteHandle, chunk, (uint)chunk.Length, out uint bytesWritten, IntPtr.Zero))
             {
                 int error = Marshal.GetLastWin32Error();
-                int processId = currentProcess.Id;
-                var writeException =
-                    new ProcessWriteException($"Failed to write to ConPTY input: Win32 error {error}", processId);
-                onProcessError(new ProcessErrorEventArgs(writeException, writeException.Message, processId));
-                throw writeException;
+                throw new ProcessWriteException($"Failed to write to ConPTY input: Win32 error {error}", processId);
             }
-        }
-        catch (Exception ex) when (!(ex is ProcessWriteException))
-        {
-            int processId = currentProcess.Id;
-            var writeException =
-                new ProcessWriteException($"Failed to write to ConPTY input: {ex.Message}", ex, processId);
-            onProcessError(new ProcessErrorEventArgs(writeException, writeException.Message, processId));
-            throw writeException;
-        }
-    }
 
-    /// <summary>
-    ///     Writes string data to the ConPTY input pipe.
-    /// </summary>
-    /// <param name="text">The text to write (will be converted to UTF-8)</param>
-    /// <param name="inputWriteHandle">The input pipe handle to write to</param>
-    /// <param name="currentProcess">The current process (for error reporting)</param>
-    /// <param name="onProcessError">Callback invoked when an error occurs (receives ProcessErrorEventArgs)</param>
-    /// <exception cref="ProcessWriteException">Thrown if writing fails</exception>
-    internal static void Write(
-        string text,
-        IntPtr inputWriteHandle,
-        SysProcess currentProcess,
-        Action<ProcessErrorEventArgs> onProcessError)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return;
-        }
+            if (bytesWritten == 0)
+            {
+                throw new ProcessWriteException("Failed to write to ConPTY input: pipe closed", processId);
+            }
 
-        byte[] bytes = Encoding.UTF8.GetBytes(text);
-        Write(bytes.AsSpan(), inputWriteHandle, currentProcess, onProcessError);
+            offset += (int)bytesWritten;
+        }
     }
 }
