@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using purrTTY.Logging;
 using SystemProcess = System.Diagnostics.Process;
 using SystemProcessStartInfo = System.Diagnostics.ProcessStartInfo;
 
@@ -11,7 +9,12 @@ namespace purrTTY.Core.Terminal;
 /// <summary>
 /// Detects installed WSL distributions on the current system.
 /// Uses the `wsl --list --quiet` command to retrieve distribution names.
-/// Results are cached for performance (5 minute expiration).
+/// Results are cached for the process lifetime (installed distributions do not
+/// change mid-game); detection is expected to run once, off the render thread,
+/// because spawning wsl.exe can block for seconds while the WSL service starts.
+/// Detection failure degrades to an empty list (no WSL menu entries). Like
+/// <see cref="UnixShellDetector"/>, deliberately no game-logging dependency so
+/// the detector stays usable from the test host.
 /// </summary>
 public static class WslDistributionDetector
 {
@@ -36,50 +39,42 @@ public static class WslDistributionDetector
         public required string DisplayName { get; set; }
     }
 
-    // Cache for detected distributions
-    private static List<WslDistribution>? _cachedDistributions = null;
-    private static DateTime? _cacheTime = null;
-    private const int CacheExpirationMinutes = 5;
+    // Cache for detected distributions (process lifetime)
+    private static List<WslDistribution>? _cachedDistributions;
+    private static readonly object CacheLock = new();
+
+    // Bounds the wait on `wsl --list` so a wedged WSL service cannot stall the
+    // detection thread forever; generous because a cold service start is slow.
+    private const int WslListTimeoutMs = 15_000;
 
     /// <summary>
     /// Gets the list of installed WSL distributions.
-    /// Results are cached for 5 minutes to avoid repeated process execution.
+    /// Results are cached for the process lifetime to avoid repeated process execution;
+    /// the cache is consulted before any availability probing so cached calls do no work.
     /// </summary>
     /// <param name="forceRefresh">If true, ignores cache and re-detects distributions</param>
     /// <returns>List of installed WSL distributions, or empty list if WSL is not available</returns>
     public static List<WslDistribution> GetInstalledDistributions(bool forceRefresh = false)
     {
-        try
+        lock (CacheLock)
         {
-            // Check if WSL is available at all
-            if (!ShellAvailabilityChecker.IsShellAvailable(ShellType.Wsl))
+            if (!forceRefresh && _cachedDistributions != null)
             {
-                return new List<WslDistribution>();
+                return _cachedDistributions;
             }
 
-            // Check cache validity
-            if (!forceRefresh && _cachedDistributions != null && _cacheTime != null)
+            try
             {
-                TimeSpan cacheAge = DateTime.UtcNow - _cacheTime.Value;
-                if (cacheAge.TotalMinutes < CacheExpirationMinutes)
-                {
-                    return _cachedDistributions;
-                }
+                _cachedDistributions = ShellAvailabilityChecker.IsShellAvailable(ShellType.Wsl)
+                    ? ExecuteWslListCommand()
+                    : new List<WslDistribution>();
+            }
+            catch
+            {
+                _cachedDistributions = new List<WslDistribution>();
             }
 
-            // Execute wsl --list --quiet to get distributions
-            var distributions = ExecuteWslListCommand();
-
-            // Update cache
-            _cachedDistributions = distributions;
-            _cacheTime = DateTime.UtcNow;
-
-            return distributions;
-        }
-        catch (Exception ex)
-        {
-            ModLog.Log.Debug($"WslDistributionDetector: Error detecting WSL distributions: {ex.Message}");
-            return new List<WslDistribution>();
+            return _cachedDistributions;
         }
     }
 
@@ -97,8 +92,10 @@ public static class WslDistributionDetector
     /// </summary>
     public static void ClearCache()
     {
-        _cachedDistributions = null;
-        _cacheTime = null;
+        lock (CacheLock)
+        {
+            _cachedDistributions = null;
+        }
     }
 
     /// <summary>
@@ -125,19 +122,37 @@ public static class WslDistributionDetector
             using var process = SystemProcess.Start(startInfo);
             if (process == null)
             {
-                ModLog.Log.Debug("WslDistributionDetector: Failed to start wsl process");
                 return distributions;
             }
 
-            string output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit();
+            // Drain both pipes asynchronously (a full stderr pipe would block the
+            // child) and bound the wait — a wedged WSL service must not hang the
+            // detection thread indefinitely.
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
 
+            if (!process.WaitForExit(WslListTimeoutMs))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Already exited or not killable; nothing more to do.
+                }
+
+                return distributions;
+            }
+
+            // Nonzero exit covers both "WSL not set up" and "no distributions
+            // installed" — either way there is nothing to offer in the menus.
             if (process.ExitCode != 0)
             {
-                string error = process.StandardError.ReadToEnd();
-                ModLog.Log.Debug($"WslDistributionDetector: wsl command failed with exit code {process.ExitCode}: {error}");
                 return distributions;
             }
+
+            string output = outputTask.GetAwaiter().GetResult();
 
             // Parse output - each line is a distribution name
             var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -177,9 +192,9 @@ public static class WslDistributionDetector
                 distributions.Add(distro);
             }
         }
-        catch (Exception ex)
+        catch
         {
-            ModLog.Log.Debug($"WslDistributionDetector: Exception while executing wsl command: {ex.Message}");
+            // Spawn/read failure degrades to "no distributions" (no WSL menu entries).
         }
 
         return distributions;

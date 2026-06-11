@@ -202,10 +202,12 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 - Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommand` (joined string,
   ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec; never join-then-split, it
   corrupts arguments containing spaces). `Auto` on Unix = `$SHELL`, then zsh/bash/sh from PATH.
-- Shell detection for menus: `ShellAvailabilityChecker.cs` (platform-aware),
-  `WslDistributionDetector.cs` (Windows), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`,
-  deduped by executable name, default marked, cached; deliberately no game-logging dependency
-  so it works from the test host)
+- Shell detection for menus: `ShellAvailabilityChecker.cs` (platform-aware; `IsShellAvailable`
+  cached per shell type), `WslDistributionDetector.cs` (Windows; `wsl --list --quiet` with a
+  bounded 15s wait + kill), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`, deduped by
+  executable name, default marked) — all cached for the **process lifetime** (no expiry; shell
+  installs do not change mid-game) and deliberately free of game-logging dependencies so they
+  work from the test host; caching contract pinned by `ShellDetectionCachingTests`
 - Custom-shell adapter: `CustomShellPtyBridge.cs`; launch options: `ProcessLaunchOptions.cs`
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
 
@@ -214,10 +216,14 @@ Game/integration (`purrTTY.GameMod/`):
   `TerminalMod.DrawMenuContent()` and is registered two ways with identical content: via the
   `[ModMenuEntry("purrTTY")]` attribute when the ModMenu companion mod is present, and via the
   `Patcher.cs` `DrawMenuBar` transpiler fallback otherwise. Menus: Toggle Terminal / Toggle Hotkey,
-  New Tab / New Window (shell submenus filtered by `ShellAvailabilityChecker`; WSL distros via
-  `WslDistributionDetector` on Windows, per-shell items via `UnixShellDetector` on Linux/macOS
-  replacing the generic "Default Shell" entry — both prewarmed at init; Game Console always
-  offered), Theme (built-in +
+  New Tab / New Window (items read from `ShellMenuCache` — an immutable snapshot of shell entries +
+  WSL distros + Unix shells built **once on a background thread at init**; the menu draw path must
+  never run detection itself, because a slow probe — wsl.exe service spin-up, a dead network share
+  in PATH — hangs the render thread. WSL2 is offered only when ≥1 distribution was detected:
+  wsl.exe ships with stock Windows even when WSL was never set up, so executable presence is not
+  evidence of a working WSL, and bare `wsl` with no distro yields a dead session. Per-shell items
+  via `UnixShellDetector` on Linux/macOS replace the generic "Default Shell" entry; Game Console
+  always offered), Theme (built-in +
   saved lists, Save Current As... modal with name input, Refresh), Font (size slider + family list),
   Window (hide-chrome + performance-HUD checkboxes + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
 - Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
