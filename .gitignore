@@ -13,4 +13,5 @@ imgui.ini
 .testresults/
 .DS_Store
 .vs/
+.tmp/
 tmpclaude*

@@ -1,0 +1,1069 @@
+using System.Diagnostics;
+using Brutal.ImGuiApi;
+using Brutal.Numerics;
+using purrTTY.Display.Rendering;
+using purrTTY.Display.Theming;
+using purrTTY.Logging;
+using PurrTTY.Terminal.Ghostty;
+using PurrTTY.Terminal.Input;
+using PurrTTY.Terminal.Rendering;
+using PurrTTY.Terminal.Sessions;
+using TerminalTheme = PurrTTY.Terminal.TerminalTheme;
+using TKeyMods = PurrTTY.Terminal.Input.KeyModifiers;
+
+namespace purrTTY.Display.Ghostty;
+
+/// <summary>
+/// The live display settings of one terminal window. Mutated by the game menus
+/// (font/opacity sliders, theme application) and snapshotted by "save current
+/// settings as theme".
+/// </summary>
+public sealed class TerminalWindowSettings
+{
+    public string ThemeName { get; set; } = "Default";
+    public ThemeColors Colors { get; set; } = new();
+    public string FontFamily { get; set; } = "Hack";
+    public float FontSize { get; set; } = 32f;
+    public float BackgroundOpacity { get; set; } = 1f;
+    public float ForegroundOpacity { get; set; } = 1f;
+    public float CellBackgroundOpacity { get; set; } = 1f;
+}
+
+/// <summary>
+/// One ImGui terminal window. Owns a <see cref="SessionManager"/> whose sessions
+/// are presented as tabs (the tab bar is hidden while there is a single tab),
+/// applies per-window theme/font/opacity settings, and hides all window chrome
+/// (background, border, menu strip, tabs) whenever the mouse is not over the
+/// window — including while focused — for game immersion. The thin menu-bar
+/// strip doubles as the drag handle since the window has no title bar; an
+/// invisible button over the grid keeps text selection from dragging the window.
+/// </summary>
+public sealed class TerminalWindow : IDisposable
+{
+    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] NamedKeys =
+    {
+        (ImGuiKey.Enter, TerminalKey.Enter),
+        (ImGuiKey.KeypadEnter, TerminalKey.Enter),
+        (ImGuiKey.Backspace, TerminalKey.Backspace),
+        (ImGuiKey.Tab, TerminalKey.Tab),
+        (ImGuiKey.Escape, TerminalKey.Escape),
+        (ImGuiKey.UpArrow, TerminalKey.ArrowUp),
+        (ImGuiKey.DownArrow, TerminalKey.ArrowDown),
+        (ImGuiKey.RightArrow, TerminalKey.ArrowRight),
+        (ImGuiKey.LeftArrow, TerminalKey.ArrowLeft),
+        (ImGuiKey.Home, TerminalKey.Home),
+        (ImGuiKey.End, TerminalKey.End),
+        (ImGuiKey.Delete, TerminalKey.Delete),
+        (ImGuiKey.Insert, TerminalKey.Insert),
+        (ImGuiKey.PageUp, TerminalKey.PageUp),
+        (ImGuiKey.PageDown, TerminalKey.PageDown),
+        (ImGuiKey.F1, TerminalKey.F1), (ImGuiKey.F2, TerminalKey.F2), (ImGuiKey.F3, TerminalKey.F3),
+        (ImGuiKey.F4, TerminalKey.F4), (ImGuiKey.F5, TerminalKey.F5), (ImGuiKey.F6, TerminalKey.F6),
+        (ImGuiKey.F7, TerminalKey.F7), (ImGuiKey.F8, TerminalKey.F8), (ImGuiKey.F9, TerminalKey.F9),
+        (ImGuiKey.F10, TerminalKey.F10), (ImGuiKey.F11, TerminalKey.F11), (ImGuiKey.F12, TerminalKey.F12),
+    };
+
+    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] LetterKeys =
+    {
+        (ImGuiKey.A, TerminalKey.A), (ImGuiKey.B, TerminalKey.B), (ImGuiKey.C, TerminalKey.C),
+        (ImGuiKey.D, TerminalKey.D), (ImGuiKey.E, TerminalKey.E), (ImGuiKey.F, TerminalKey.F),
+        (ImGuiKey.G, TerminalKey.G), (ImGuiKey.H, TerminalKey.H), (ImGuiKey.I, TerminalKey.I),
+        (ImGuiKey.J, TerminalKey.J), (ImGuiKey.K, TerminalKey.K), (ImGuiKey.L, TerminalKey.L),
+        (ImGuiKey.M, TerminalKey.M), (ImGuiKey.N, TerminalKey.N), (ImGuiKey.O, TerminalKey.O),
+        (ImGuiKey.P, TerminalKey.P), (ImGuiKey.Q, TerminalKey.Q), (ImGuiKey.R, TerminalKey.R),
+        (ImGuiKey.S, TerminalKey.S), (ImGuiKey.T, TerminalKey.T), (ImGuiKey.U, TerminalKey.U),
+        (ImGuiKey.V, TerminalKey.V), (ImGuiKey.W, TerminalKey.W), (ImGuiKey.X, TerminalKey.X),
+        (ImGuiKey.Y, TerminalKey.Y), (ImGuiKey.Z, TerminalKey.Z),
+    };
+
+    /// <summary>Pixels around the window rect that still count as "hovering" (covers resize grips).</summary>
+    private const float HoverMargin = 8f;
+
+    /// <summary>ImGui popup id for the grid's right-click copy/paste context menu.</summary>
+    private const string GridContextMenuId = "##grid_context";
+
+    private readonly string _imguiName;
+
+    private TerminalTheme _engineTheme;
+    private RgbaColor _selectionColor;
+
+    private bool _hasFocus;
+    private bool _wantFocus;
+    private bool _wasHoveredLastFrame;
+    private bool _selecting;
+    private bool _hadSessions;
+
+    // Last grid cell reported to a mouse-tracking app via a motion event. Motion
+    // is only re-reported when the pointer crosses into a different cell (xterm /
+    // ghostty granularity), which is what keeps live drag reporting from flooding
+    // the PTY on every pixel of movement.
+    private int _appMouseCol = -1;
+    private int _appMouseRow = -1;
+    private bool _disposed;
+    private Guid? _lastActiveSessionId;
+    private (float2 Pos, float2 Size)? _pendingPlacement;
+
+    // Interactive-resize tracking for the grid snap (see TrackResizeSnap).
+    private float2 _trackedWindowSize;
+    private bool _windowSizeTracked;
+    private bool _userResizing;
+    private float2? _pendingSnapSize;
+
+    private float _cellWidth = 8f;
+    private float _cellHeight = 16f;
+
+    /// <summary>Debug overlay with frame-build / submit timings and draw-call counts (all windows).</summary>
+    public static bool ShowPerfHud { get; set; }
+
+    // Perf-HUD throughput tracking (bytes consumed per second, ~500ms window).
+    private long _hudAccumBytes;
+    private long _hudWindowStartTs;
+    private double _hudBytesPerSec;
+
+    public int Id { get; }
+    public SessionManager Sessions { get; }
+    public TerminalWindowSettings Settings { get; }
+
+    /// <summary>False once the window has been closed; the controller disposes it.</summary>
+    public bool IsOpen { get; private set; } = true;
+
+    public bool HasFocus => _hasFocus;
+    public string Title => Sessions.ActiveSession?.Title ?? "purrTTY";
+
+    public float2 LastKnownPosition { get; private set; }
+    public float2 LastKnownSize { get; private set; }
+    public bool HasObservedGeometry { get; private set; }
+
+    /// <summary>Host hook to suppress keyboard input for a frame (e.g. when the toggle hotkey fires).</summary>
+    public Func<bool>? KeyboardSuppression { get; set; }
+
+    /// <summary>Raised when this window gains or loses ImGui focus.</summary>
+    public event Action<TerminalWindow, bool>? FocusChanged;
+
+    /// <summary>Raised with the raw bytes of any user input sent to the active session.</summary>
+    public event Action<byte[]>? DataInput;
+
+    public TerminalWindow(
+        int id,
+        SessionManager sessions,
+        TerminalWindowSettings settings,
+        float2? initialPosition = null,
+        float2? initialSize = null)
+    {
+        Id = id;
+        Sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
+        Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _imguiName = $"purrTTY##purrtty_window_{id}";
+
+        if (initialPosition is { } pos && initialSize is { } size)
+        {
+            _pendingPlacement = (pos, size);
+        }
+
+        _engineTheme = Settings.Colors.ToEngineTheme();
+        _selectionColor = Settings.Colors.SelectionBackground.WithAlpha(0xAA);
+
+        foreach (var session in Sessions.Sessions)
+        {
+            WireSession(session);
+        }
+
+        Sessions.SessionCreated += (_, e) => WireSession(e.Session);
+    }
+
+    public void RequestFocus() => _wantFocus = true;
+
+    /// <summary>Closes the window; its sessions are disposed by the controller.</summary>
+    public void Close() => IsOpen = false;
+
+    /// <summary>
+    /// Applies a theme to this window. Colors always apply; font and opacity
+    /// values only apply when the theme defines them (user-saved themes do,
+    /// bundled color schemes keep the window's current values).
+    /// </summary>
+    public void ApplyTheme(ThemeDefinition theme)
+    {
+        Settings.ThemeName = theme.Name;
+        Settings.Colors = theme.Colors.Clone();
+
+        if (theme.FontFamily is { } family)
+        {
+            Settings.FontFamily = family;
+        }
+
+        if (theme.FontSize is { } size)
+        {
+            Settings.FontSize = Math.Clamp(size, Controllers.LayoutConstants.MIN_FONT_SIZE, Controllers.LayoutConstants.MAX_FONT_SIZE);
+        }
+
+        if (theme.BackgroundOpacity is { } bg)
+        {
+            Settings.BackgroundOpacity = Math.Clamp(bg, 0f, 1f);
+        }
+
+        if (theme.ForegroundOpacity is { } fg)
+        {
+            Settings.ForegroundOpacity = Math.Clamp(fg, 0f, 1f);
+        }
+
+        if (theme.CellBackgroundOpacity is { } cell)
+        {
+            Settings.CellBackgroundOpacity = Math.Clamp(cell, 0f, 1f);
+        }
+
+        PushThemeToSessions();
+    }
+
+    /// <summary>Snapshots the window's current settings as a named theme definition.</summary>
+    public ThemeDefinition SnapshotAsTheme(string name) => new()
+    {
+        Name = name,
+        Source = ThemeSource.UserFile,
+        Colors = Settings.Colors.Clone(),
+        FontFamily = Settings.FontFamily,
+        FontSize = Settings.FontSize,
+        BackgroundOpacity = Settings.BackgroundOpacity,
+        ForegroundOpacity = Settings.ForegroundOpacity,
+        CellBackgroundOpacity = Settings.CellBackgroundOpacity,
+    };
+
+    private void PushThemeToSessions()
+    {
+        _engineTheme = Settings.Colors.ToEngineTheme();
+        _selectionColor = Settings.Colors.SelectionBackground.WithAlpha(0xAA);
+        foreach (var session in Sessions.Sessions)
+        {
+            session.Surface.SetTheme(_engineTheme);
+        }
+    }
+
+    private void WireSession(TerminalSession session)
+    {
+        session.Surface.SetTheme(_engineTheme);
+        // OSC 52: an app asked to set the system clipboard. (A clipboard *query*
+        // — Text == null — would need an OSC 52 reply written back to the PTY;
+        // that round-trip is deferred.)
+        session.Surface.ClipboardRequested += OnClipboardRequested;
+    }
+
+    private static void OnClipboardRequested(PurrTTY.Terminal.ClipboardRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.Text))
+        {
+            ImGui.SetClipboardText(request.Text);
+        }
+    }
+
+    /// <summary>Submits the window for this frame.</summary>
+    /// <param name="hideChromeWhenNotHovered">Global "hide UI when not hovered" setting.</param>
+    /// <param name="cursorBlinkOn">Shared blink phase from the controller.</param>
+    public void Render(bool hideChromeWhenNotHovered, bool cursorBlinkOn)
+    {
+        if (!IsOpen || _disposed)
+        {
+            return;
+        }
+
+        float fontSize = Settings.FontSize;
+        var fonts = ResolveFontsCached(fontSize);
+        bool showChrome = !hideChromeWhenNotHovered || _wasHoveredLastFrame;
+
+        var bg = Settings.Colors.Background;
+        var windowBg = showChrome
+            ? new float4(bg.R / 255f, bg.G / 255f, bg.B / 255f, Settings.BackgroundOpacity)
+            : new float4(0f, 0f, 0f, 0f);
+
+        int colorPushes = 1;
+        ImGui.PushStyleColor(ImGuiCol.WindowBg, windowBg);
+        if (!showChrome)
+        {
+            // The menu-bar strip background and the resize grip are part of the
+            // window decorations drawn during Begin, so they have to be hidden
+            // via style colors here. The grip stays functional while invisible.
+            var transparent = new float4(0f, 0f, 0f, 0f);
+            ImGui.PushStyleColor(ImGuiCol.MenuBarBg, transparent);
+            ImGui.PushStyleColor(ImGuiCol.ResizeGrip, transparent);
+            ImGui.PushStyleColor(ImGuiCol.ResizeGripHovered, transparent);
+            ImGui.PushStyleColor(ImGuiCol.ResizeGripActive, transparent);
+            colorPushes += 4;
+        }
+
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0f, 0f));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, showChrome ? 1f : 0f);
+
+        if (_pendingPlacement is { } placement)
+        {
+            ImGui.SetNextWindowPos(placement.Pos, ImGuiCond.Always);
+            ImGui.SetNextWindowSize(placement.Size, ImGuiCond.Always);
+            _pendingPlacement = null;
+        }
+        else if (_pendingSnapSize is { } snapSize)
+        {
+            ImGui.SetNextWindowSize(snapSize, ImGuiCond.Always);
+            _pendingSnapSize = null;
+        }
+        else
+        {
+            ImGui.SetNextWindowSize(new float2(880f, 520f), ImGuiCond.FirstUseEver);
+        }
+
+        if (_wantFocus)
+        {
+            ImGui.SetNextWindowFocus();
+            _wantFocus = false;
+        }
+
+        var flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
+                    | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.MenuBar;
+
+        ImGui.Begin(_imguiName, flags);
+        ImGui.PopStyleVar(2);
+
+        UpdateFocusState(ImGui.IsWindowFocused());
+
+        var windowPos = ImGui.GetWindowPos();
+        var windowSize = ImGui.GetWindowSize();
+        if (windowSize.X > 0f && windowSize.Y > 0f)
+        {
+            LastKnownPosition = windowPos;
+            LastKnownSize = windowSize;
+            HasObservedGeometry = true;
+        }
+
+        RenderTitleStrip(showChrome);
+        RenderTabBar(showChrome);
+
+        var canvasPos = ImGui.GetCursorScreenPos();
+        var avail = ImGui.GetContentRegionAvail();
+
+        // The window background is fully transparent while chrome is hidden, so
+        // paint the terminal area itself with the theme background.
+        if (!showChrome && Settings.BackgroundOpacity > 0f && avail.X > 0f && avail.Y > 0f)
+        {
+            var fill = Settings.Colors.Background.WithAlpha((byte)Math.Clamp(Settings.BackgroundOpacity * 255f, 0f, 255f));
+            ImGui.GetWindowDrawList().AddRectFilled(canvasPos, canvasPos + avail, FrameGridRenderer.ToU32(fill));
+        }
+
+        ComputeCellMetrics(fonts.Regular, fontSize);
+
+        int cols = Math.Max(1, (int)(avail.X / _cellWidth));
+        int rows = Math.Max(1, (int)(avail.Y / _cellHeight));
+
+        TrackResizeSnap(windowSize, avail, cols, rows);
+
+        var session = Sessions.ActiveSession;
+        if (session != null)
+        {
+            _hadSessions = true;
+
+            if (cols != session.Surface.Cols || rows != session.Surface.Rows)
+            {
+                session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
+                session.UpdateTerminalDimensions(cols, rows);
+                session.ProcessManager.Resize(cols, rows);
+                Sessions.UpdateLastKnownTerminalDimensions(cols, rows);
+            }
+
+            session.Surface.SetMouseGeometry(
+                (int)(cols * _cellWidth), (int)(rows * _cellHeight), (int)_cellWidth, (int)_cellHeight);
+
+            long buildStart = Stopwatch.GetTimestamp();
+            var frame = session.Surface.BuildFrame();
+            long submitStart = Stopwatch.GetTimestamp();
+            bool cursorOn = !frame.Cursor.Blinking || cursorBlinkOn;
+
+            var renderStats = FrameGridRenderer.Render(
+                frame, ImGui.GetWindowDrawList(), canvasPos,
+                _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn,
+                Settings.ForegroundOpacity, Settings.CellBackgroundOpacity);
+
+            if (ShowPerfHud)
+            {
+                DrawPerfHud(
+                    session, canvasPos, avail, cols, rows,
+                    Stopwatch.GetElapsedTime(buildStart, submitStart).TotalMilliseconds,
+                    Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds,
+                    renderStats);
+            }
+        }
+        else if (_hadSessions && Sessions.SessionCount == 0)
+        {
+            // The last tab was closed; retire the window.
+            IsOpen = false;
+        }
+
+        // Invisible button over the grid: claims the mouse so click-drag selects
+        // text instead of moving the window (the menu strip remains the drag handle).
+        bool gridHovered = false;
+        if (avail.X >= 1f && avail.Y >= 1f)
+        {
+            ImGui.SetCursorScreenPos(canvasPos);
+            ImGui.InvisibleButton("##grid", avail);
+            gridHovered = ImGui.IsItemHovered();
+        }
+
+        if (session != null && _hasFocus)
+        {
+            HandleInput(session, canvasPos, cols, rows, gridHovered);
+        }
+
+        // Rendered unconditionally (not gated on focus) so the right-click
+        // copy/paste popup stays alive once opened, even as the mouse leaves the grid.
+        if (session != null)
+        {
+            DrawContextMenu();
+        }
+
+        // Hover state feeding next frame's chrome visibility: mouse anywhere over
+        // the window rect (plus a margin for resize grips), or an in-progress drag.
+        var mouse = ImGui.GetMousePos();
+        bool mouseInBounds =
+            mouse.X >= windowPos.X - HoverMargin && mouse.X <= windowPos.X + windowSize.X + HoverMargin &&
+            mouse.Y >= windowPos.Y - HoverMargin && mouse.Y <= windowPos.Y + windowSize.Y + HoverMargin;
+        _wasHoveredLastFrame = mouseInBounds || _selecting;
+
+        ImGui.End();
+        ImGui.PopStyleColor(colorPushes);
+    }
+
+    private void RenderTitleStrip(bool showChrome)
+    {
+        if (!showChrome)
+        {
+            // Keep the strip (and its drag area / layout height) but draw nothing.
+            ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0f);
+        }
+
+        if (ImGui.BeginMenuBar())
+        {
+            ImGui.TextDisabled($" {Title}");
+
+            float closeWidth = ImGui.GetFrameHeight() * 1.5f;
+            ImGui.SetCursorPosX(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowWidth() - closeWidth));
+            if (ImGui.MenuItem("x##close_window") && showChrome)
+            {
+                Close();
+            }
+
+            ImGui.EndMenuBar();
+        }
+
+        if (!showChrome)
+        {
+            ImGui.PopStyleVar();
+        }
+    }
+
+    private void RenderTabBar(bool showChrome)
+    {
+        var sessions = Sessions.Sessions;
+        var active = Sessions.ActiveSession;
+        bool activeChanged = active?.Id != _lastActiveSessionId;
+        _lastActiveSessionId = active?.Id;
+
+        if (sessions.Count <= 1)
+        {
+            return;
+        }
+
+        // While chrome is hidden the tab bar stays laid out (so the grid height
+        // is stable) but is rendered fully transparent. It becomes visible the
+        // moment the mouse hovers the window.
+        if (!showChrome)
+        {
+            ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0f);
+        }
+
+        if (ImGui.BeginTabBar("##session_tabs",
+                ImGuiTabBarFlags.Reorderable | ImGuiTabBarFlags.AutoSelectNewTabs | ImGuiTabBarFlags.FittingPolicyScroll))
+        {
+            foreach (var session in sessions)
+            {
+                bool isActive = active != null && session.Id == active.Id;
+                string label = session.Title;
+                if (session.ProcessManager.ExitCode is { } exitCode)
+                {
+                    label += $" (exit {exitCode})";
+                }
+
+                var tabFlags = isActive && activeChanged ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+                bool open = true;
+                if (ImGui.BeginTabItem($"{label}##tab_{session.Id}", ref open, tabFlags))
+                {
+                    if (!isActive && !activeChanged)
+                    {
+                        Sessions.SwitchToSession(session.Id);
+                    }
+
+                    ImGui.EndTabItem();
+                }
+
+                if (!open)
+                {
+                    CloseSession(session.Id);
+                }
+            }
+
+            ImGui.EndTabBar();
+        }
+
+        if (!showChrome)
+        {
+            ImGui.PopStyleVar();
+        }
+    }
+
+    private void CloseSession(Guid sessionId)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Sessions.CloseSessionAsync(sessionId);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Log.Debug($"TerminalWindow: failed to close session {sessionId}: {ex.Message}");
+            }
+        });
+    }
+
+    private void HandleInput(TerminalSession session, float2 canvasPos, int cols, int rows, bool gridHovered)
+    {
+        var io = ImGui.GetIO();
+        HandleKeyboard(session, io);
+        HandleMouse(session, io, canvasPos, cols, rows, gridHovered);
+    }
+
+    private void HandleKeyboard(TerminalSession session, ImGuiIOPtr io)
+    {
+        if (KeyboardSuppression?.Invoke() == true)
+        {
+            return;
+        }
+
+        // Standard terminal clipboard chords; never forwarded to the shell.
+        if (io.KeyCtrl && io.KeyShift && ImGui.IsKeyPressed(ImGuiKey.V))
+        {
+            PasteFromClipboard();
+            return;
+        }
+
+        if (io.KeyCtrl && io.KeyShift && ImGui.IsKeyPressed(ImGuiKey.C))
+        {
+            CopySelectionToClipboard();
+            return;
+        }
+
+        var mods = ReadModifiers(io);
+
+        foreach (var (imguiKey, key) in NamedKeys)
+        {
+            if (ImGui.IsKeyPressed(imguiKey))
+            {
+                EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
+            }
+        }
+
+        if (io.KeyCtrl)
+        {
+            foreach (var (imguiKey, key) in LetterKeys)
+            {
+                if (ImGui.IsKeyPressed(imguiKey))
+                {
+                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
+                }
+            }
+        }
+
+        // Printable text. Skip when Ctrl/Alt are held (those are command combos
+        // handled above and do not represent typed text).
+        if (!io.KeyCtrl && !io.KeyAlt && io.InputQueueCharacters.Count > 0)
+        {
+            for (int i = 0; i < io.InputQueueCharacters.Count; i++)
+            {
+                char ch = (char)io.InputQueueCharacters[i];
+                if (ch >= 32 && ch != 127)
+                {
+                    Send(session, System.Text.Encoding.UTF8.GetBytes(ch.ToString()));
+                }
+            }
+        }
+    }
+
+    private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool gridHovered)
+    {
+        if (session.Surface.IsMouseTrackingEnabled)
+        {
+            HandleAppMouse(session, io, canvasPos, cols, rows, gridHovered);
+            return;
+        }
+
+        // Wheel scrolls the viewport scrollback when the app isn't tracking the mouse.
+        if (gridHovered && io.MouseWheel != 0)
+        {
+            session.Surface.ScrollBy(-(int)Math.Round(io.MouseWheel * 3));
+        }
+
+        var cell = MouseCell(canvasPos, cols, rows);
+
+        // Selection gestures: single-click+drag selects cells, double-click selects
+        // a word, triple-click selects the logical line. A plain click that never
+        // drags clears the selection (it falls through to ClearSelection on press
+        // and the extend branch never fires), matching real terminals — without
+        // this, holding the button for a frame painted a one-cell selection that
+        // could never be deselected.
+        if (gridHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            int clicks = ImGui.GetMouseClickedCount(ImGuiMouseButton.Left);
+            if (clicks >= 3)
+            {
+                session.Surface.SelectLine(cell);
+                _selecting = false;
+            }
+            else if (clicks == 2)
+            {
+                session.Surface.SelectWord(cell);
+                _selecting = false;
+            }
+            else
+            {
+                // Clear now and record the anchor, but defer materializing the
+                // selection until the mouse actually drags past the threshold.
+                session.Surface.ClearSelection();
+                session.Surface.BeginSelectCells(cell);
+                _selecting = true;
+            }
+        }
+        else if (_selecting && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+        {
+            AutoScrollForDrag(session, canvasPos, rows);
+            session.Surface.ExtendSelectCells(cell);
+        }
+        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            _selecting = false;
+        }
+
+        // Right-click opens the copy/paste context menu over the grid.
+        if (gridHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        {
+            ImGui.OpenPopup(GridContextMenuId);
+        }
+    }
+
+    // Right-click context menu over the grid: Copy (enabled only with a live
+    // selection) and Paste. Opened from HandleMouse and rendered every frame so
+    // the popup survives the mouse moving off the grid onto the menu itself.
+    private void DrawContextMenu()
+    {
+        if (!ImGui.BeginPopup(GridContextMenuId))
+        {
+            return;
+        }
+
+        bool hasSelection = !string.IsNullOrEmpty(Sessions.ActiveSession?.Surface.GetSelectionText());
+        if (ImGui.MenuItem("Copy", "Ctrl+Shift+C", false, hasSelection))
+        {
+            CopySelectionToClipboard();
+        }
+
+        if (ImGui.MenuItem("Paste", "Ctrl+Shift+V"))
+        {
+            PasteFromClipboard();
+        }
+
+        ImGui.EndPopup();
+    }
+
+    private void HandleAppMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool hovered)
+    {
+        // libghostty's mouse encoder expects surface-local pixels (0,0 = top-left of
+        // the terminal grid), not ImGui's screen-global mouse position.
+        var pos = ImGui.GetMousePos() - canvasPos;
+        var mods = ReadModifiers(io);
+
+        // Track which cell the pointer is over so motion below can fire only on a
+        // cell change. Updated every frame (incl. button-edge frames) so the next
+        // move is measured from the current cell, never a stale one.
+        int col = Math.Clamp((int)(pos.X / _cellWidth), 0, Math.Max(0, cols - 1));
+        int row = Math.Clamp((int)(pos.Y / _cellHeight), 0, Math.Max(0, rows - 1));
+        bool cellChanged = col != _appMouseCol || row != _appMouseRow;
+        _appMouseCol = col;
+        _appMouseRow = row;
+
+        // Press is gated on hover (the click must land on the grid); release fires
+        // unconditionally so a drag that ends off-grid still reports button-up.
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Left, mods, pos);
+        }
+        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Left, mods, pos);
+        }
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        {
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Right, mods, pos);
+        }
+        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Right))
+        {
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Right, mods, pos);
+        }
+        else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Middle))
+        {
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Middle, mods, pos);
+        }
+        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Middle))
+        {
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Middle, mods, pos);
+        }
+        else if (cellChanged)
+        {
+            // Motion / drag reporting. Apps in button-event (1002) or any-event
+            // (1003) tracking expect mouse-move reports so drag-driven UIs (nvim
+            // visual-select, tmux pane-resize) update live instead of only on
+            // release. The engine's mouse encoder is mode-aware — it emits a report
+            // only when the active mode wants this motion (and encodes the held
+            // button into the drag code, or "no button" for hover), and drops it
+            // otherwise (e.g. normal 1000 tracking) — so we just offer each cell
+            // crossing and let the encoder decide. We only report when a button is
+            // held (a drag) or the pointer is over the grid (any-event hover),
+            // mirroring the press/release gating above.
+            var held = HeldMouseButton();
+            if (held != MouseButton.None || hovered)
+            {
+                EncodeMouseAndSend(session, MouseAction.Motion, held, mods, pos);
+            }
+        }
+
+        // Wheel reports as a scroll-button press (libghostty buttons 4/5).
+        if (hovered && io.MouseWheel != 0)
+        {
+            var button = io.MouseWheel > 0 ? MouseButton.ScrollUp : MouseButton.ScrollDown;
+            EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
+        }
+    }
+
+    // The button currently held during a drag, used as the motion report's button
+    // code. Left/Middle/Right priority matches the press handling; None means no
+    // button is down (an any-event hover motion).
+    private static MouseButton HeldMouseButton()
+    {
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Left)) return MouseButton.Left;
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Middle)) return MouseButton.Middle;
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) return MouseButton.Right;
+        return MouseButton.None;
+    }
+
+    // While dragging a selection, scroll the viewport when the cursor leaves the
+    // grid vertically. Speed accelerates with how far past the edge the cursor is
+    // (capped), so a small overshoot creeps and a big one races.
+    private void AutoScrollForDrag(TerminalSession session, float2 canvasPos, int rows)
+    {
+        float mouseY = ImGui.GetMousePos().Y;
+        float top = canvasPos.Y;
+        float bottom = canvasPos.Y + rows * _cellHeight;
+
+        if (mouseY < top)
+        {
+            session.Surface.ScrollBy(-AutoScrollStep(top - mouseY));
+        }
+        else if (mouseY > bottom)
+        {
+            session.Surface.ScrollBy(AutoScrollStep(mouseY - bottom));
+        }
+    }
+
+    private int AutoScrollStep(float overflowPixels)
+        => Math.Clamp(1 + (int)(overflowPixels / Math.Max(1f, _cellHeight)), 1, 5);
+
+    /// <summary>
+    /// Snaps the window to the character grid when an interactive resize ends.
+    /// While a resize drag is in progress the terminal is resized live (cols/rows
+    /// floor-divide the content region, leaving a fractional-cell remainder); on
+    /// mouse release the window shrinks by that remainder so the grid fills the
+    /// content region exactly. The chrome contribution (menu strip, tab bar,
+    /// padding, border) is measured as <c>windowSize - avail</c> on the same
+    /// frame rather than computed from style metrics, so the target is exact for
+    /// any chrome configuration. A resize is only recognized when the size
+    /// changes while the left button is held, and the snap fires on release —
+    /// our own SetNextWindowSize applies with the mouse up, so it can never be
+    /// mistaken for a user resize (no feedback loop, no time-based guards).
+    /// </summary>
+    private void TrackResizeSnap(float2 windowSize, float2 avail, int cols, int rows)
+    {
+        if (!_windowSizeTracked)
+        {
+            _trackedWindowSize = windowSize;
+            _windowSizeTracked = true;
+            return;
+        }
+
+        bool sizeChanged =
+            Math.Abs(windowSize.X - _trackedWindowSize.X) > 0.5f ||
+            Math.Abs(windowSize.Y - _trackedWindowSize.Y) > 0.5f;
+        _trackedWindowSize = windowSize;
+
+        bool mouseDown = ImGui.IsMouseDown(ImGuiMouseButton.Left);
+        if (sizeChanged && mouseDown)
+        {
+            _userResizing = true;
+            return;
+        }
+
+        if (_userResizing && !mouseDown)
+        {
+            _userResizing = false;
+
+            float targetX = windowSize.X - (avail.X - cols * _cellWidth);
+            float targetY = windowSize.Y - (avail.Y - rows * _cellHeight);
+            if (Math.Abs(targetX - windowSize.X) > 0.5f || Math.Abs(targetY - windowSize.Y) > 0.5f)
+            {
+                _pendingSnapSize = new float2(targetX, targetY);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Debug overlay (top-right of the grid): frame-build vs ImGui-submit cost,
+    /// dirty state, PTY throughput, and draw-call counts from the renderer.
+    /// </summary>
+    private void DrawPerfHud(
+        TerminalSession session,
+        float2 canvasPos,
+        float2 avail,
+        int cols,
+        int rows,
+        double buildMs,
+        double submitMs,
+        GridRenderStats stats)
+    {
+        var frameStats = (session.Surface as GhosttyTerminalSurface)?.LastFrameStats ?? default;
+
+        _hudAccumBytes += frameStats.BytesConsumed;
+        if (_hudWindowStartTs == 0)
+        {
+            _hudWindowStartTs = Stopwatch.GetTimestamp();
+        }
+
+        var elapsed = Stopwatch.GetElapsedTime(_hudWindowStartTs);
+        if (elapsed.TotalMilliseconds >= 500)
+        {
+            _hudBytesPerSec = _hudAccumBytes / elapsed.TotalSeconds;
+            _hudAccumBytes = 0;
+            _hudWindowStartTs = Stopwatch.GetTimestamp();
+        }
+
+        string state = frameStats.SyncPaused
+            ? "sync-hold"
+            : frameStats.DirtyState switch { 0 => "clean", 1 => "partial", _ => "full" };
+
+        string l1 = $"grid {cols}x{rows}  build {buildMs:F2}ms (vt {frameStats.WriteMs:F2} upd {frameStats.UpdateMs:F2} pop {frameStats.PopulateMs:F2})";
+        string l2 = $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s";
+        string l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}";
+
+        float lineH = ImGui.GetTextLineHeight();
+        float w = Math.Max(ImGui.CalcTextSize(l1).X, Math.Max(ImGui.CalcTextSize(l2).X, ImGui.CalcTextSize(l3).X));
+        const float pad = 6f;
+
+        var drawList = ImGui.GetWindowDrawList();
+        var p0 = new float2(canvasPos.X + avail.X - w - pad * 2 - 4f, canvasPos.Y + 4f);
+        var p1 = new float2(p0.X + w + pad * 2, p0.Y + lineH * 3 + pad * 2);
+        drawList.AddRectFilled(p0, p1, 0xB0000000u);
+        drawList.AddText(new float2(p0.X + pad, p0.Y + pad), 0xFF7FFF7Fu, l1);
+        drawList.AddText(new float2(p0.X + pad, p0.Y + pad + lineH), 0xFF7FDFFFu, l2);
+        drawList.AddText(new float2(p0.X + pad, p0.Y + pad + lineH * 2), 0xFFFFBF7Fu, l3);
+    }
+
+    private GridPoint MouseCell(float2 canvasPos, int cols, int rows)
+    {
+        var mouse = ImGui.GetMousePos();
+        int col = Math.Clamp((int)((mouse.X - canvasPos.X) / _cellWidth), 0, Math.Max(0, cols - 1));
+        int row = Math.Clamp((int)((mouse.Y - canvasPos.Y) / _cellHeight), 0, Math.Max(0, rows - 1));
+        return new GridPoint(col, row);
+    }
+
+    private void EncodeAndSend(TerminalSession session, in TerminalKeyEvent keyEvent)
+    {
+        Span<byte> buf = stackalloc byte[64];
+        int n = session.Surface.EncodeKey(keyEvent, buf);
+        if (n > 0)
+        {
+            Send(session, buf[..n]);
+        }
+    }
+
+    private void EncodeMouseAndSend(TerminalSession session, MouseAction action, MouseButton button, TKeyMods mods, float2 pos)
+    {
+        var ev = new TerminalMouseEvent
+        {
+            Action = action,
+            Button = button,
+            Modifiers = mods,
+            X = pos.X,
+            Y = pos.Y,
+        };
+        Span<byte> buf = stackalloc byte[64];
+        int n = session.Surface.EncodeMouse(ev, buf);
+        if (n > 0)
+        {
+            Send(session, buf[..n]);
+        }
+    }
+
+    private void Send(TerminalSession session, ReadOnlySpan<byte> bytes)
+    {
+        session.SendInput(bytes);
+        DataInput?.Invoke(bytes.ToArray());
+    }
+
+    private static TKeyMods ReadModifiers(ImGuiIOPtr io)
+    {
+        var mods = TKeyMods.None;
+        if (io.KeyShift) mods |= TKeyMods.Shift;
+        if (io.KeyCtrl) mods |= TKeyMods.Ctrl;
+        if (io.KeyAlt) mods |= TKeyMods.Alt;
+        return mods;
+    }
+
+    public bool CopySelectionToClipboard()
+    {
+        var text = Sessions.ActiveSession?.Surface.GetSelectionText();
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        ImGui.SetClipboardText(text);
+        return true;
+    }
+
+    public void PasteFromClipboard()
+    {
+        var session = Sessions.ActiveSession;
+        if (session == null)
+        {
+            return;
+        }
+
+        var text = ImGui.GetClipboardText();
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var encoded = session.Surface.EncodePaste(System.Text.Encoding.UTF8.GetBytes(text));
+        Send(session, encoded);
+    }
+
+    private void UpdateFocusState(bool nowFocused)
+    {
+        if (nowFocused == _hasFocus)
+        {
+            return;
+        }
+
+        _hasFocus = nowFocused;
+        FocusChanged?.Invoke(this, nowFocused);
+    }
+
+    private void ComputeCellMetrics(ImFontPtr font, float fontSize)
+    {
+        ImGui.PushFont(font, fontSize);
+        var size = ImGui.CalcTextSize("M");
+        ImGui.PopFont();
+
+        _cellWidth = size.X > 0.5f ? size.X : fontSize * 0.6f;
+        _cellHeight = size.Y > 0.5f ? size.Y : fontSize * 1.2f;
+    }
+
+    // Cached font resolution + ASCII run-batch validation. Recomputed when the
+    // family/size changes or when more fonts finish loading (variant fallbacks
+    // can resolve differently once their font appears).
+    private readonly GlyphBatchCache _glyphBatchCache = new();
+    private FrameFonts _cachedFonts;
+    private bool _hasCachedFonts;
+    private string? _cachedFontFamily;
+    private float _cachedFontSize;
+    private int _cachedLoadedFontCount;
+
+    private FrameFonts ResolveFontsCached(float fontSize)
+    {
+        int loadedCount = PurrTTYFontManager.LoadedFonts.Count;
+        if (_hasCachedFonts
+            && _cachedFontFamily == Settings.FontFamily
+            && _cachedFontSize == fontSize
+            && _cachedLoadedFontCount == loadedCount)
+        {
+            return _cachedFonts;
+        }
+
+        var fonts = ResolveFonts();
+        ComputeCellMetrics(fonts.Regular, fontSize);
+        _glyphBatchCache.Clear();
+        _cachedFonts = new FrameFonts(
+            fonts.Regular, fonts.Bold, fonts.Italic, fonts.BoldItalic,
+            IsAsciiMonospace(fonts.Regular, fontSize, _cellWidth),
+            IsAsciiMonospace(fonts.Bold, fontSize, _cellWidth),
+            IsAsciiMonospace(fonts.Italic, fontSize, _cellWidth),
+            IsAsciiMonospace(fonts.BoldItalic, fontSize, _cellWidth),
+            _glyphBatchCache);
+        _hasCachedFonts = true;
+        _cachedFontFamily = Settings.FontFamily;
+        _cachedFontSize = fontSize;
+        _cachedLoadedFontCount = loadedCount;
+        return _cachedFonts;
+    }
+
+    private static readonly string AsciiSample = CreateAsciiSample();
+
+    private static string CreateAsciiSample()
+    {
+        Span<char> chars = stackalloc char[94];
+        for (int i = 0; i < chars.Length; i++)
+        {
+            chars[i] = (char)('!' + i);
+        }
+
+        return new string(chars);
+    }
+
+    // A variant may batch ASCII runs only when its measured printable-ASCII
+    // advance matches the grid cell width exactly; otherwise the renderer
+    // falls back to per-cell placement to keep columns aligned.
+    private static bool IsAsciiMonospace(ImFontPtr font, float fontSize, float cellWidth)
+    {
+        ImGui.PushFont(font, fontSize);
+        var size = ImGui.CalcTextSize(AsciiSample);
+        ImGui.PopFont();
+        return Math.Abs(size.X - AsciiSample.Length * cellWidth) <= 0.5f;
+    }
+
+    private FrameFonts ResolveFonts()
+    {
+        var config = PurrTTYFontManager.CreateFontConfigForFamily(Settings.FontFamily, Settings.FontSize);
+        var regular = ResolveFontByName(config.RegularFontName) ?? ImGui.GetFont();
+        var bold = ResolveFontByName(config.BoldFontName) ?? regular;
+        var italic = ResolveFontByName(config.ItalicFontName) ?? regular;
+        var boldItalic = ResolveFontByName(config.BoldItalicFontName) ?? regular;
+        return new FrameFonts(regular, bold, italic, boldItalic);
+    }
+
+    private static ImFontPtr? ResolveFontByName(string? name)
+        => !string.IsNullOrEmpty(name) && PurrTTYFontManager.LoadedFonts.TryGetValue(name, out var font)
+            ? font
+            : null;
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        IsOpen = false;
+        Sessions.Dispose();
+    }
+}

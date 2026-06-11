@@ -3,6 +3,7 @@ using Brutal.GlfwApi;
 using Brutal.ImGuiApi;
 using KSA;
 using purrTTY.Display.Controllers;
+using purrTTY.Display.Ghostty;
 using purrTTY.GameMod;
 using System.Collections.Generic;
 using System.Reflection;
@@ -76,11 +77,31 @@ static class Patch02
         {
             viewport.MenuBarInUse = true;
 
-      TerminalMod.DrawToggleMenuItem();
+      TerminalMod.DrawMenuContent();
 
             ImGui.EndMenu();
         }
     }
+}
+
+/// <summary>
+/// Blocks game hotkeys (GameSettings.OnKeyAll) whenever an ImGui text input has
+/// keyboard focus (e.g. the save-theme name field), so typing does not trigger
+/// game key bindings. The in-game console is exempt so it keeps working.
+/// </summary>
+[HarmonyPatch(typeof(GameSettings), nameof(GameSettings.OnKeyAll))]
+static class Patch03_HotkeyGuard
+{
+  [HarmonyPrefix]
+  static bool Prefix(ref bool __result)
+  {
+    if (!Program.ConsoleWindow.IsOpen && ImGui.GetIO().WantTextInput)
+    {
+      __result = true;
+      return false;
+    }
+    return true;
+  }
 }
 
 [HarmonyPatch(typeof(KSA.Program))]
@@ -91,7 +112,7 @@ class Patch01
   [HarmonyPatch(nameof(KSA.Program.OnKey))]
   static bool Prefix1(GlfwWindow window, GlfwKey key, int scanCode, GlfwKeyAction action, GlfwModifier mods)
   {
-    if (TerminalController.IsAnyTerminalActive)
+    if (GhosttyTerminalController.IsAnyTerminalActive)
     {
       // skipping Program.OnKey
       return false;

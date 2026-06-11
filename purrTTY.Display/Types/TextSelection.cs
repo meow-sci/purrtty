@@ -1,5 +1,4 @@
 using System;
-using purrTTY.Core.Types;
 
 namespace purrTTY.Display.Types;
 
