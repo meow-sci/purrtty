@@ -39,34 +39,34 @@
   </ItemGroup>
 
   <!--
-    Native libghostty-vt. macOS (osx-arm64) only for now; multi-RID packaging is
-    follow-up work. The file is copied next to the built assembly so default
-    P/Invoke resolution + our NativeLibraryResolver both find it. The same file
-    must be copied beside purrTTY.GameMod.dll for KSA's plugin ALC (handled by
-    the GameMod project).
+    Native libghostty-vt, one shared library per supported RID, checked into
+    source control under native/<rid>/ (build commands in README.md). ALL of
+    them are copied flat next to the built assembly on every build, regardless
+    of host OS — the per-platform filenames (libghostty-vt.dylib /
+    ghostty-vt.dll / libghostty-vt.so) never collide, and NativeLibraryResolver
+    picks the one matching the running OS at runtime. A build from any host
+    therefore produces one platform-agnostic output that runs on macOS,
+    Windows, and Linux (the GameMod project copies the same files beside
+    purrTTY.GameMod.dll for KSA's plugin ALC).
+
+    These MUST be the shared libraries (e.g. zig-out/bin/ghostty-vt.dll) — NOT
+    the static archive (ghostty-vt-static.lib) nor the import lib
+    (ghostty-vt.lib); neither can be loaded at runtime by P/Invoke.
+
+    If two RIDs of the same OS are ever added (osx-x64, linux-arm64, ...) the
+    flat filenames collide; switch to the runtimes/<rid>/native output layout,
+    which NativeLibraryResolver already probes.
   -->
   <ItemGroup>
-    <None Include="native/libghostty-vt.dylib" Link="libghostty-vt.dylib" Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="native/osx-arm64/libghostty-vt.dylib" Link="libghostty-vt.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="native/win-x64/ghostty-vt.dll" Link="ghostty-vt.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="native/linux-x64/libghostty-vt.so" Link="libghostty-vt.so">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-
-  <!--
-    Native libghostty-vt. Windows (win-x64) only for now; multi-RID packaging is
-    follow-up work. This MUST be the shared library (ghostty-vt.dll, built via
-    `zig build -Demit-lib-vt` → zig-out/bin/ghostty-vt.dll) — NOT the static
-    archive (ghostty-vt-static.lib) nor the import lib (ghostty-vt.lib), neither
-    of which can be loaded at runtime by P/Invoke. The DLL is copied next to the
-    built assembly so default P/Invoke resolution + our NativeLibraryResolver
-    (which looks for "ghostty-vt.dll" on Windows) both find it. The same file is
-    copied beside purrTTY.GameMod.dll for KSA's plugin ALC (handled by the
-    GameMod project).
-  -->
-  <ItemGroup>
-    <None Include="native/ghostty-vt.dll" Link="ghostty-vt.dll" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 
 </Project>

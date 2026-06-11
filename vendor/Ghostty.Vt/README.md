@@ -33,35 +33,57 @@ to `net10.0` (purrtty's TFM), with purrtty-specific additions clearly marked in-
 
 The binding loads the **shared library** via P/Invoke (`NativeLibraryResolver` resolves
 `libghostty-vt.dylib` on macOS, `ghostty-vt.dll` on Windows, `libghostty-vt.so` on Linux). The
-native binaries are gitignored — build them from pinned upstream ghostty (zig 0.15) and drop them
-in `native/`.
+prebuilt binaries are **checked into source control**, one per RID:
+
+```
+native/osx-arm64/libghostty-vt.dylib
+native/win-x64/ghostty-vt.dll
+native/linux-x64/libghostty-vt.so
+```
+
+The csproj copies **all of them, flat,** into every build output regardless of host OS (the
+filenames are platform-distinct, so they coexist), and `NativeLibraryResolver` picks the one
+matching the running OS. A build from any host therefore yields one platform-agnostic mod that
+runs on macOS, Windows, and Linux — which is what lets a single Linux CI job produce the release
+for every platform. If two RIDs of the same OS are ever added (osx-x64, linux-arm64, ...) the
+flat names collide; switch the output to the `runtimes/<rid>/native` layout, which the resolver
+already probes.
 
 > ⚠️ Use the **shared** library only. ghostty's build also emits `ghostty-vt-static.lib` (a static
 > archive) and `ghostty-vt.lib` (an import lib) under `zig-out/lib/` — **neither can be loaded at
-> runtime** by a managed plugin. The DLL is `zig-out/bin/ghostty-vt.dll`.
+> runtime** by a managed plugin. The Windows DLL is `zig-out/bin/ghostty-vt.dll`.
 
-**macOS (osx-arm64)** → `native/libghostty-vt.dylib`:
+### Rebuilding (required after every pin bump)
+
+All three are **cross-compiled from a single host** (any OS) with zig 0.15, from the pinned
+ghostty commit, at `ReleaseFast` with explicit baseline targets. Do **not** pass `-mcpu native`:
+a host-tuned binary is non-portable and was observed to access-violate inside `vt_write`; the
+SIMD deps (`highway`/`simdutf`) runtime-dispatch to AVX2/etc. regardless, so baseline costs
+little. Windows must use the `gnu` ABI (the default `msvc` target fails to compile those C++
+deps). The Linux build pins glibc 2.31 (max versioned symbol actually used: 2.29 ≈ Ubuntu
+20.04/Debian 11); zig statically links its own libc++, so glibc is the only runtime version
+dependency. The Linux `.so` keeps DWARF debug info even at `ReleaseFast` (~7.6 MB) — strip it
+before vendoring; the build's `-Dstrip` flag does not reach the vt shared lib.
 
 ```bash
-export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"
-cd /path/to/ghostty
-zig build -Demit-lib-vt                       # → zig-out/lib/libghostty-vt.dylib
+export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"   # macOS host shown; any host with zig 0.15 works
+cd /path/to/ghostty   # at the pinned commit
+
+zig build -Demit-lib-vt -Dtarget=aarch64-macos -Doptimize=ReleaseFast
+cp -L zig-out/lib/libghostty-vt.dylib <purrtty>/vendor/Ghostty.Vt/native/osx-arm64/   # -L: it's a symlink
+
+zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast
+cp zig-out/bin/ghostty-vt.dll <purrtty>/vendor/Ghostty.Vt/native/win-x64/
+
+zig build -Demit-lib-vt -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseFast
+llvm-strip --strip-debug -o <purrtty>/vendor/Ghostty.Vt/native/linux-x64/libghostty-vt.so \
+    zig-out/lib/libghostty-vt.so.0.1.0           # llvm-strip: e.g. /opt/homebrew/opt/llvm@21/bin
 ```
 
-**Windows (win-x64)** → `native/ghostty-vt.dll`:
+After a pin bump: update the pinned commit in this README, rebuild all three, and run the
+purrTTY.Terminal.Tests suite — `RawCellLayout.Validate()` fails loudly if the native cell
+bit-layout changed.
 
-```powershell
-$env:PATH = "C:\zig-x86_64-windows-0.15.2;$env:PATH"
-cd C:\path\to\ghostty
-zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast   # → zig-out/bin/ghostty-vt.dll
-```
-
-The `gnu` target is required (it compiles ghostty-vt's `highway`/`simdutf` C++ SIMD deps; the default
-`native-native-msvc` target fails to build them). Build at **baseline cpu** — do **not** pass
-`-mcpu native`: a host-tuned binary is non-portable and was observed to access-violate inside
-`vt_write`. The SIMD libs runtime-dispatch to AVX2/etc. regardless, so baseline costs little.
-
-osx-arm64 + win-x64 are vendored today; linux-x64 / full multi-RID packaging is follow-up work.
 We **pin** the C library; we do **not** fork it. All purrtty changes live in the managed binding (`src/`).
 
 The library is loaded by `src/Native/NativeLibraryResolver.cs` (a purrtty addition) which

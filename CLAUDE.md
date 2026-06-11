@@ -24,7 +24,7 @@ FRONTEND   purrTTY.Display (ImGui)          — GhosttyTerminalController + Fram
 BACKEND    purrTTY.Terminal (headless, renderer-neutral)
    │  ITerminalSurface + TerminalFrame + GhosttyTerminalSurface + OSC sidecar + sessions
 BINDING    vendor/Ghostty.Vt (vendored, owned, net10)  — Terminal/RenderState/encoders + purrtty extensions
-NATIVE     vendor/Ghostty.Vt/native/{libghostty-vt.dylib | ghostty-vt.dll} (built from pinned ghostty; osx-arm64 + win-x64)
+NATIVE     vendor/Ghostty.Vt/native/<rid>/ — prebuilt shared libs from pinned ghostty, checked in (osx-arm64, win-x64, linux-x64)
 ```
 
 The **renderer-neutral seam** is the heart of the design: the backend produces a `TerminalFrame`
@@ -55,8 +55,39 @@ purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; Sta
 ```bash
 dotnet build purrtty.slnx              # Build the whole solution
 dotnet build purrTTY.Terminal          # Backend only
-dotnet build purrTTY.GameMod           # Game mod (also deploys to the KSA mods dir, incl. native lib)
+dotnet build purrTTY.GameMod           # Game mod (also deploys to the KSA mods dir, incl. native libs)
 ```
+
+The mod output is **platform-agnostic**: every build bundles the prebuilt native libs for all
+three RIDs (see below), so one build from any host OS — including the Linux CI runner — produces a
+single mod dist that runs on Windows, macOS, and Linux.
+
+### KSA paths (Directory.Build.props)
+
+`KSAFolder` — the KSA reference assemblies (KSA.dll, Brutal.\*.dll, Planet.\*.dll) the projects
+compile against — resolves in order, first match wins, every tier host-OS-agnostic:
+1. `KSA_DLL_DIR` env var (or `-p:KSA_DLL_DIR=...`) — what CI uses
+2. a `ksa-game-assemblies` checkout cloned **next to this repo** (DLLs in its `current/dll/`) — clone-and-go
+3. per-OS defaults (Windows game install; `~/repos/meow-sci/ksa-game-assemblies/current/dll/` otherwise)
+
+The deploy destination (`SelectedDistModDir`, where GameMod's `CopyCustomContent` writes the
+`purrTTY/` mod folder) honors `PURRTTY_DIST_DIR` the same way; otherwise it defaults to the
+per-OS KSA mods dir.
+
+### CI / releases (`.github/workflows/release.yml`)
+
+One ubuntu job builds everything: checks out `meow-sci/ksa-game-assemblies` (private repo
+holding the KSA DLLs under `current/dll/`; access via the `KSA_GAME_ASSEMBLIES_PAT` secret — a
+read-only fine-grained PAT, same pattern as flexo), stamps the `mod.toml` version, runs
+`dotnet test purrtty.slnx` (which loads the vendored linux-x64 native lib on the runner) with TRX
+logging — results are published as a check run on the commit (`dorny/test-reporter`, with failure
+annotations) and uploaded as a `test-results` artifact — builds the Release dist via
+`PURRTTY_DIST_DIR`, zips `purrTTY/`, and publishes a GitHub release:
+- push to `main` → prerelease tagged `tip-<UTC stamp>`, asset `purrTTY-tip-<stamp>.zip`;
+  mod.toml version becomes `<base>-tip.<stamp>`; older tip releases are pruned (keep-count set in the workflow)
+- push to `release/<v>` → release tagged `v<v>`, asset `purrTTY-<v>.zip`, mod.toml version `<v>`;
+  re-pushing the branch deletes and recreates the release + tag
+- push to `feature/*` → build + tests only (compile check; no version stamp, no release, no artifacts)
 
 ### Testing
 
@@ -64,11 +95,13 @@ The terminal-emulation behavior is **trusted to libghostty-vt** and is not re-te
 cover purrtty's **integration** with the engine.
 
 ```bash
-dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v quiet
+dotnet test purrtty.slnx --nologo -v quiet                                  # full suite (3 test projects)
+dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v quiet   # engine integration only
 ```
 
 `purrTTY.Terminal.Tests` (NUnit) validates frame production, theming, selection, OSC sidecar,
 key/mouse encoding, bracketed paste, DSR replies, scrollback, and the session-wiring data flow.
+`purrTTY.CustomShellContract.Tests` + `purrTTY.CustomShells.Tests` cover the custom-shell layer.
 Keep test output minimal so it does not flood the CLI.
 
 > The legacy emulator test/app projects (`purrTTY.Core.Tests`, `purrTTY.Display.Tests`,
@@ -76,28 +109,29 @@ Keep test output minimal so it does not flood the CLI.
 
 ### Building the native libghostty-vt
 
-P/Invoke needs the **shared library** (`.dylib`/`.dll`), built from pinned ghostty with zig 0.15.
-Do **not** vendor the static archive (`ghostty-vt-static.lib`) or the import lib (`ghostty-vt.lib`) —
-neither is loadable at runtime. Copy the result into `vendor/Ghostty.Vt/native/`.
+P/Invoke needs the **shared library** (`.dylib`/`.dll`/`.so`). Prebuilt binaries for all three
+RIDs are **checked in** at `vendor/Ghostty.Vt/native/{osx-arm64,win-x64,linux-x64}/`; the
+`Ghostty.Vt` csproj copies all of them flat into every build output (the filenames are
+platform-distinct) and `NativeLibraryResolver` loads the one matching the running OS.
+
+Rebuilding is only needed on a ghostty pin bump. All three targets cross-compile from a single
+host with zig 0.15 — full commands, strip step, and gotchas live in
+`vendor/Ghostty.Vt/README.md`. The short version:
 
 ```bash
-# macOS (osx-arm64) → zig-out/lib/libghostty-vt.dylib
-export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"
-cd /path/to/ghostty && zig build -Demit-lib-vt
+export PATH="/opt/homebrew/opt/zig@0.15/bin:$PATH"     # zig 0.15 on this machine
+cd /path/to/ghostty                                    # at the pinned commit
+zig build -Demit-lib-vt -Dtarget=aarch64-macos -Doptimize=ReleaseFast         # → zig-out/lib/libghostty-vt.dylib (symlink: cp -L)
+zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast    # → zig-out/bin/ghostty-vt.dll
+zig build -Demit-lib-vt -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseFast # → zig-out/lib/libghostty-vt.so.0.1.0 (llvm-strip --strip-debug)
 ```
 
-```powershell
-# Windows (win-x64) → zig-out/bin/ghostty-vt.dll   (the .lib files in zig-out/lib are NOT used)
-# Use the gnu target (compiles the highway/simdutf C++ SIMD deps) at BASELINE cpu — never -mcpu native:
-#   a host-tuned build is non-portable AND was observed to AV inside vt_write. The SIMD libs still
-#   runtime-dispatch to AVX2 etc., so baseline costs little.
-$env:PATH = "C:\zig-x86_64-windows-0.15.2;$env:PATH"
-cd C:\path\to\ghostty ; zig build -Demit-lib-vt -Dtarget=x86_64-windows-gnu -Doptimize=ReleaseFast
-```
-
-The native lib is **pinned, not forked** (current pin recorded in `vendor/Ghostty.Vt/README.md`).
-osx-arm64 + win-x64 are vendored today (gitignored; built locally); linux-x64 / full multi-RID
-packaging is follow-up work.
+Gotchas: never `-mcpu native` (non-portable; was observed to AV inside `vt_write` — the SIMD deps
+runtime-dispatch to AVX2 etc. anyway); Windows must use the `gnu` ABI (msvc fails to compile the
+highway/simdutf C++ deps); vendor **only** the shared library — never `ghostty-vt-static.lib` or
+the import lib `ghostty-vt.lib` (not loadable at runtime); after a bump run the test suite
+(`RawCellLayout.Validate()` fails loudly if the native cell layout changed). The native lib is
+**pinned, not forked** (current pin recorded in `vendor/Ghostty.Vt/README.md`).
 
 ## Code Navigation Guide
 

@@ -14,4 +14,5 @@ purrtty incorporates the following third-party components.
 - **Upstream:** https://github.com/ghostty-org/ghostty
 - **License:** MIT
 - **Description:** The native VT engine. Pinned (not forked); built from source and
-  distributed as `vendor/Ghostty.Vt/native/libghostty-vt.*`.
+  distributed as prebuilt shared libraries under `vendor/Ghostty.Vt/native/<rid>/`
+  (osx-arm64, win-x64, linux-x64).
