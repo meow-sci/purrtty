@@ -432,11 +432,16 @@ public class TerminalMod
                 }
             }
 
-            // Update and render terminal if visible
-            if (IsTerminalVisible && _controller != null)
+            // Update runs even while hidden: it drains hidden sessions' PTY
+            // backlogs on a low cadence (their inboxes otherwise grow unbounded
+            // under chatty output). Render only runs while visible.
+            if (_controller != null)
             {
                 _controller.Update((float)dt);
-                _controller.Render();
+                if (IsTerminalVisible)
+                {
+                    _controller.Render();
+                }
             }
         }
         catch (Exception ex)

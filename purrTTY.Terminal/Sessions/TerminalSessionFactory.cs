@@ -26,9 +26,31 @@ public static class TerminalSessionFactory
     {
         var surface = new GhosttyTerminalSurface(initialWidth, initialHeight, logger);
 
-        IProcessManager processManager = CreateProcessManager(launchOptions, logger);
+        // The surface owns native handles; if any later construction step throws
+        // (e.g. an unknown custom-shell ID), dispose it instead of leaking it.
+        IProcessManager processManager;
+        try
+        {
+            processManager = CreateProcessManager(launchOptions, logger);
+        }
+        catch
+        {
+            surface.Dispose();
+            throw;
+        }
 
-        var session = new TerminalSession(sessionId, sessionTitle, surface, processManager, logger);
+        TerminalSession session;
+        try
+        {
+            session = new TerminalSession(sessionId, sessionTitle, surface, processManager, logger);
+        }
+        catch
+        {
+            surface.Dispose();
+            processManager.Dispose();
+            throw;
+        }
+
         session.StateChanged += onStateChanged;
         session.TitleChanged += onTitleChanged;
         session.ProcessExited += onProcessExited;

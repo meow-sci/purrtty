@@ -145,16 +145,16 @@ Start here:
 
 Vendored binding (`vendor/Ghostty.Vt/`):
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)
-- Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`)
+- Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`, `NativeMethods.TrackedGridRef.cs`)
 - Native loader (KSA ALC): `src/Native/NativeLibraryResolver.cs` (ModuleInitializer + `SetDllImportResolver`)
-- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell.
+- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef`), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell.
 
 Backend (`purrTTY.Terminal/`):
 - Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`)
-- Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a content-pinned `GridRef` anchor that survives viewport scroll; **dirty-aware frame production** — see gotcha 12 — with cell fg/bg resolved managed-side from style + palette in `FillCell`, a per-surface `GraphemeCache` interning cell strings so steady-state rebuilds allocate nothing, DEC 2026 synchronized-output gating — gotcha 13 — and `LastFrameStats` for the perf HUD)
+- Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a **tracked** grid-ref anchor that survives viewport scroll *and* scrollback pruning — gotcha 17; bounded PTY inbox with chunked catch-up — gotcha 18; **dirty-aware frame production** — see gotcha 12 — with cell fg/bg resolved managed-side from style + palette in `FillCell`, a per-surface `GraphemeCache` interning cell strings so steady-state rebuilds allocate nothing, DEC 2026 synchronized-output gating — gotcha 13 — and `LastFrameStats` for the perf HUD)
 - OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream)
 - Neutral input types: `Input/` (`TerminalKey`, `TerminalKeyEvent`, `TerminalMouseEvent`, `GridPoint`, `KeyModifiers`)
-- Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam)
+- Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam). `SessionManager.SessionConfigurator` runs against each new session *before* it is initialized/published — the safe place for theme push + surface event wiring (`TerminalWindow.WireSession` uses it); a `SessionCreated` subscriber runs post-publication, possibly on a pool thread, and must not touch the surface. Session close (`TerminalSession.CloseAsync`) completes synchronously on the calling thread — see gotcha 19.
 
 Frontend (`purrTTY.Display/`):
 - Multi-window controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs`;
@@ -357,6 +357,38 @@ Custom shells:
      `SessionManager.RestartSession` can reuse the manager.
    - Working directory uses `posix_spawn_file_actions_addchdir_np` (glibc ≥ 2.29 / macOS ≥ 10.15)
      with a graceful skip when the entry point is missing.
+
+17. **The drag-selection anchor is a tracked grid ref, never an untracked one.** An untracked
+   `GridRef` is a raw page-node pointer valid only until the next mutating engine call — PTY bytes
+   flow between Begin and Extend, so scrollback pruning/reflow mid-drag would leave it dangling
+   (the original use-after-free class). `GhosttyTerminalSurface` anchors with
+   `Terminal.TrackGridRef` → `TrackedGridRef` (binding addition wrapping
+   `ghostty_terminal_grid_ref_track` / `ghostty_tracked_grid_ref_*`): the engine moves the pin
+   across mutations and relocates it to the oldest surviving content when its page is pruned;
+   `ExtendSelectCells` snapshots it per call and ends the drag gracefully if the value is gone.
+   The one tracked object is reused across drags via `Set()` (each tracked ref adds bookkeeping
+   to every terminal mutation — don't create them per tick).
+
+18. **Every session is ticked every frame, and the inbox is bounded.** The PTY pumps never sleep
+   (gotcha 14) and a surface inbox drains only inside `BuildFrame`, so any unticked session grows
+   its inbox without bound. `TerminalWindow.Render` ticks **all tabs** (dirty tracking makes quiet
+   ones nearly free) and `GhosttyTerminalController.Update` — which `TerminalMod.OnAfterUi` calls
+   even while the terminal is hidden — drains hidden windows' sessions at ~4 Hz on the same tick
+   thread. Safety nets in `GhosttyTerminalSurface`: the inbox hard-caps at 8 MiB (overflow drops
+   incoming bytes and heals the gap with CAN+ST so the VT parser cannot desync; logged once per
+   episode), and backlog catch-up feeds the engine at most 1 MiB per tick so re-showing a busy
+   terminal cannot stall the render thread on one giant `VTWrite`.
+
+19. **Session create/close side effects stay off the published surface.** Creation: configure new
+   sessions (theme, surface events) via `SessionManager.SessionConfigurator`, which runs *before*
+   the session is initialized and published — after publication the tick thread may already be in
+   `BuildFrame`, and the engine is single-threaded; `CreateSessionAsync` also clones launch
+   options before stamping dimensions and re-checks disposal before publishing (a window closed
+   during a slow spawn disposes the orphan instead of leaking the PTY). Close:
+   `TerminalSession.CloseAsync` completes synchronously on the calling thread — it detaches events
+   and disposes the native surface before returning (callers must be on the tick thread;
+   `TerminalWindow.CloseSession` deliberately blocks on it) and backgrounds only the PTY/process
+   teardown. `Activate`/`Deactivate`/session events are raised outside `SessionManager._lock`.
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`

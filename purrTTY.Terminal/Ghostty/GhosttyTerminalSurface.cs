@@ -72,6 +72,27 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     private byte[] _scratch = new byte[4096];
     private int _inboxLen;
 
+    // Safety net: the inbox never grows past this. The PTY pumps never sleep
+    // (by design) and the inbox only drains on the tick, so a session that is
+    // not being ticked (hidden terminal, inactive tab) would otherwise grow
+    // without bound under chatty output. The frontend now ticks every session,
+    // so hitting this cap means something upstream is broken — drop is the
+    // last resort, not the regulator.
+    private const int MaxInboxBytes = 8 * 1024 * 1024;
+
+    // Cap on PTY bytes fed to the engine per BuildFrame. Bounds the per-tick
+    // stall when catching up on a large backlog (e.g. the first tick after the
+    // terminal is re-shown); the remainder stays queued for following ticks.
+    private const int MaxBytesPerTick = 1024 * 1024;
+
+    // Set when Write had to discard bytes at the inbox tail. The next bytes
+    // that are accepted are preceded by CAN + ST, which aborts any escape
+    // sequence and terminates any OSC/DCS string left open at the drop
+    // boundary (both are no-ops in the parser's ground state), so the engine's
+    // parser cannot desync across the gap.
+    private bool _inboxDroppedTail;
+    private static readonly byte[] DropResetSeq = { 0x18, 0x1B, (byte)'\\' };
+
     // Engine replies (DA/DSR/...) collected during VTWrite, flushed after.
     private readonly List<byte> _replies = new(256);
 
@@ -101,8 +122,10 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     private int _surfacePxH;
     private long _generation;
 
-    // Drag-selection anchor, pinned to content so it survives viewport scrolls.
-    private global::Ghostty.Vt.GridRef _selectionAnchor;
+    // Drag-selection anchor: a *tracked* grid ref (engine-owned bookkeeping)
+    // so it both survives viewport scrolls and follows page churn. The tracked
+    // object is created once and reused via Set() for subsequent drags.
+    private global::Ghostty.Vt.TrackedGridRef? _selectionAnchor;
     private bool _selectionRectangle;
     private bool _hasSelectionAnchor;
 
@@ -184,11 +207,38 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             return;
         }
 
+        bool dropped = false;
         lock (_sync)
         {
-            EnsureInboxCapacity(_inboxLen + data.Length);
-            data.CopyTo(_inbox.AsSpan(_inboxLen));
-            _inboxLen += data.Length;
+            int prefix = _inboxDroppedTail ? DropResetSeq.Length : 0;
+            long required = (long)_inboxLen + prefix + data.Length;
+            if (required > MaxInboxBytes)
+            {
+                dropped = !_inboxDroppedTail;
+                _inboxDroppedTail = true;
+            }
+            else
+            {
+                EnsureInboxCapacity((int)required);
+                if (_inboxDroppedTail)
+                {
+                    DropResetSeq.CopyTo(_inbox.AsSpan(_inboxLen));
+                    _inboxLen += DropResetSeq.Length;
+                    _inboxDroppedTail = false;
+                }
+
+                data.CopyTo(_inbox.AsSpan(_inboxLen));
+                _inboxLen += data.Length;
+            }
+        }
+
+        if (dropped)
+        {
+            // Logged on the transition into the dropped state only, so a
+            // firehose of writes cannot flood the log.
+            _logger.LogWarning(
+                "Terminal inbox exceeded {Cap} bytes while not being drained; discarding PTY output until the backlog is consumed",
+                MaxInboxBytes);
         }
     }
 
@@ -243,23 +293,44 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     public void BeginSelectCells(GridPoint anchor, bool rectangle = false)
     {
         ThrowIfDisposed();
-        // Pin the anchor to content (GridRef), not to a viewport row, so it stays
-        // put when the viewport scrolls mid-drag.
-        _selectionAnchor = _terminal.GetGridRef(GhosttyTypes.Point.Viewport(anchor.Col, anchor.Row));
+        // Pin the anchor to content with a tracked grid ref, not to a viewport
+        // row, so it stays put when the viewport scrolls mid-drag. An untracked
+        // GridRef is only valid until the next mutating engine call — PTY bytes
+        // are fed between begin and extend, and scrollback pruning or reflow can
+        // free the page an untracked anchor points into (dangling native node).
+        var point = GhosttyTypes.Point.Viewport(anchor.Col, anchor.Row);
+        if (_selectionAnchor is { } tracked)
+        {
+            _hasSelectionAnchor = tracked.Set(point);
+        }
+        else
+        {
+            _selectionAnchor = _terminal.TrackGridRef(point);
+            _hasSelectionAnchor = _selectionAnchor is not null;
+        }
+
         _selectionRectangle = rectangle;
-        _hasSelectionAnchor = true;
     }
 
     public void ExtendSelectCells(GridPoint head)
     {
         ThrowIfDisposed();
-        if (!_hasSelectionAnchor)
+        if (!_hasSelectionAnchor || _selectionAnchor is not { } anchor)
         {
             return;
         }
 
+        // The anchored content can be discarded mid-drag (e.g. scrollback
+        // pruning under heavy output). End the drag gracefully instead of
+        // handing the engine a stale reference.
+        if (!anchor.TrySnapshot(out var anchorRef))
+        {
+            _hasSelectionAnchor = false;
+            return;
+        }
+
         var h = _terminal.GetGridRef(GhosttyTypes.Point.Viewport(head.Col, head.Row));
-        _terminal.SetSelection(_selectionAnchor, h, _selectionRectangle);
+        _terminal.SetSelection(anchorRef, h, _selectionRectangle);
         _pendingChange = true;
     }
 
@@ -425,11 +496,29 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         int inputLen;
         lock (_sync)
         {
-            inputLen = _inboxLen;
-            if (inputLen > 0)
+            if (_inboxLen <= MaxBytesPerTick)
             {
-                (_inbox, _scratch) = (_scratch, _inbox);
-                _inboxLen = 0;
+                inputLen = _inboxLen;
+                if (inputLen > 0)
+                {
+                    (_inbox, _scratch) = (_scratch, _inbox);
+                    _inboxLen = 0;
+                }
+            }
+            else
+            {
+                // Backlog catch-up: feed at most MaxBytesPerTick this tick so a
+                // large buffered burst cannot stall the render thread for one
+                // giant VTWrite; the rest is consumed on subsequent ticks.
+                inputLen = MaxBytesPerTick;
+                if (_scratch.Length < inputLen)
+                {
+                    _scratch = new byte[inputLen];
+                }
+
+                Array.Copy(_inbox, 0, _scratch, 0, inputLen);
+                Array.Copy(_inbox, inputLen, _inbox, 0, _inboxLen - inputLen);
+                _inboxLen -= inputLen;
             }
         }
 
@@ -804,6 +893,12 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     /// </summary>
     private sealed class GraphemeCache
     {
+        // The tables live for the surface lifetime; a stream that churns unique
+        // graphemes (binary noise, randomized emoji) would otherwise grow them
+        // without bound. On overflow the tables reset and re-warm — steady-state
+        // content re-interns within a frame or two.
+        private const int MaxEntries = 64 * 1024;
+
         private readonly string?[] _ascii = new string?[128];
         private readonly Dictionary<uint, string> _codepoints = new();
         private readonly Dictionary<string, string> _clusters = new();
@@ -823,6 +918,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
             if (!_codepoints.TryGetValue(cp, out var s))
             {
+                ResetIfFull();
                 s = cp <= 0xFFFF ? ((char)cp).ToString() : char.ConvertFromUtf32((int)cp);
                 _codepoints[cp] = s;
             }
@@ -844,9 +940,19 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                 return s;
             }
 
+            ResetIfFull();
             s = new string(span);
             _clusters[s] = s;
             return s;
+        }
+
+        private void ResetIfFull()
+        {
+            if (_codepoints.Count + _clusters.Count >= MaxEntries)
+            {
+                _codepoints.Clear();
+                _clusters.Clear();
+            }
         }
     }
 
@@ -911,13 +1017,15 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             return;
         }
 
-        int newSize = _inbox.Length * 2;
+        // long arithmetic: int doubling overflows past 1 GB. Capacity is also
+        // clamped to the inbox cap, which Write guarantees `required` respects.
+        long newSize = _inbox.Length * 2L;
         while (newSize < required)
         {
             newSize *= 2;
         }
 
-        Array.Resize(ref _inbox, newSize);
+        Array.Resize(ref _inbox, (int)Math.Min(newSize, MaxInboxBytes));
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
@@ -930,6 +1038,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         }
 
         _disposed = true;
+        _selectionAnchor?.Dispose();
         _mouseEvent.Dispose();
         _keyEncoder.Dispose();
         _mouseEncoder.Dispose();

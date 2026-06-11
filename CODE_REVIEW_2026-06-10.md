@@ -16,11 +16,11 @@ Test suite was run during the review: **287 tests, 0 failures, 2 skipped.**
 | # | Finding | Severity | Effort |
 |---|---------|----------|--------|
 | 1 | Game keyboard black hole: `IsAnyTerminalActive` stuck `true` after hiding a focused terminal | CRITICAL | 1 line |
-| 2 | Native use-after-free: surface disposed on pool thread during tab close while tick thread may be in `BuildFrame` | CRITICAL | small |
+| 2 | ~~Native use-after-free: surface disposed on pool thread during tab close while tick thread may be in `BuildFrame`~~ **FIXED** (A1) | CRITICAL | small |
 | 3 | Double `FreeHGlobal` of env block on `CreateProcess` failure → Windows heap corruption | CRITICAL | 1 line |
-| 4 | Unbounded `_inbox` growth for hidden terminal / inactive tabs **[2x]** | MAJOR | medium |
-| 5 | Cross-thread `SetTheme` on session create races tick-thread `BuildFrame` **[2x]** | MAJOR | small |
-| 6 | Drag-selection anchor is an untracked native `GridRef` — dangles if scrollback prunes mid-drag **[2x]** | MAJOR | medium |
+| 4 | ~~Unbounded `_inbox` growth for hidden terminal / inactive tabs~~ **FIXED** (A3) **[2x]** | MAJOR | medium |
+| 5 | ~~Cross-thread `SetTheme` on session create races tick-thread `BuildFrame`~~ **FIXED** (A2) **[2x]** | MAJOR | small |
+| 6 | ~~Drag-selection anchor is an untracked native `GridRef` — dangles if scrollback prunes mid-drag~~ **FIXED** (A4) **[2x]** | MAJOR | medium |
 | 7 | Linux/macOS first run: default shell is PowerShell → dead empty window | MAJOR | tiny |
 | 8 | All-or-nothing Harmony `PatchAll`: one drifted target kills the whole mod | MAJOR | small |
 | 9 | Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`; deploy never cleans stale DLLs | MAJOR | tiny |
@@ -29,6 +29,19 @@ Test suite was run during the review: **287 tests, 0 failures, 2 skipped.**
 ---
 
 ## A. Threading / lifecycle (the dominant theme)
+
+> **STATUS 2026-06-11: A1–A6 all FIXED** (branch `feature/fable-review`). A1: session close now
+> disposes the surface synchronously on the tick thread (`TerminalSession.CloseAsync` completes
+> synchronously; `TerminalWindow.CloseSession` no longer uses `Task.Run`). A2:
+> `SessionManager.SessionConfigurator` runs theme push + surface wiring pre-publication. A3:
+> every tab is ticked each frame, hidden windows drain at ~4 Hz from `Update()` (now called
+> unconditionally by `TerminalMod`), inbox hard-caps at 8 MiB with CAN+ST heal on drop, doubling
+> overflow fixed, catch-up chunked at 1 MiB/tick. A4: anchor is a tracked grid ref
+> (`TrackedGridRef` binding addition wrapping `ghostty_tracked_grid_ref_*`). A5: post-init
+> disposal re-check disposes the orphan session. A6: factory disposes surface on construction
+> failure, launch options cloned before stamping, Activate/Deactivate + events raised outside
+> `_lock` (previous session now Deactivated on create), `GraphemeCache` capped at 64K entries.
+> New tests: anchor-pruning + inbox-cap in `GhosttyTerminalSurfaceTests`. See CLAUDE.md gotchas 17–19.
 
 The codebase has a strong single-tick-thread invariant on paper (CLAUDE.md gotcha 1) but several
 code paths break it. These share a root cause: session create/close side effects run on

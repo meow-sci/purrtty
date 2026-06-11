@@ -168,10 +168,32 @@ public sealed class TerminalWindow : IDisposable
             WireSession(session);
         }
 
-        Sessions.SessionCreated += (_, e) => WireSession(e.Session);
+        // Pre-publication hook: the theme push and surface event wiring happen
+        // before the session is visible to the tick thread, so the native calls
+        // in WireSession can never race a concurrent BuildFrame (sessions are
+        // created on pool threads).
+        Sessions.SessionConfigurator = WireSession;
     }
 
     public void RequestFocus() => _wantFocus = true;
+
+    /// <summary>
+    /// Ticks every session's surface without rendering. Called by the
+    /// controller (on the tick thread) while the terminal is hidden so PTY
+    /// output keeps being consumed instead of piling up in the surface inboxes.
+    /// </summary>
+    public void DrainSessions()
+    {
+        if (_disposed || !IsOpen)
+        {
+            return;
+        }
+
+        foreach (var session in Sessions.Sessions)
+        {
+            session.Surface.BuildFrame();
+        }
+    }
 
     /// <summary>Closes the window; its sessions are disposed by the controller.</summary>
     public void Close() => IsOpen = false;
@@ -392,6 +414,18 @@ public sealed class TerminalWindow : IDisposable
             IsOpen = false;
         }
 
+        // Tick every non-active tab too: the PTY pumps never sleep and a
+        // surface inbox only drains inside BuildFrame, so an unticked chatty
+        // background tab grows its inbox until the safety cap drops output.
+        // Dirty tracking makes ticking a quiet session nearly free.
+        foreach (var background in Sessions.Sessions)
+        {
+            if (!ReferenceEquals(background, session))
+            {
+                background.Surface.BuildFrame();
+            }
+        }
+
         // Invisible button over the grid: claims the mouse so click-drag selects
         // text instead of moving the window (the menu strip remains the drag handle).
         bool gridHovered = false;
@@ -515,17 +549,20 @@ public sealed class TerminalWindow : IDisposable
 
     private void CloseSession(Guid sessionId)
     {
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                await Sessions.CloseSessionAsync(sessionId);
-            }
-            catch (Exception ex)
-            {
-                ModLog.Log.Debug($"TerminalWindow: failed to close session {sessionId}: {ex.Message}");
-            }
-        });
+            // Deliberately synchronous on the tick thread: closing a session
+            // detaches and disposes its native surface, which must happen on the
+            // thread that ticks BuildFrame (a pool-thread dispose can free native
+            // handles out from under an in-flight frame build). Session close
+            // completes synchronously; the slow PTY/process teardown is
+            // backgrounded inside the session itself.
+            Sessions.CloseSessionAsync(sessionId).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Debug($"TerminalWindow: failed to close session {sessionId}: {ex.Message}");
+        }
     }
 
     private void HandleInput(TerminalSession session, float2 canvasPos, int cols, int rows, bool gridHovered)

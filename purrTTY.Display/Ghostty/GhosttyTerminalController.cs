@@ -30,6 +30,7 @@ public sealed class GhosttyTerminalController : ITerminalController
 
     private double _blinkTimer;
     private bool _cursorOn = true;
+    private float _hiddenDrainTimer;
 
     private static volatile bool _anyTerminalActive;
 
@@ -287,6 +288,27 @@ public sealed class GhosttyTerminalController : ITerminalController
         {
             _blinkTimer = 0;
             _cursorOn = !_cursorOn;
+        }
+
+        // While hidden, Render() never runs, so the surfaces are never ticked
+        // and PTY output would pile up in their inboxes (htop, a running build).
+        // Drain them on a low cadence — called on the same (tick) thread as
+        // Render, preserving the single-threaded engine invariant.
+        if (!_isVisible && !_disposed)
+        {
+            _hiddenDrainTimer += deltaTime;
+            if (_hiddenDrainTimer >= 0.25f)
+            {
+                _hiddenDrainTimer = 0f;
+                foreach (var window in _windows)
+                {
+                    window.DrainSessions();
+                }
+            }
+        }
+        else
+        {
+            _hiddenDrainTimer = 0f;
         }
     }
 

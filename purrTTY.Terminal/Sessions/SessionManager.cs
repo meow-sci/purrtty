@@ -42,6 +42,17 @@ public sealed class SessionManager : IDisposable
     public event EventHandler<SessionClosedEventArgs>? SessionClosed;
     public event EventHandler<ActiveSessionChangedEventArgs>? ActiveSessionChanged;
 
+    /// <summary>
+    /// Invoked with each newly constructed session <b>before</b> it is
+    /// initialized and published (added to the session list / made active).
+    /// This is the safe place to push the theme and subscribe surface events:
+    /// nothing else can be touching the unpublished surface yet, so the calls
+    /// cannot race a tick-thread <c>BuildFrame</c>. (A <see cref="SessionCreated"/>
+    /// subscriber runs after publication — possibly on a pool thread — and must
+    /// not call into the surface.)
+    /// </summary>
+    public Action<TerminalSession>? SessionConfigurator { get; set; }
+
     public ProcessLaunchOptions DefaultLaunchOptions => _defaultLaunchOptions;
 
     public void UpdateDefaultLaunchOptions(ProcessLaunchOptions launchOptions)
@@ -117,7 +128,10 @@ public sealed class SessionManager : IDisposable
             sessionTitle = title ?? $"Terminal {_sessions.Count + 1}";
         }
 
-        var effectiveOptions = launchOptions ?? _defaultLaunchOptions;
+        // Clone before stamping dimensions: stamping the shared default (or a
+        // caller-cached) instance cross-contaminates later sessions in other
+        // windows with this window's grid size.
+        var effectiveOptions = (launchOptions ?? _defaultLaunchOptions).Clone();
         effectiveOptions.InitialWidth = cols;
         effectiveOptions.InitialHeight = rows;
 
@@ -135,6 +149,10 @@ public sealed class SessionManager : IDisposable
 
         try
         {
+            // Configure (theme push, surface event wiring) before the session is
+            // published: after publication the tick thread may already be inside
+            // BuildFrame on this surface, and the engine is single-threaded.
+            SessionConfigurator?.Invoke(session);
             await session.InitializeAsync(effectiveOptions, cancellationToken);
         }
         catch
@@ -143,14 +161,35 @@ public sealed class SessionManager : IDisposable
             throw;
         }
 
-        TerminalSession? previousActive;
+        TerminalSession? previousActive = null;
+        bool disposedDuringInit = false;
         lock (_lock)
         {
-            previousActive = ActiveSessionNoLock();
-            _sessions[sessionId] = session;
-            _sessionOrder.Add(sessionId);
-            _activeSessionId = sessionId;
+            // Re-check disposal: shell spawn (WSL spin-up etc.) can take seconds
+            // and the owning window may have closed in the meantime. Publishing
+            // into a disposed manager would leak a live PTY process forever.
+            if (_disposed)
+            {
+                disposedDuringInit = true;
+            }
+            else
+            {
+                previousActive = ActiveSessionNoLock();
+                _sessions[sessionId] = session;
+                _sessionOrder.Add(sessionId);
+                _activeSessionId = sessionId;
+            }
         }
+
+        if (disposedDuringInit)
+        {
+            // Never published, so nothing else can be touching the surface.
+            session.Dispose();
+            throw new ObjectDisposedException(nameof(SessionManager));
+        }
+
+        // State transitions raise StateChanged; keep them outside _lock.
+        previousActive?.Deactivate();
 
         _logger.LogDebug("Created session {SessionId} '{Title}'", sessionId, sessionTitle);
         SessionCreated?.Invoke(this, new SessionCreatedEventArgs(session));
@@ -170,11 +209,13 @@ public sealed class SessionManager : IDisposable
             }
 
             previous = ActiveSessionNoLock();
-            previous?.Deactivate();
             _activeSessionId = sessionId;
-            next.Activate();
         }
 
+        // Activate/Deactivate raise StateChanged; raising under _lock invites
+        // re-entrancy deadlocks if a handler calls back into the manager.
+        previous?.Deactivate();
+        next.Activate();
         ActiveSessionChanged?.Invoke(this, new ActiveSessionChangedEventArgs(previous, next));
     }
 
@@ -230,10 +271,12 @@ public sealed class SessionManager : IDisposable
                 previousActive = session;
                 _activeSessionId = _sessionOrder.Count > 0 ? _sessionOrder[^1] : null;
                 newActive = _activeSessionId is { } id ? _sessions[id] : null;
-                newActive?.Activate();
                 activeChanged = true;
             }
         }
+
+        // Raises StateChanged; keep outside _lock.
+        newActive?.Activate();
 
         await session.CloseAsync(cancellationToken);
 
@@ -266,7 +309,8 @@ public sealed class SessionManager : IDisposable
             throw new ArgumentException($"Session {sessionId} not found.", nameof(sessionId));
         }
 
-        var effective = launchOptions ?? _defaultLaunchOptions;
+        // Clone before stamping dimensions (see CreateSessionAsync).
+        var effective = (launchOptions ?? _defaultLaunchOptions).Clone();
         effective.InitialWidth = session.Surface.Cols;
         effective.InitialHeight = session.Surface.Rows;
 

@@ -101,6 +101,25 @@ public class ProcessLaunchOptions
     public bool UseShellExecute { get; set; } = false;
 
     /// <summary>
+    ///     Creates a copy with independent argument/environment collections.
+    ///     Session managers clone before stamping per-session dimensions so a
+    ///     shared default (or caller-cached) instance is never mutated.
+    /// </summary>
+    public ProcessLaunchOptions Clone() => new()
+    {
+        ShellType = ShellType,
+        CustomShellPath = CustomShellPath,
+        CustomShellId = CustomShellId,
+        Arguments = new List<string>(Arguments),
+        WorkingDirectory = WorkingDirectory,
+        EnvironmentVariables = new Dictionary<string, string>(EnvironmentVariables),
+        InitialWidth = InitialWidth,
+        InitialHeight = InitialHeight,
+        CreateWindow = CreateWindow,
+        UseShellExecute = UseShellExecute,
+    };
+
+    /// <summary>
     ///     Creates default launch options for the current platform.
     /// </summary>
     /// <returns>Default launch options</returns>

@@ -254,6 +254,82 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void BeginExtendSelect_AnchorPrunedFromScrollback_StaysValid()
+    {
+        // The drag anchor is a *tracked* grid ref. When heavy output prunes the
+        // anchored page out of scrollback mid-drag, the engine relocates the
+        // tracked pin to the oldest surviving content (an untracked anchor
+        // would be a dangling page pointer here — corrupt selection or crash).
+        // maxScrollback: 0 keeps only the active screen, so the anchor row is
+        // reclaimed almost immediately.
+        using var surface = new GhosttyTerminalSurface(20, 5, maxScrollback: 0);
+        WriteText(surface, "anchor row\r\n");
+        surface.BuildFrame();
+        surface.BeginSelectCells(new GridPoint(0, 0)); // anchor on "anchor row"
+
+        for (int i = 0; i < 2000; i++)
+        {
+            WriteText(surface, $"filler line {i}\r\n"); // prunes the anchor's page
+        }
+        surface.BuildFrame();
+
+        surface.ExtendSelectCells(new GridPoint(4, 2));
+        surface.BuildFrame();
+
+        // The drag either ended (anchor discarded) or clamped to surviving
+        // content — both are graceful; what matters is the selection (if any)
+        // is coherent live content, not garbage from a freed page.
+        var text = surface.GetSelectionText();
+        if (text is not null)
+        {
+            Assert.That(text, Does.Contain("filler line"),
+                "a pruned anchor must resolve to surviving content");
+        }
+
+        // The anchor mechanism re-arms for the next drag.
+        surface.BeginSelectCells(new GridPoint(0, 0));
+        surface.ExtendSelectCells(new GridPoint(10, 0));
+        surface.BuildFrame();
+        Assert.That(surface.GetSelectionText(), Is.Not.Null.And.Not.Empty);
+    }
+
+    [Test]
+    public void Write_BeyondInboxCap_DropsButStaysCoherent()
+    {
+        // Hidden-terminal scenario: PTY output arrives but nothing ticks
+        // BuildFrame. The inbox must cap (8 MiB) instead of growing without
+        // bound, catch-up must be chunked (1 MiB per tick), and the surface
+        // must stay usable after the drop.
+        using var surface = NewSurface();
+        var chunk = new byte[1024 * 1024];
+        Array.Fill(chunk, (byte)'x');
+        for (int i = 0; i < 12; i++)
+        {
+            surface.Write(chunk); // 12 MiB offered, > the 8 MiB cap
+        }
+
+        surface.BuildFrame();
+        Assert.That(surface.LastFrameStats.BytesConsumed, Is.EqualTo(1024 * 1024),
+            "backlog catch-up should be chunked, not one giant engine write");
+
+        long consumed = surface.LastFrameStats.BytesConsumed;
+        for (int i = 0; i < 16; i++)
+        {
+            surface.BuildFrame();
+            consumed += surface.LastFrameStats.BytesConsumed;
+        }
+
+        Assert.That(consumed, Is.LessThanOrEqualTo(8L * 1024 * 1024),
+            "everything past the cap should have been dropped");
+
+        // Output accepted after the drop still parses correctly (the drop
+        // boundary is healed with CAN+ST before new bytes are enqueued).
+        WriteText(surface, "\x1b[2J\x1b[Hstill alive");
+        var frame = surface.BuildFrame();
+        Assert.That(RowText(frame, 0), Is.EqualTo("still alive"));
+    }
+
+    [Test]
     public void ExtendSelect_WithoutBegin_IsNoOp()
     {
         using var surface = NewSurface();

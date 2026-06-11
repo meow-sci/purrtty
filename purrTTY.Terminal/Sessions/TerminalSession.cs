@@ -110,7 +110,9 @@ public sealed class TerminalSession : IDisposable
 
     public void Deactivate()
     {
-        ThrowIfDisposed();
+        // No ThrowIfDisposed: deactivating a session that was concurrently
+        // closed is a benign no-op (it is already not Active), and the session
+        // manager may race a close when it deactivates the previous session.
         if (State == SessionState.Active)
         {
             ChangeState(SessionState.Inactive);
@@ -118,29 +120,24 @@ public sealed class TerminalSession : IDisposable
         }
     }
 
-    public async Task CloseAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Closes the session. Completes synchronously on the calling thread:
+    /// the native surface is detached and disposed before this returns, so it
+    /// MUST be called on the tick thread (disposing the surface from a pool
+    /// thread races a concurrent <c>BuildFrame</c> on the same native handles).
+    /// The potentially slow PTY/process teardown is backgrounded by
+    /// <see cref="Dispose"/> and never blocks the caller.
+    /// </summary>
+    public Task CloseAsync(CancellationToken cancellationToken = default)
     {
         if (State == SessionState.Disposed)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         ChangeState(SessionState.Terminating);
-        try
-        {
-            if (ProcessManager.IsRunning)
-            {
-                await ProcessManager.StopAsync(cancellationToken);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Error stopping process for session {SessionId}", Id);
-        }
-        finally
-        {
-            Dispose();
-        }
+        Dispose();
+        return Task.CompletedTask;
     }
 
     /// <summary>Writes user-input bytes (already encoded by the surface) to the shell.</summary>

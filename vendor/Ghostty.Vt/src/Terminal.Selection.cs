@@ -54,6 +54,28 @@ public sealed unsafe partial class Terminal
     }
 
     /// <summary>
+    /// Creates a tracked grid reference at <paramref name="point"/>. The
+    /// reference follows its cell across terminal mutations and reports loss of
+    /// value when the location is discarded (e.g. scrollback pruning) — use it
+    /// for anchors held across ticks. Returns <see langword="null"/> on failure
+    /// (out of memory / unrepresentable point). The caller owns the reference
+    /// and must dispose it.
+    /// </summary>
+    public unsafe TrackedGridRef? TrackGridRef(Point point)
+    {
+        ObjectDisposedException.ThrowIf(NativeHandle == nint.Zero, this);
+        var nativePoint = new GhosttyPointNative { Tag = point.NativeTag, X = point.NativeX, Y = point.NativeY };
+        nint handle = nint.Zero;
+        if (NativeMethods.ghostty_terminal_grid_ref_track(NativeHandle, nativePoint, &handle) != 0
+            || handle == nint.Zero)
+        {
+            return null;
+        }
+
+        return new TrackedGridRef(handle, this);
+    }
+
+    /// <summary>
     /// Installs a raw two-endpoint selection as the terminal's active selection.
     /// Endpoints are inclusive grid references obtained from <see cref="GetGridRef"/>.
     /// </summary>
