@@ -149,7 +149,7 @@ Vendored binding (`vendor/Ghostty.Vt/`):
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)
 - Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`, `NativeMethods.TrackedGridRef.cs`)
 - Native loader (KSA ALC): `src/Native/NativeLibraryResolver.cs` (ModuleInitializer + `SetDllImportResolver`)
-- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef`), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell.
+- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef` + `Terminal.HasSelection` — a cheap native no-value probe surfaced as `ITerminalSurface.HasSelection` for UI enable-state), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell.
 
 Backend (`purrTTY.Terminal/`):
 - Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`)
@@ -166,7 +166,11 @@ Frontend (`purrTTY.Display/`):
   tab bar hidden with one tab; per-window theme/font/opacity via `TerminalWindowSettings`; chrome hiding:
   transparent WindowBg/MenuBarBg + zero border + `Alpha=0` menu/tab strips when the mouse is not over the
   window, even while focused; menu-bar strip is the drag handle (no title bar) and an `InvisibleButton`
-  over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste; grid snap:
+  over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste; Ctrl/Alt
+  modified keys (letters, digits, Ctrl punctuation) encode via the engine key encoder while plain
+  text flows through the ImGui character queue with surrogate pairing; a failed session start is
+  shown in the window (`NotifySessionStartFailed`); saved/cascaded geometry is clamped to the
+  viewport work area; grid snap:
   when an interactive resize ends, `TrackResizeSnap` shrinks the window by the fractional-cell
   remainder so the grid exactly fills the content region — chrome is *measured* as
   `windowSize - avail`, not computed from style metrics, and a resize is recognized only as
@@ -175,8 +179,11 @@ Frontend (`purrTTY.Display/`):
 - Theming: `Theming/` (`ThemeDefinition`/`ThemeColors` + `ToEngineTheme()`, `ThemeTomlFormat` (Tomlyn DOM
   read/write), `ThemeCatalog` — code-built "Default" + bundled `TerminalThemes/*.toml` beside the
   assemblies + user themes in `<config>/.purrTTY/themes/`). Theme TOML = alacritty-style `[colors.*]`
-  sections; user-saved themes also carry `[font]` (family/size) and `[window]` (3 opacities) — those
-  fields are optional and "keep current" when absent (bundled themes are colors-only).
+  sections; user-saved themes also carry `[font]` (family/size), `[window]` (3 opacities), and
+  `[meta] name` (the display name — filenames are sanitized on save, so the name cannot be derived
+  from the filename) — those fields are optional and "keep current"/fall back when absent (bundled
+  themes are colors-only). Config and theme writes go through `Configuration/AtomicFile`
+  (temp + rename) so an interrupted write never leaves a truncated file.
 - Grid drawing: `Ghostty/FrameGridRenderer.cs` (bold/italic/bold-italic variant via
   `Ghostty/FrameFonts.cs`; takes foreground/cell-background opacity multipliers). Submission is
   **run-batched**: consecutive same-color backgrounds merge into one `AddRectFilled`; consecutive
@@ -206,7 +213,8 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
   never join-then-split — Windows args are quoted per CommandLineToArgvW rules
   (`AppendQuotedArgument`), Unix args stay discrete. `Auto` on Unix = `$SHELL`, then zsh/bash/sh
   from PATH; `Auto` on Windows offers WSL only when `WslDistributionDetector` finds ≥1 distro,
-  then PowerShell, then cmd.
+  then PowerShell, then cmd. `Auto` is also the config **default and unparsable-value fallback**
+  (`ThemeConfiguration`) — the only shell type valid on every platform.
 - Input queue: `Process/PtyInputQueue.cs` — bounded queue + dedicated writer thread used by both
   managers (gotcha 20).
 - Shell detection for menus: `ShellAvailabilityChecker.cs` (platform-aware; `IsShellAvailable`
@@ -300,7 +308,13 @@ Custom shells:
    (Left=0/Middle=1/Right=2) is **not** libghostty's order (Left=1/Right=2/Middle=3; scroll = 4/5).
    `GhosttyTerminalSurface.EncodeMouse` translates via `ToNativeButton` — a straight `(int)` cast
    mis-sends every button (Left→UNKNOWN, Middle→Left). App-mouse coordinates are **surface-local**
-   (mouse − canvas), not screen-global, since the engine's encoder maps pixels→cells itself.
+   and **synthesized in integer cell metrics**: the engine's encoder maps pixels→cells by dividing
+   by the *integer* cell size pushed via `SetMouseGeometry` (`cols * (int)cellWidth`), so
+   `HandleAppMouse` computes the cell with the real (fractional) metrics and reports that cell's
+   center in the integer metrics — raw float pixels drift columns off as x grows whenever the
+   cell width is fractional. Holding **Shift bypasses app mouse tracking** (xterm behavior), so
+   selection and the context menu work inside tmux/nvim; a Release is only forwarded when its
+   Press was (presses are hover-gated, releases are not).
 
 11. **App-mouse motion is reported live, gated on cell change, and filtered by the engine.**
    `HandleAppMouse` sends a `MouseAction.Motion` event (with the held button from `HeldMouseButton`,

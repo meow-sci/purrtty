@@ -69,6 +69,9 @@ public interface ITerminalSurface : IDisposable
 
     void ClearSelection();
 
+    /// <summary>True when there is an active selection (cheap; no text extraction).</summary>
+    bool HasSelection { get; }
+
     /// <summary>Returns the active selection as plain text, or null if none.</summary>
     string? GetSelectionText();
 

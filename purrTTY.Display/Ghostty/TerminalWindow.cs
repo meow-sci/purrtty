@@ -76,6 +76,25 @@ public sealed class TerminalWindow : IDisposable
         (ImGuiKey.Y, TerminalKey.Y), (ImGuiKey.Z, TerminalKey.Z),
     };
 
+    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] DigitKeys =
+    {
+        (ImGuiKey._0, TerminalKey.Digit0), (ImGuiKey._1, TerminalKey.Digit1),
+        (ImGuiKey._2, TerminalKey.Digit2), (ImGuiKey._3, TerminalKey.Digit3),
+        (ImGuiKey._4, TerminalKey.Digit4), (ImGuiKey._5, TerminalKey.Digit5),
+        (ImGuiKey._6, TerminalKey.Digit6), (ImGuiKey._7, TerminalKey.Digit7),
+        (ImGuiKey._8, TerminalKey.Digit8), (ImGuiKey._9, TerminalKey.Digit9),
+    };
+
+    // Ctrl+Space/[/\/] produce the NUL/ESC/FS/GS controls (and ESC-prefixed
+    // forms under Alt); the engine's key encoder derives the byte from key+mods.
+    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] ControlPunctuationKeys =
+    {
+        (ImGuiKey.Space, TerminalKey.Space),
+        (ImGuiKey.LeftBracket, TerminalKey.BracketLeft),
+        (ImGuiKey.RightBracket, TerminalKey.BracketRight),
+        (ImGuiKey.Backslash, TerminalKey.Backslash),
+    };
+
     /// <summary>Pixels around the window rect that still count as "hovering" (covers resize grips).</summary>
     private const float HoverMargin = 8f;
 
@@ -99,6 +118,16 @@ public sealed class TerminalWindow : IDisposable
     // the PTY on every pixel of movement.
     private int _appMouseCol = -1;
     private int _appMouseRow = -1;
+
+    // Per-button "press was forwarded to the app" state (Left/Middle/Right).
+    // Presses are hover-gated but releases are not (so a drag ending off-grid
+    // still reports button-up); without this an unrelated release — e.g. a
+    // click that started on the game UI — would leak a spurious report.
+    private readonly bool[] _appMousePressSent = new bool[3];
+
+    // Why the initial session could not be started, shown in the otherwise
+    // empty window. Written from the session-creation pool thread.
+    private volatile string? _sessionStartError;
     private bool _disposed;
     private Guid? _lastActiveSessionId;
     private (float2 Pos, float2 Size)? _pendingPlacement;
@@ -128,6 +157,14 @@ public sealed class TerminalWindow : IDisposable
     public bool IsOpen { get; private set; } = true;
 
     public bool HasFocus => _hasFocus;
+
+    /// <summary>
+    /// True while the grid's right-click context menu is open. The popup steals
+    /// ImGui window focus, so the host must treat it as focus-equivalent when
+    /// gating game hotkeys.
+    /// </summary>
+    public bool IsContextMenuOpen { get; private set; }
+
     public string Title => Sessions.ActiveSession?.Title ?? "purrTTY";
 
     public float2 LastKnownPosition { get; private set; }
@@ -197,6 +234,12 @@ public sealed class TerminalWindow : IDisposable
 
     /// <summary>Closes the window; its sessions are disposed by the controller.</summary>
     public void Close() => IsOpen = false;
+
+    /// <summary>
+    /// Records why a session could not be started so the window can display it
+    /// instead of staying permanently blank. Safe to call from any thread.
+    /// </summary>
+    public void NotifySessionStartFailed(string message) => _sessionStartError = message;
 
     /// <summary>
     /// Applies a theme to this window. Colors always apply; font and opacity
@@ -315,8 +358,12 @@ public sealed class TerminalWindow : IDisposable
 
         if (_pendingPlacement is { } placement)
         {
-            ImGui.SetNextWindowPos(placement.Pos, ImGuiCond.Always);
-            ImGui.SetNextWindowSize(placement.Size, ImGuiCond.Always);
+            // Saved/cascaded geometry can land fully off-screen (different
+            // monitor layout since last run); with chrome hidden there would be
+            // nothing visible to grab, so clamp into the viewport work area.
+            var (clampedPos, clampedSize) = ClampToWorkArea(placement.Pos, placement.Size);
+            ImGui.SetNextWindowPos(clampedPos, ImGuiCond.Always);
+            ImGui.SetNextWindowSize(clampedSize, ImGuiCond.Always);
             _pendingPlacement = null;
         }
         else if (_pendingSnapSize is { } snapSize)
@@ -366,8 +413,6 @@ public sealed class TerminalWindow : IDisposable
             ImGui.GetWindowDrawList().AddRectFilled(canvasPos, canvasPos + avail, FrameGridRenderer.ToU32(fill));
         }
 
-        ComputeCellMetrics(fonts.Regular, fontSize);
-
         int cols = Math.Max(1, (int)(avail.X / _cellWidth));
         int rows = Math.Max(1, (int)(avail.Y / _cellHeight));
 
@@ -377,6 +422,7 @@ public sealed class TerminalWindow : IDisposable
         if (session != null)
         {
             _hadSessions = true;
+            _sessionStartError = null;
 
             if (cols != session.Surface.Cols || rows != session.Surface.Rows)
             {
@@ -386,8 +432,14 @@ public sealed class TerminalWindow : IDisposable
                 Sessions.UpdateLastKnownTerminalDimensions(cols, rows);
             }
 
-            session.Surface.SetMouseGeometry(
-                (int)(cols * _cellWidth), (int)(rows * _cellHeight), (int)_cellWidth, (int)_cellHeight);
+            // The engine's mouse encoder maps pixels to cells by dividing by
+            // *integer* cell metrics, so the surface size must be the integer
+            // product (cols * truncated width). Passing the truncated
+            // fractional product instead makes reported cells drift right as x
+            // grows (see HandleAppMouse, which synthesizes matching pixels).
+            int mouseCellW = Math.Max(1, (int)_cellWidth);
+            int mouseCellH = Math.Max(1, (int)_cellHeight);
+            session.Surface.SetMouseGeometry(cols * mouseCellW, rows * mouseCellH, mouseCellW, mouseCellH);
 
             long buildStart = Stopwatch.GetTimestamp();
             var frame = session.Surface.BuildFrame();
@@ -412,6 +464,17 @@ public sealed class TerminalWindow : IDisposable
         {
             // The last tab was closed; retire the window.
             IsOpen = false;
+        }
+        else if (_sessionStartError is { } startError && avail.X > 0f && avail.Y > 0f)
+        {
+            // The session never started (bad shell path, broken WSL, ...):
+            // show why instead of leaving a permanently blank window.
+            var drawList = ImGui.GetWindowDrawList();
+            float lineH = ImGui.GetTextLineHeight();
+            drawList.AddText(new float2(canvasPos.X + 8f, canvasPos.Y + 8f), 0xFF5555FFu, "Failed to start shell session:");
+            drawList.AddText(new float2(canvasPos.X + 8f, canvasPos.Y + 8f + lineH), 0xFFCCCCCCu, startError);
+            drawList.AddText(new float2(canvasPos.X + 8f, canvasPos.Y + 8f + lineH * 2.5f), 0xFF999999u,
+                "Pick another shell from the purrTTY menu (New Tab / New Window).");
         }
 
         // Tick every non-active tab too: the PTY pumps never sleep and a
@@ -447,6 +510,9 @@ public sealed class TerminalWindow : IDisposable
         {
             DrawContextMenu();
         }
+
+        // Queried inside this window's ID scope (popup ids are window-local).
+        IsContextMenuOpen = session != null && ImGui.IsPopupOpen(GridContextMenuId);
 
         // Hover state feeding next frame's chrome visibility: mouse anywhere over
         // the window rect (plus a margin for resize grips), or an in-progress drag.
@@ -514,15 +580,9 @@ public sealed class TerminalWindow : IDisposable
             foreach (var session in sessions)
             {
                 bool isActive = active != null && session.Id == active.Id;
-                string label = session.Title;
-                if (session.ProcessManager.ExitCode is { } exitCode)
-                {
-                    label += $" (exit {exitCode})";
-                }
-
                 var tabFlags = isActive && activeChanged ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
                 bool open = true;
-                if (ImGui.BeginTabItem($"{label}##tab_{session.Id}", ref open, tabFlags))
+                if (ImGui.BeginTabItem(TabLabel(session), ref open, tabFlags))
                 {
                     if (!isActive && !activeChanged)
                     {
@@ -547,8 +607,30 @@ public sealed class TerminalWindow : IDisposable
         }
     }
 
+    // Composed tab labels are cached per session: title + guid formatting per
+    // tab per frame is measurable garbage on the render path.
+    private readonly Dictionary<Guid, (string Title, int? ExitCode, string Label)> _tabLabels = new();
+
+    private string TabLabel(TerminalSession session)
+    {
+        string title = session.Title;
+        int? exitCode = session.ProcessManager.ExitCode;
+        if (_tabLabels.TryGetValue(session.Id, out var cached)
+            && cached.Title == title && cached.ExitCode == exitCode)
+        {
+            return cached.Label;
+        }
+
+        string label = exitCode is { } code
+            ? $"{title} (exit {code})##tab_{session.Id}"
+            : $"{title}##tab_{session.Id}";
+        _tabLabels[session.Id] = (title, exitCode, label);
+        return label;
+    }
+
     private void CloseSession(Guid sessionId)
     {
+        _tabLabels.Remove(sessionId);
         try
         {
             // Deliberately synchronous on the tick thread: closing a session
@@ -602,9 +684,30 @@ public sealed class TerminalWindow : IDisposable
             }
         }
 
-        if (io.KeyCtrl)
+        // Ctrl/Alt-modified keys never enter the ImGui character queue, so they
+        // are encoded from key presses: Ctrl+letter controls, Alt+letter Meta
+        // chords (readline Alt+B/F/D, Emacs, mc), Ctrl/Alt+digit, and the Ctrl
+        // punctuation controls (NUL/ESC/FS/GS). The engine's key encoder
+        // derives the bytes from key + modifiers.
+        if (io.KeyCtrl || io.KeyAlt)
         {
             foreach (var (imguiKey, key) in LetterKeys)
+            {
+                if (ImGui.IsKeyPressed(imguiKey))
+                {
+                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
+                }
+            }
+
+            foreach (var (imguiKey, key) in DigitKeys)
+            {
+                if (ImGui.IsKeyPressed(imguiKey))
+                {
+                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
+                }
+            }
+
+            foreach (var (imguiKey, key) in ControlPunctuationKeys)
             {
                 if (ImGui.IsKeyPressed(imguiKey))
                 {
@@ -617,20 +720,46 @@ public sealed class TerminalWindow : IDisposable
         // handled above and do not represent typed text).
         if (!io.KeyCtrl && !io.KeyAlt && io.InputQueueCharacters.Count > 0)
         {
-            for (int i = 0; i < io.InputQueueCharacters.Count; i++)
+            int count = io.InputQueueCharacters.Count;
+            Span<char> chars = stackalloc char[2];
+            Span<byte> utf8 = stackalloc byte[4];
+            for (int i = 0; i < count; i++)
             {
                 char ch = (char)io.InputQueueCharacters[i];
-                if (ch >= 32 && ch != 127)
+
+                // Astral-plane input arrives as two queue entries (a UTF-16
+                // surrogate pair); encode the pair as one code point — encoding
+                // a lone half yields U+FFFD.
+                if (char.IsHighSurrogate(ch))
                 {
-                    Send(session, System.Text.Encoding.UTF8.GetBytes(ch.ToString()));
+                    if (i + 1 < count && char.IsLowSurrogate((char)io.InputQueueCharacters[i + 1]))
+                    {
+                        chars[0] = ch;
+                        chars[1] = (char)io.InputQueueCharacters[++i];
+                        Send(session, utf8[..System.Text.Encoding.UTF8.GetBytes(chars, utf8)]);
+                    }
+
+                    continue; // unpaired high surrogate: drop
                 }
+
+                if (char.IsLowSurrogate(ch) || ch < 32 || ch == 127)
+                {
+                    continue;
+                }
+
+                chars[0] = ch;
+                Send(session, utf8[..System.Text.Encoding.UTF8.GetBytes(chars[..1], utf8)]);
             }
         }
     }
 
     private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool gridHovered)
     {
-        if (session.Surface.IsMouseTrackingEnabled)
+        // Shift overrides app mouse tracking (xterm/ghostty behavior): holding
+        // Shift while an app tracks the mouse falls through to the normal
+        // selection/context-menu path — otherwise there is no way to select and
+        // copy text inside tmux/nvim.
+        if (session.Surface.IsMouseTrackingEnabled && !io.KeyShift)
         {
             HandleAppMouse(session, io, canvasPos, cols, rows, gridHovered);
             return;
@@ -699,7 +828,9 @@ public sealed class TerminalWindow : IDisposable
             return;
         }
 
-        bool hasSelection = !string.IsNullOrEmpty(Sessions.ActiveSession?.Surface.GetSelectionText());
+        // Cheap native no-value probe; extracting the full selection text every
+        // popup frame just for an enable-bool allocated the whole selection.
+        bool hasSelection = Sessions.ActiveSession?.Surface.HasSelection == true;
         if (ImGui.MenuItem("Copy", "Ctrl+Shift+C", false, hasSelection))
         {
             CopySelectionToClipboard();
@@ -717,42 +848,61 @@ public sealed class TerminalWindow : IDisposable
     {
         // libghostty's mouse encoder expects surface-local pixels (0,0 = top-left of
         // the terminal grid), not ImGui's screen-global mouse position.
-        var pos = ImGui.GetMousePos() - canvasPos;
+        var rawPos = ImGui.GetMousePos() - canvasPos;
         var mods = ReadModifiers(io);
 
         // Track which cell the pointer is over so motion below can fire only on a
         // cell change. Updated every frame (incl. button-edge frames) so the next
-        // move is measured from the current cell, never a stale one.
-        int col = Math.Clamp((int)(pos.X / _cellWidth), 0, Math.Max(0, cols - 1));
-        int row = Math.Clamp((int)(pos.Y / _cellHeight), 0, Math.Max(0, rows - 1));
+        // move is measured from the current cell, never a stale one. The cell is
+        // computed with the *real* (fractional) cell metrics.
+        int col = Math.Clamp((int)(rawPos.X / _cellWidth), 0, Math.Max(0, cols - 1));
+        int row = Math.Clamp((int)(rawPos.Y / _cellHeight), 0, Math.Max(0, rows - 1));
         bool cellChanged = col != _appMouseCol || row != _appMouseRow;
         _appMouseCol = col;
         _appMouseRow = row;
 
+        // The engine maps pixels to cells by dividing by *integer* cell metrics
+        // (the ones pushed via SetMouseGeometry). Raw float pixels disagree with
+        // that division whenever the real cell width is fractional — the error
+        // grows with x, so clicks land columns off on wide grids. Synthesizing
+        // the position from the frontend-computed cell (its center in integer
+        // metrics) makes frontend and engine agree by construction.
+        int cellW = Math.Max(1, (int)_cellWidth);
+        int cellH = Math.Max(1, (int)_cellHeight);
+        var pos = new float2(col * cellW + cellW * 0.5f, row * cellH + cellH * 0.5f);
+
         // Press is gated on hover (the click must land on the grid); release fires
-        // unconditionally so a drag that ends off-grid still reports button-up.
+        // ungated so a drag that ends off-grid still reports button-up — but only
+        // when the matching press was forwarded, so a click that started on the
+        // game UI cannot leak a spurious release report.
         if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
+            _appMousePressSent[(int)MouseButton.Left] = true;
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Left, mods, pos);
         }
-        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        else if (_appMousePressSent[(int)MouseButton.Left] && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
         {
+            _appMousePressSent[(int)MouseButton.Left] = false;
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Left, mods, pos);
         }
         else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
         {
+            _appMousePressSent[(int)MouseButton.Right] = true;
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Right, mods, pos);
         }
-        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Right))
+        else if (_appMousePressSent[(int)MouseButton.Right] && ImGui.IsMouseReleased(ImGuiMouseButton.Right))
         {
+            _appMousePressSent[(int)MouseButton.Right] = false;
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Right, mods, pos);
         }
         else if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Middle))
         {
+            _appMousePressSent[(int)MouseButton.Middle] = true;
             EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Middle, mods, pos);
         }
-        else if (ImGui.IsMouseReleased(ImGuiMouseButton.Middle))
+        else if (_appMousePressSent[(int)MouseButton.Middle] && ImGui.IsMouseReleased(ImGuiMouseButton.Middle))
         {
+            _appMousePressSent[(int)MouseButton.Middle] = false;
             EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Middle, mods, pos);
         }
         else if (cellChanged)
@@ -774,11 +924,16 @@ public sealed class TerminalWindow : IDisposable
             }
         }
 
-        // Wheel reports as a scroll-button press (libghostty buttons 4/5).
+        // Wheel reports as scroll-button presses (libghostty buttons 4/5), one
+        // per wheel notch so fast flicks scroll proportionally.
         if (hovered && io.MouseWheel != 0)
         {
             var button = io.MouseWheel > 0 ? MouseButton.ScrollUp : MouseButton.ScrollDown;
-            EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
+            int notches = Math.Clamp((int)Math.Round(Math.Abs(io.MouseWheel)), 1, 10);
+            for (int i = 0; i < notches; i++)
+            {
+                EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
+            }
         }
     }
 
@@ -911,6 +1066,25 @@ public sealed class TerminalWindow : IDisposable
         drawList.AddText(new float2(p0.X + pad, p0.Y + pad), 0xFF7FFF7Fu, l1);
         drawList.AddText(new float2(p0.X + pad, p0.Y + pad + lineH), 0xFF7FDFFFu, l2);
         drawList.AddText(new float2(p0.X + pad, p0.Y + pad + lineH * 2), 0xFFFFBF7Fu, l3);
+    }
+
+    // Saved or cascaded geometry is clamped into the main viewport's work area:
+    // restoring fully off-screen with chrome hidden leaves nothing visible to grab.
+    private static (float2 Pos, float2 Size) ClampToWorkArea(float2 pos, float2 size)
+    {
+        var viewport = ImGui.GetMainViewport();
+        var workPos = viewport.WorkPos;
+        var workSize = viewport.WorkSize;
+        if (workSize.X <= 0f || workSize.Y <= 0f)
+        {
+            return (pos, size);
+        }
+
+        float w = Math.Clamp(size.X, Math.Min(100f, workSize.X), workSize.X);
+        float h = Math.Clamp(size.Y, Math.Min(60f, workSize.Y), workSize.Y);
+        float x = Math.Clamp(pos.X, workPos.X, Math.Max(workPos.X, workPos.X + workSize.X - w));
+        float y = Math.Clamp(pos.Y, workPos.Y, Math.Max(workPos.Y, workPos.Y + workSize.Y - h));
+        return (new float2(x, y), new float2(w, h));
     }
 
     private GridPoint MouseCell(float2 canvasPos, int cols, int rows)
@@ -1055,12 +1229,14 @@ public sealed class TerminalWindow : IDisposable
 
     private static readonly string AsciiSample = CreateAsciiSample();
 
+    // Includes ' ' (0x20): run batching bridges blank cells with spaces, so the
+    // space advance must be validated along with the printable glyphs.
     private static string CreateAsciiSample()
     {
-        Span<char> chars = stackalloc char[94];
+        Span<char> chars = stackalloc char[95];
         for (int i = 0; i < chars.Length; i++)
         {
-            chars[i] = (char)('!' + i);
+            chars[i] = (char)(' ' + i);
         }
 
         return new string(chars);

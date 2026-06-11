@@ -213,6 +213,24 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void HasSelection_TracksSelectionLifecycle()
+    {
+        // The cheap native probe used by the context menu's enable state — it
+        // must agree with the full text-extraction path at every step.
+        using var surface = NewSurface();
+        WriteText(surface, "alpha beta");
+        surface.BuildFrame();
+
+        Assert.That(surface.HasSelection, Is.False);
+
+        surface.SelectAll();
+        Assert.That(surface.HasSelection, Is.True);
+
+        surface.ClearSelection();
+        Assert.That(surface.HasSelection, Is.False);
+    }
+
+    [Test]
     public void SelectWord_SelectsSingleWord()
     {
         using var surface = NewSurface();

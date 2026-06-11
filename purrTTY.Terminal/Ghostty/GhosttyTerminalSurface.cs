@@ -363,6 +363,15 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _pendingChange = true;
     }
 
+    public bool HasSelection
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _terminal.HasSelection;
+        }
+    }
+
     public string? GetSelectionText()
     {
         ThrowIfDisposed();

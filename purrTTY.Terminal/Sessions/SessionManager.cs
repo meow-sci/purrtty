@@ -91,13 +91,29 @@ public sealed class SessionManager : IDisposable
         }
     }
 
+    // Snapshot of the ordered session list, rebuilt only when sessions are
+    // added/removed. The frontend reads Sessions every frame (tab bar, ticking
+    // background tabs); allocating a fresh list per access was steady-state
+    // render-path garbage.
+    private TerminalSession[] _sessionsSnapshot = Array.Empty<TerminalSession>();
+    private bool _sessionsSnapshotStale;
+
     public IReadOnlyList<TerminalSession> Sessions
     {
         get
         {
             lock (_lock)
             {
-                return _sessionOrder.Where(_sessions.ContainsKey).Select(id => _sessions[id]).ToList();
+                if (_sessionsSnapshotStale)
+                {
+                    _sessionsSnapshot = _sessionOrder
+                        .Where(_sessions.ContainsKey)
+                        .Select(id => _sessions[id])
+                        .ToArray();
+                    _sessionsSnapshotStale = false;
+                }
+
+                return _sessionsSnapshot;
             }
         }
     }
@@ -178,6 +194,7 @@ public sealed class SessionManager : IDisposable
                 _sessions[sessionId] = session;
                 _sessionOrder.Add(sessionId);
                 _activeSessionId = sessionId;
+                _sessionsSnapshotStale = true;
             }
         }
 
@@ -265,6 +282,7 @@ public sealed class SessionManager : IDisposable
 
             _sessions.Remove(sessionId);
             _sessionOrder.Remove(sessionId);
+            _sessionsSnapshotStale = true;
 
             if (_activeSessionId == sessionId)
             {
@@ -365,6 +383,8 @@ public sealed class SessionManager : IDisposable
             _sessions.Clear();
             _sessionOrder.Clear();
             _activeSessionId = null;
+            _sessionsSnapshot = Array.Empty<TerminalSession>();
+            _sessionsSnapshotStale = false;
         }
 
         foreach (var session in toDispose)

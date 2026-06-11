@@ -3,7 +3,6 @@ using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Theming;
-using purrTTY.Display.Types;
 using purrTTY.Logging;
 
 namespace purrTTY.Display.Ghostty;
@@ -26,7 +25,6 @@ public sealed class GhosttyTerminalController : ITerminalController
     private bool _isVisible;
     private bool _hadAnyFocus;
     private bool _disposed;
-    private TextSelection _selection;
 
     private double _blinkTimer;
     private bool _cursorOn = true;
@@ -135,7 +133,8 @@ public sealed class GhosttyTerminalController : ITerminalController
             }
             catch (Exception ex)
             {
-                ModLog.Log.Debug($"GhosttyTerminalController: failed to start session: {ex.Message}");
+                ModLog.Log.Error($"GhosttyTerminalController: failed to start session: {ex.Message}");
+                window.NotifySessionStartFailed(ex.Message);
             }
         });
     }
@@ -345,13 +344,18 @@ public sealed class GhosttyTerminalController : ITerminalController
 
         bool hideChrome = _config.HideUiWhenNotHovered;
         bool anyFocused = false;
+        bool anyActive = false;
         foreach (var window in _windows)
         {
             window.Render(hideChrome, _cursorOn);
             anyFocused |= window.HasFocus;
+            // The grid context menu steals ImGui focus from its window while
+            // open, but the user is still interacting with the terminal — keep
+            // the game-key gate engaged or hotkeys fire under the popup.
+            anyActive |= window.HasFocus || window.IsContextMenuOpen;
         }
 
-        _anyTerminalActive = anyFocused;
+        _anyTerminalActive = anyActive;
         if (anyFocused != _hadAnyFocus)
         {
             FocusChanged?.Invoke(this, new FocusChangedEventArgs(anyFocused, _hadAnyFocus));
@@ -372,34 +376,6 @@ public sealed class GhosttyTerminalController : ITerminalController
         _config.SetTerminalWindowState(window.LastKnownPosition, window.LastKnownSize, cols, rows);
         _config.Save();
     }
-
-    public (int width, int height) GetTerminalDimensions()
-    {
-        var session = FocusTarget?.Sessions.ActiveSession;
-        return session != null ? (session.Surface.Cols, session.Surface.Rows) : (80, 24);
-    }
-
-    public void ResizeTerminal(int cols, int rows)
-    {
-        if (cols <= 0 || rows <= 0)
-        {
-            throw new ArgumentException("Terminal dimensions must be positive.");
-        }
-
-        var session = FocusTarget?.Sessions.ActiveSession;
-        if (session == null)
-        {
-            return;
-        }
-
-        session.Surface.Resize(cols, rows);
-        session.ProcessManager.Resize(cols, rows);
-        session.UpdateTerminalDimensions(cols, rows);
-    }
-
-    public TextSelection GetCurrentSelection() => _selection;
-
-    public void SetSelection(TextSelection selection) => _selection = selection;
 
     public bool CopySelectionToClipboard() => FocusTarget?.CopySelectionToClipboard() ?? false;
 

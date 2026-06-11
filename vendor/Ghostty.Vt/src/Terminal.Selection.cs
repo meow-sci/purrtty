@@ -16,6 +16,7 @@ public sealed unsafe partial class Terminal
     private const int OptSelection = 21;        // GHOSTTY_TERMINAL_OPT_SELECTION
     private const int OptDefaultCursorStyle = 22; // GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE
     private const int OptDefaultCursorBlink = 23; // GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK
+    private const int DataSelection = 31;       // GHOSTTY_TERMINAL_DATA_SELECTION
 
     /// <summary>
     /// Sets the default cursor style applied on DECSCUSR reset (CSI 0 q).
@@ -90,6 +91,21 @@ public sealed unsafe partial class Terminal
             Rectangle = (byte)(rectangle ? 1 : 0),
         };
         NativeMethods.ghostty_terminal_set(NativeHandle, OptSelection, &sel);
+    }
+
+    /// <summary>
+    /// True when the active screen has a selection. A cheap probe: the native
+    /// getter returns NO_VALUE without formatting any text (the snapshot it
+    /// writes is discarded — its untracked grid refs are never used).
+    /// </summary>
+    public bool HasSelection
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(NativeHandle == nint.Zero, this);
+            GhosttySelectionNative sel = default;
+            return NativeMethods.ghostty_terminal_get(NativeHandle, DataSelection, &sel) == 0;
+        }
     }
 
     /// <summary>Clears the terminal's active selection.</summary>

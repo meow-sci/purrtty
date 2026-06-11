@@ -18,9 +18,11 @@ namespace purrTTY.Display.Theming;
 /// [colors.selection] background      (optional)
 /// </code>
 ///
-/// User-saved themes additionally carry the full window appearance:
+/// User-saved themes additionally carry the full window appearance and their
+/// display name (the filename is sanitized, so it cannot round-trip the name):
 ///
 /// <code>
+/// [meta]   name = "My Theme!"
 /// [font]   family = "Hack"  size = 32.0
 /// [window] background_opacity / foreground_opacity / cell_background_opacity
 /// </code>
@@ -71,9 +73,15 @@ internal static class ThemeTomlFormat
             var font = GetTable(root, "font");
             var window = GetTable(root, "window");
 
+            // User-saved themes carry their display name in [meta]: the filename
+            // is sanitized on save, so deriving the name from it would not
+            // round-trip (the saved theme then fails to resolve on next launch).
+            // Bundled/alacritty themes have no [meta] and fall back to the filename.
+            string? metaName = GetTable(root, "meta") is { } meta ? GetString(meta, "name") : null;
+
             return new ThemeDefinition
             {
-                Name = Path.GetFileNameWithoutExtension(filePath),
+                Name = string.IsNullOrWhiteSpace(metaName) ? Path.GetFileNameWithoutExtension(filePath) : metaName,
                 Source = source,
                 FilePath = filePath,
                 Colors = themeColors,
@@ -104,6 +112,7 @@ internal static class ThemeTomlFormat
 
         var root = new TomlTable
         {
+            ["meta"] = new TomlTable { ["name"] = theme.Name },
             ["colors"] = new TomlTable
             {
                 ["normal"] = normal,
@@ -157,7 +166,7 @@ internal static class ThemeTomlFormat
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
-        File.WriteAllText(filePath, TomlSerializer.Serialize(root, TomlOptions));
+        purrTTY.Display.Configuration.AtomicFile.WriteAllText(filePath, TomlSerializer.Serialize(root, TomlOptions));
     }
 
     public static RgbaColor ParseHexColor(string? hex)

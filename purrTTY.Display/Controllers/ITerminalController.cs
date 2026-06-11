@@ -1,5 +1,4 @@
 using System.Text;
-using purrTTY.Display.Types;
 
 namespace purrTTY.Display.Controllers;
 
@@ -50,34 +49,6 @@ public interface ITerminalController : IDisposable
     ///     Should be called during the ImGui render phase.
     /// </summary>
     void Render();
-
-    /// <summary>
-    ///     Gets the current terminal dimensions.
-    ///     Useful for debugging and integration testing.
-    /// </summary>
-    /// <returns>Current terminal dimensions (width, height)</returns>
-    (int width, int height) GetTerminalDimensions();
-
-    /// <summary>
-    ///     Manually triggers a terminal resize to the specified dimensions.
-    ///     This method can be used for testing or external resize requests.
-    /// </summary>
-    /// <param name="cols">New width in columns</param>
-    /// <param name="rows">New height in rows</param>
-    /// <exception cref="ArgumentException">Thrown when dimensions are invalid</exception>
-    void ResizeTerminal(int cols, int rows);
-
-    /// <summary>
-    ///     Gets the current text selection.
-    /// </summary>
-    /// <returns>The current selection</returns>
-    TextSelection GetCurrentSelection();
-
-    /// <summary>
-    ///     Sets the current text selection.
-    /// </summary>
-    /// <param name="selection">The selection to set</param>
-    void SetSelection(TextSelection selection);
 
     /// <summary>
     ///     Copies the current selection to the clipboard.

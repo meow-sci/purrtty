@@ -551,7 +551,7 @@ public class ThemeConfiguration
 
             Normalize();
             var tomlContent = TomlSerializer.Serialize(this, TomlOptions);
-            File.WriteAllText(configPath, tomlContent);
+            AtomicFile.WriteAllText(configPath, tomlContent);
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is TomlException)
         {
@@ -653,8 +653,12 @@ public class ThemeConfiguration
 
         public float? FontSize { get; set; }
 
+        // Auto is the only default (and unparsable-value fallback) that works on
+        // every platform: it resolves $SHELL/zsh/bash/sh on Unix and
+        // WSL/PowerShell/cmd on Windows. A platform-specific default produces a
+        // dead empty window elsewhere.
         [TomlIgnore]
-        public ShellType DefaultShellType { get; set; } = ShellType.PowerShell;
+        public ShellType DefaultShellType { get; set; } = ShellType.Auto;
 
         [TomlPropertyName("DefaultShellType")]
         public string DefaultShellTypeString
@@ -662,14 +666,9 @@ public class ThemeConfiguration
             get => DefaultShellType.ToString();
             set
             {
-                if (Enum.TryParse<ShellType>(value, true, out var shellType))
-                {
-                    DefaultShellType = shellType;
-                }
-                else
-                {
-                    DefaultShellType = ShellType.Wsl;
-                }
+                DefaultShellType = Enum.TryParse<ShellType>(value, true, out var shellType)
+                    ? shellType
+                    : ShellType.Auto;
             }
         }
 
@@ -740,8 +739,12 @@ public class ThemeConfiguration
 
         public int? TerminalRows { get; set; }
 
+        // Auto is the only default (and unparsable-value fallback) that works on
+        // every platform: it resolves $SHELL/zsh/bash/sh on Unix and
+        // WSL/PowerShell/cmd on Windows. A platform-specific default produces a
+        // dead empty window elsewhere.
         [TomlIgnore]
-        public ShellType DefaultShellType { get; set; } = ShellType.PowerShell;
+        public ShellType DefaultShellType { get; set; } = ShellType.Auto;
 
         [TomlPropertyName("DefaultShellType")]
         public string DefaultShellTypeString
@@ -749,14 +752,9 @@ public class ThemeConfiguration
             get => DefaultShellType.ToString();
             set
             {
-                if (Enum.TryParse<ShellType>(value, true, out var shellType))
-                {
-                    DefaultShellType = shellType;
-                }
-                else
-                {
-                    DefaultShellType = ShellType.Wsl;
-                }
+                DefaultShellType = Enum.TryParse<ShellType>(value, true, out var shellType)
+                    ? shellType
+                    : ShellType.Auto;
             }
         }
 

@@ -66,16 +66,20 @@ internal static class FrameGridRenderer
         }
 
         uint defaultBg32 = ToU32(frame.Colors.DefaultBackground, cellBackgroundOpacity);
-        uint selection32 = ToU32(selectionColor, cellBackgroundOpacity);
+        // Selection alpha comes from the selection color itself (not the cell
+        // background opacity): it is composited *over* the cell backgrounds
+        // below, so it stays visible even at CellBackgroundOpacity = 0 and
+        // tints the underlying colors instead of replacing them.
+        uint selection32 = ToU32(selectionColor);
 
-        // Pass 1: backgrounds + selection, merged into horizontal runs.
+        // Pass 1: backgrounds merged into horizontal runs, then the row's
+        // selection highlight composited on top.
         for (int r = 0; r < frame.Rows; r++)
         {
             var row = frame.RowData[r];
             var cells = row.Cells;
             float y = origin.Y + r * cellHeight;
             float y2 = y + cellHeight;
-            bool hasSelection = row.HasSelection;
 
             int runStart = -1;
             int runEnd = 0;
@@ -90,18 +94,8 @@ internal static class FrameGridRenderer
                 }
 
                 int span = cell.Width == CellWidth.Wide ? 2 : 1;
-                uint color;
-                bool draw;
-                if (hasSelection && c >= row.SelectionStart && c <= row.SelectionEnd)
-                {
-                    color = selection32;
-                    draw = true;
-                }
-                else
-                {
-                    color = ToU32(cell.Bg, cellBackgroundOpacity);
-                    draw = color != defaultBg32;
-                }
+                uint color = ToU32(cell.Bg, cellBackgroundOpacity);
+                bool draw = color != defaultBg32;
 
                 if (draw && runStart >= 0 && c == runEnd && color == runColor)
                 {
@@ -136,6 +130,18 @@ internal static class FrameGridRenderer
                     new float2(origin.X + runStart * cellWidth, y),
                     new float2(origin.X + runEnd * cellWidth, y2),
                     runColor);
+                stats.BackgroundRects++;
+            }
+
+            if (row.HasSelection && row.SelectionEnd >= row.SelectionStart)
+            {
+                int selStart = Math.Clamp(row.SelectionStart, 0, cols - 1);
+                int selLast = Math.Clamp(row.SelectionEnd, selStart, cols - 1);
+                int selEnd = selLast + (cells[selLast].Width == CellWidth.Wide ? 2 : 1);
+                drawList.AddRectFilled(
+                    new float2(origin.X + selStart * cellWidth, y),
+                    new float2(origin.X + Math.Min(selEnd, cols) * cellWidth, y2),
+                    selection32);
                 stats.BackgroundRects++;
             }
         }
@@ -337,9 +343,9 @@ internal static class FrameGridRenderer
 
                 bool decorated = cell.Underline != UnderlineStyle.None
                     || (cell.Flags & (CellFlags.Strikethrough | CellFlags.Overline)) != 0;
-                if (!decorated)
+                if (!decorated || (cell.Flags & CellFlags.Invisible) != 0)
                 {
-                    continue;
+                    continue; // invisible cells hide their decorations too
                 }
 
                 float span = cell.Width == CellWidth.Wide ? 2f : 1f;
@@ -350,13 +356,7 @@ internal static class FrameGridRenderer
                 {
                     uint lineColor = ToU32(cell.UnderlineColor ?? cell.Fg, foregroundOpacity);
                     float uy = y + cellHeight - 1.5f;
-                    drawList.AddLine(new float2(x, uy), new float2(x2, uy), lineColor, 1.0f);
-                    stats.DecorationLines++;
-                    if (cell.Underline == UnderlineStyle.Double)
-                    {
-                        drawList.AddLine(new float2(x, uy - 2f), new float2(x2, uy - 2f), lineColor, 1.0f);
-                        stats.DecorationLines++;
-                    }
+                    stats.DecorationLines += DrawUnderline(drawList, cell.Underline, x, x2, uy, lineColor);
                 }
 
                 if ((cell.Flags & CellFlags.Strikethrough) != 0)
@@ -383,6 +383,68 @@ internal static class FrameGridRenderer
         }
 
         return stats;
+    }
+
+    /// <summary>
+    /// Draws one cell-span of underline in the requested SGR style and returns
+    /// the primitive count. Single/double are solid lines; dotted/dashed are
+    /// segment runs; curly is a small zigzag — all anchored at <paramref name="uy"/>.
+    /// </summary>
+    private static int DrawUnderline(ImDrawListPtr drawList, UnderlineStyle style, float x, float x2, float uy, uint color)
+    {
+        switch (style)
+        {
+            case UnderlineStyle.Double:
+                drawList.AddLine(new float2(x, uy), new float2(x2, uy), color, 1.0f);
+                drawList.AddLine(new float2(x, uy - 2f), new float2(x2, uy - 2f), color, 1.0f);
+                return 2;
+
+            case UnderlineStyle.Dotted:
+            {
+                int count = 0;
+                for (float dx = x; dx < x2; dx += 3f)
+                {
+                    drawList.AddLine(new float2(dx, uy), new float2(Math.Min(dx + 1f, x2), uy), color, 1.0f);
+                    count++;
+                }
+
+                return count;
+            }
+
+            case UnderlineStyle.Dashed:
+            {
+                // Two dashes per cell with a gap between (xterm-ish proportions).
+                float width = x2 - x;
+                float dash = width * 0.35f;
+                drawList.AddLine(new float2(x, uy), new float2(x + dash, uy), color, 1.0f);
+                drawList.AddLine(new float2(x + width * 0.5f, uy), new float2(x + width * 0.5f + dash, uy), color, 1.0f);
+                return 2;
+            }
+
+            case UnderlineStyle.Curly:
+            {
+                // Zigzag approximation of the curl: half-cell period, ±1.5px amplitude.
+                float width = x2 - x;
+                float half = width * 0.25f;
+                int count = 0;
+                float prevX = x;
+                float prevY = uy + 1.5f;
+                for (float dx = x + half; dx <= x2 + 0.01f; dx += half)
+                {
+                    float ny = prevY > uy ? uy - 1.5f : uy + 1.5f;
+                    drawList.AddLine(new float2(prevX, prevY), new float2(dx, ny), color, 1.0f);
+                    prevX = dx;
+                    prevY = ny;
+                    count++;
+                }
+
+                return count;
+            }
+
+            default:
+                drawList.AddLine(new float2(x, uy), new float2(x2, uy), color, 1.0f);
+                return 1;
+        }
     }
 
     /// <summary>
@@ -541,11 +603,34 @@ internal static class FrameGridRenderer
         {
             case CursorShape.Block:
                 drawList.AddRectFilled(min, max, cursorColor);
-                // Re-draw the glyph beneath in the background color for contrast.
+                // Re-draw the glyph beneath in the background color for contrast,
+                // at the same opacity the glyph itself was drawn with.
                 var cell = frame.RowData[frame.Cursor.Y].Cells[frame.Cursor.X];
                 if (!string.IsNullOrEmpty(cell.Grapheme) && cell.Grapheme != " ")
                 {
-                    drawList.AddText(fonts.Select(cell.Flags), fontSize, min, ToU32(frame.Colors.DefaultBackground), cell.Grapheme);
+                    uint glyphColor = ToU32(frame.Colors.DefaultBackground, foregroundOpacity);
+                    char ch = cell.Grapheme.Length == 1 ? cell.Grapheme[0] : '\0';
+                    if (ch >= '▀' && ch <= '▟' && cell.Width == CellWidth.Narrow)
+                    {
+                        // Block Elements are drawn as exact rects everywhere else;
+                        // going through the font here would reintroduce hinting
+                        // seams under the cursor.
+                        if (TryGetBlockStrip(ch, out float fy0, out float fy1, out float shade))
+                        {
+                            drawList.AddRectFilled(
+                                new float2(x, y + fy0 * cellHeight),
+                                new float2(x + cellWidth, y + fy1 * cellHeight),
+                                shade >= 1f ? glyphColor : ToU32(frame.Colors.DefaultBackground, foregroundOpacity * shade));
+                        }
+                        else
+                        {
+                            DrawBlockCell(drawList, ch, x, y, cellWidth, cellHeight, glyphColor);
+                        }
+                    }
+                    else
+                    {
+                        drawList.AddText(fonts.Select(cell.Flags), fontSize, min, glyphColor, cell.Grapheme);
+                    }
                 }
                 break;
 

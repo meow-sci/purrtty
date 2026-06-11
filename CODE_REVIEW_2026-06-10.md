@@ -21,7 +21,7 @@ Test suite was run during the review: **287 tests, 0 failures, 2 skipped.**
 | 4 | ~~Unbounded `_inbox` growth for hidden terminal / inactive tabs~~ **FIXED** (A3) **[2x]** | MAJOR | medium |
 | 5 | ~~Cross-thread `SetTheme` on session create races tick-thread `BuildFrame`~~ **FIXED** (A2) **[2x]** | MAJOR | small |
 | 6 | ~~Drag-selection anchor is an untracked native `GridRef` — dangles if scrollback prunes mid-drag~~ **FIXED** (A4) **[2x]** | MAJOR | medium |
-| 7 | Linux/macOS first run: default shell is PowerShell → dead empty window | MAJOR | tiny |
+| 7 | ~~Linux/macOS first run: default shell is PowerShell → dead empty window~~ **FIXED** (C1) | MAJOR | tiny |
 | 8 | All-or-nothing Harmony `PatchAll`: one drifted target kills the whole mod | MAJOR | small |
 | 9 | Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`; deploy never cleans stale DLLs | MAJOR | tiny |
 | 10 | ~~ConPTY: handle-close races, exit-path output loss, blocking writes on render thread, unquoted command line~~ **FIXED** (B3–B7) | MAJOR | medium |
@@ -150,6 +150,34 @@ thread-pool threads.
 ---
 
 ## C. Frontend (purrTTY.Display)
+
+> **STATUS 2026-06-11: C1–C4 all FIXED** (branch `feature/fable-review`). C1: default shell (and
+> unparsable-string fallback) is now `ShellType.Auto` in both config sections; a failed session
+> start is reported via `TerminalWindow.NotifySessionStartFailed` and rendered in the otherwise
+> blank window (with the error logged at Error, not Debug). C2: `SetMouseGeometry` now receives
+> `cols * (int)cellWidth` and `HandleAppMouse` synthesizes event positions from the
+> frontend-computed cell center in integer metrics, so frontend and engine agree by construction.
+> C3: the modified-key encode loop runs for Ctrl **or** Alt and now covers digits and
+> Ctrl+Space/[/\/] (`DigitKeys`/`ControlPunctuationKeys`). C4: `SessionManager.Sessions` is a
+> cached snapshot invalidated on add/remove; tab labels are cached per session;
+> `ITerminalSurface.HasSelection` (cheap native `GHOSTTY_TERMINAL_DATA_SELECTION` probe, binding
+> addition `Terminal.HasSelection`) replaces full-text extraction in the context menu; the
+> redundant per-frame `ComputeCellMetrics` is gone; app-mouse releases are sent only when the
+> matching press was forwarded; astral-plane input pairs surrogates; Shift overrides app mouse
+> tracking (xterm behavior) so selection/copy works inside tmux/nvim; wheel magnitude sends one
+> scroll report per notch; an open grid context menu keeps the game-key gate engaged
+> (`TerminalWindow.IsContextMenuOpen`); block-cursor glyph redraw honors `foregroundOpacity` and
+> the block-element rect path; decorations skip `Invisible` cells; curly/dotted/dashed underlines
+> render distinctly; `IsAsciiMonospace` validates ' '; selection bg composites *over* cell
+> backgrounds (own alpha, unaffected by `CellBackgroundOpacity`); user themes store their display
+> name in `[meta] name` (round-trips through filename sanitization); config/theme writes are
+> atomic (`AtomicFile`: temp + rename); restored/cascaded geometry is clamped to the viewport
+> work area; the dead legacy files listed below (~1,900 lines incl. the phantom
+> `ITerminalController` selection/resize APIs, `TextSelection`, `LayoutConstants` trimmed to the
+> font-size bounds) are deleted and `PurrTTYFontManager` was rewritten (read-only `LoadedFonts`,
+> cached family list, dead locals/"TestApp" strings gone). Deliberately not done: alt-screen
+> wheel→arrow-key translation (nicety; needs an alt-screen probe on the seam). New test:
+> `HasSelection_TracksSelectionLifecycle`.
 
 ### C1. MAJOR — Fresh install on Linux/macOS produces a dead, empty terminal window
 - `Configuration/ThemeConfiguration.cs:657` defaults `DefaultShellType = ShellType.PowerShell`; the unparsable-string fallback (:665-673, :752-759) is `ShellType.Wsl`. With no config: F12 → `OpenWindow` → `ResolvePowerShell` throws on Unix → fire-and-forget `StartSession` logs at Debug and gives up; the window stays open and permanently empty (auto-close requires `_hadSessions`). Directly undermines the pending in-game Linux validation.
