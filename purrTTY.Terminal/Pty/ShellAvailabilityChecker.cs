@@ -11,32 +11,40 @@ namespace purrTTY.Core.Terminal;
 /// </summary>
 public static class ShellAvailabilityChecker
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ShellType, bool> ShellAvailabilityCache = new();
+
     /// <summary>
     /// Checks if a specific shell type is available on the current system.
+    /// Results are cached per shell type for the process lifetime (shell installs
+    /// do not change mid-game), so only the first call per type pays for the PATH
+    /// scan — which can block for seconds when PATH contains a dead network share.
     /// </summary>
     /// <param name="shellType">The shell type to check</param>
     /// <returns>True if the shell is available, false otherwise</returns>
     public static bool IsShellAvailable(ShellType shellType)
     {
-        try
+        return ShellAvailabilityCache.GetOrAdd(shellType, static type =>
         {
-            return shellType switch
+            try
             {
-                ShellType.Auto => true, // Auto is always available as it falls back to other shells
-                ShellType.Wsl => IsWslAvailable(),
-                ShellType.PowerShell => IsPowerShellAvailable(),
-                ShellType.PowerShellCore => IsPowerShellCoreAvailable(),
-                ShellType.Cmd => IsCmdAvailable(),
-                ShellType.Custom => true, // Custom shells are checked when the path is provided
-                ShellType.CustomGame => true, // Game Console is always available
-                _ => false
-            };
-        }
-        catch
-        {
-            // If any exception occurs during checking, assume the shell is not available
-            return false;
-        }
+                return type switch
+                {
+                    ShellType.Auto => true, // Auto is always available as it falls back to other shells
+                    ShellType.Wsl => IsWslAvailable(),
+                    ShellType.PowerShell => IsPowerShellAvailable(),
+                    ShellType.PowerShellCore => IsPowerShellCoreAvailable(),
+                    ShellType.Cmd => IsCmdAvailable(),
+                    ShellType.Custom => true, // Custom shells are checked when the path is provided
+                    ShellType.CustomGame => true, // Game Console is always available
+                    _ => false
+                };
+            }
+            catch
+            {
+                // If any exception occurs during checking, assume the shell is not available
+                return false;
+            }
+        });
     }
 
     /// <summary>

@@ -80,8 +80,6 @@ public class TerminalMod
     /// </summary>
     internal static GhosttyTerminalController? MenuController;
 
-    private static List<(string Label, ShellType Type)>? s_shellMenuEntries;
-
     /// <summary>
     ///     Gets a value indicating whether the mod should be unloaded immediately.
     /// </summary>
@@ -162,17 +160,32 @@ public class TerminalMod
 
     private static void DrawShellItems(GhosttyTerminalController controller, Action<ProcessLaunchOptions> launch)
     {
-        foreach (var (label, shellType) in GetShellMenuEntries())
+        // The draw path must never trigger shell detection (a slow probe would
+        // hang the render thread) — it only reads the snapshot built once on a
+        // background thread at init.
+        var snapshot = ShellMenuCache.Current;
+        if (snapshot == null)
+        {
+            ImGui.TextDisabled("Detecting shells...");
+            if (ImGui.MenuItem("Game Console"))
+            {
+                launch(CreateLaunchOptionsFor(controller, ShellType.CustomGame));
+            }
+
+            return;
+        }
+
+        foreach (var (label, shellType) in snapshot.Entries)
         {
             if (shellType == ShellType.Wsl)
             {
-                DrawWslItems(launch);
+                DrawWslItems(snapshot, launch);
                 continue;
             }
 
             if (shellType == ShellType.Auto && !OperatingSystem.IsWindows())
             {
-                DrawUnixShellItems(launch);
+                DrawUnixShellItems(snapshot, launch);
                 continue;
             }
 
@@ -188,10 +201,9 @@ public class TerminalMod
     ///     per detected shell (/etc/shells + $SHELL), with the user's default marked
     ///     — the Unix analogue of the per-distribution WSL items.
     /// </summary>
-    private static void DrawUnixShellItems(Action<ProcessLaunchOptions> launch)
+    private static void DrawUnixShellItems(ShellMenuCache.Snapshot snapshot, Action<ProcessLaunchOptions> launch)
     {
-        var shells = UnixShellDetector.GetInstalledShells();
-        if (shells.Count == 0)
+        if (snapshot.UnixShells.Count == 0)
         {
             if (ImGui.MenuItem("Default Shell"))
             {
@@ -201,7 +213,7 @@ public class TerminalMod
             return;
         }
 
-        foreach (var shell in shells)
+        foreach (var shell in snapshot.UnixShells)
         {
             if (ImGui.MenuItem(shell.DisplayName))
             {
@@ -210,22 +222,14 @@ public class TerminalMod
         }
     }
 
-    private static void DrawWslItems(Action<ProcessLaunchOptions> launch)
+    private static void DrawWslItems(ShellMenuCache.Snapshot snapshot, Action<ProcessLaunchOptions> launch)
     {
-        var distributions = WslDistributionDetector.GetInstalledDistributions();
-        if (distributions.Count == 0)
-        {
-            if (ImGui.MenuItem("WSL2"))
-            {
-                launch(ProcessLaunchOptions.CreateWsl());
-            }
-
-            return;
-        }
-
+        // Only reached when the snapshot contains a Wsl entry, which requires at
+        // least one detected distribution — no generic bare-`wsl` fallback item
+        // (launching wsl.exe without a distribution yields a dead session).
         if (ImGui.BeginMenu("WSL2"))
         {
-            foreach (var distribution in distributions)
+            foreach (var distribution in snapshot.WslDistributions)
             {
                 if (ImGui.MenuItem(distribution.DisplayName))
                 {
@@ -247,44 +251,6 @@ public class TerminalMod
                 controller.Configuration.DefaultCustomGameShellId ?? "GameConsoleShell"),
             _ => ProcessLaunchOptions.CreateDefault(),
         };
-
-    /// <summary>
-    ///     Shells offered in the New Tab / New Window menus. Availability is
-    ///     probed once per process (shell installs do not change mid-game).
-    /// </summary>
-    private static List<(string Label, ShellType Type)> GetShellMenuEntries()
-    {
-        if (s_shellMenuEntries != null)
-        {
-            return s_shellMenuEntries;
-        }
-
-        var entries = new List<(string, ShellType)>();
-
-        if (!OperatingSystem.IsWindows())
-        {
-            entries.Add(("Default Shell", ShellType.Auto));
-        }
-
-        foreach (var (shellType, label) in new[]
-                 {
-                     (ShellType.PowerShell, "PowerShell"),
-                     (ShellType.PowerShellCore, "PowerShell Core"),
-                     (ShellType.Cmd, "Command Prompt"),
-                     (ShellType.Wsl, "WSL2"),
-                 })
-        {
-            if (ShellAvailabilityChecker.IsShellAvailable(shellType))
-            {
-                entries.Add((label, shellType));
-            }
-        }
-
-        entries.Add(("Game Console", ShellType.CustomGame));
-
-        s_shellMenuEntries = entries;
-        return entries;
-    }
 
     private static void DrawThemeMenu(GhosttyTerminalController controller)
     {
@@ -586,16 +552,9 @@ public class TerminalMod
             // Game-console shells are launchable from the menus at any time.
             GhosttySessionManagerFactory.EnsureGameShellsDiscovered();
 
-            // Prewarm the shell-detection caches off-thread so the first New Tab /
-            // New Window menu open does not stall on `wsl --list` / /etc/shells probing.
-            if (OperatingSystem.IsWindows())
-            {
-                _ = Task.Run(() => WslDistributionDetector.GetInstalledDistributions());
-            }
-            else
-            {
-                _ = Task.Run(() => UnixShellDetector.GetInstalledShells());
-            }
+            // All shell detection (PATH probes, `wsl --list`, /etc/shells) runs
+            // once here on a background thread; the menus only read the snapshot.
+            ShellMenuCache.BeginDetection();
 
             var themeConfig = ThemeConfiguration.Load();
             var catalog = new ThemeCatalog();
