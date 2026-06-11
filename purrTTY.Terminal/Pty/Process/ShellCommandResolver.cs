@@ -7,12 +7,28 @@ namespace purrTTY.Core.Terminal.Process;
 internal static class ShellCommandResolver
 {
     /// <summary>
-    ///     Resolves the shell command and arguments based on the launch options.
+    ///     Resolves the shell command and arguments based on the launch options,
+    ///     joined into a single command-line string (ConPTY/CreateProcess form).
     /// </summary>
     /// <param name="options">The launch options</param>
     /// <returns>A tuple of shell path and arguments string</returns>
     /// <exception cref="ProcessStartException">Thrown if the shell cannot be resolved</exception>
     internal static (string shellPath, string arguments) ResolveShellCommand(ProcessLaunchOptions options)
+    {
+        (string shellPath, string[] argv) = ResolveShellCommandArgv(options);
+        string arguments = argv.Length > 0 ? string.Join(" ", argv) : string.Empty;
+        return (shellPath, arguments);
+    }
+
+    /// <summary>
+    ///     Resolves the shell command with arguments kept as discrete argv entries
+    ///     (Unix exec form — joining and re-splitting would corrupt arguments that
+    ///     contain spaces, e.g. <c>-c "some script"</c>).
+    /// </summary>
+    /// <param name="options">The launch options</param>
+    /// <returns>A tuple of shell path and argument vector (without argv[0])</returns>
+    /// <exception cref="ProcessStartException">Thrown if the shell cannot be resolved</exception>
+    internal static (string shellPath, string[] argv) ResolveShellCommandArgv(ProcessLaunchOptions options)
     {
         (string shellPath, var argsArray) = options.ShellType switch
         {
@@ -26,8 +42,7 @@ internal static class ShellCommandResolver
             _ => throw new ProcessStartException($"Unsupported shell type: {options.ShellType}")
         };
 
-        string arguments = argsArray?.Length > 0 ? string.Join(" ", argsArray) : string.Empty;
-        return (shellPath, arguments);
+        return (shellPath, argsArray ?? Array.Empty<string>());
     }
 
     /// <summary>

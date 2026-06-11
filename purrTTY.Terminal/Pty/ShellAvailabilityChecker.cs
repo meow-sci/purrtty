@@ -73,6 +73,11 @@ public static class ShellAvailabilityChecker
         {
             if (shellType == ShellType.Auto)
             {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return IsUnixShellAvailable();
+                }
+
                 return IsShellAvailable(ShellType.PowerShell) ||
                        IsShellAvailable(ShellType.PowerShellCore) ||
                        IsShellAvailable(ShellType.Cmd) ||
@@ -83,12 +88,32 @@ public static class ShellAvailabilityChecker
     }
 
     /// <summary>
+    /// Checks whether any Unix shell can be launched on this host.
+    /// Mirrors ShellCommandResolver.ResolveAutoShell: $SHELL first, then common shells.
+    /// </summary>
+    private static bool IsUnixShellAvailable()
+    {
+        string? shell = Environment.GetEnvironmentVariable("SHELL");
+        if (!string.IsNullOrEmpty(shell) && File.Exists(shell))
+        {
+            return true;
+        }
+
+        return new[] { "zsh", "bash", "sh" }.Any(name => FindExecutableInPath(name) != null);
+    }
+
+    /// <summary>
     /// Gets available shell types with their display names.
     /// </summary>
     /// <returns>List of tuples containing shell type and display name for available shells</returns>
     public static List<(ShellType ShellType, string DisplayName)> GetAvailableShellsWithNames()
     {
         var availableShells = new List<(ShellType, string)>();
+
+        if (!OperatingSystem.IsWindows() && IsDefaultShellAvailable(ShellType.Auto))
+        {
+            availableShells.Add((ShellType.Auto, "Default Shell"));
+        }
 
         var shellDefinitions = new[]
         {

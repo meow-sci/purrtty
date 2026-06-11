@@ -8,7 +8,8 @@ namespace PurrTTY.Terminal.Sessions;
 /// Builds and wires terminal sessions. This is the construction seam: it
 /// creates a libghostty-vt-backed <see cref="GhosttyTerminalSurface"/> (instead
 /// of the legacy emulator) plus the appropriate <see cref="IProcessManager"/>
-/// (ConPTY process or custom game shell), then assembles a <see cref="TerminalSession"/>.
+/// (ConPTY on Windows, POSIX pty on Linux/macOS, or custom game shell), then
+/// assembles a <see cref="TerminalSession"/>.
 /// </summary>
 public static class TerminalSessionFactory
 {
@@ -38,7 +39,10 @@ public static class TerminalSessionFactory
     {
         if (launchOptions?.ShellType != ShellType.CustomGame)
         {
-            return new ProcessManager(logger);
+            // ConPTY on Windows; POSIX pty (posix_openpt + posix_spawnp) elsewhere.
+            return OperatingSystem.IsWindows()
+                ? new ProcessManager(logger)
+                : new UnixProcessManager(logger);
         }
 
         if (string.IsNullOrEmpty(launchOptions.CustomShellId))
