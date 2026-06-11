@@ -1,8 +1,15 @@
-# OS_ANALYSIS — Embedding a real, minimal operating system inside purrTTY
+# OS_ANALYSIS — A real, minimal operating system as a standalone KSA mod (purrTTY as its terminal UI)
 
 *Research date: 2026-06-11. All external claims carry source links; load-bearing ones were
 independently re-verified. Companion to `LIBGHOSTTY_ANALYSIS.md` (the terminal-emulator seam this
 builds on).*
+
+**Scope note:** the OS host is its **own standalone mod** (working name "purrOS" throughout).
+purrTTY stays a pure terminal emulator; it is only the *UI* into the OS's shell sessions, consumed
+through its already-published custom-shell contract (`purrTTY.CustomShellContract`). This is a
+code-location decision, not an architecture change — both mods load into the same KSA game
+process, so everything below (subprocess management, TCP channels, game-thread sampling) is
+unaffected by which assembly it lives in.
 
 ---
 
@@ -15,6 +22,10 @@ telemetry ("sensors as files").**
 
 - Real kernel, real fork/exec, real package manager, real pipes/jobs/pagers/editors — the entire
   stated goal — with **zero custom guest binaries** for the MVP.
+- Ships as a **standalone mod** owning the VM lifecycle, telemetry sampling, and the 9P server.
+  purrTTY is consumed purely as the terminal UI via `ICustomShell` (the contract already carries
+  byte-stream I/O, initial dimensions, **and resize** — `NotifyTerminalResize`); purrTTY itself
+  needs little to no modification (§3.5).
 - Works on Windows (WHPX accel, TCG fallback) and Linux (KVM) hosts identically; macOS (HVF) free
   for development.
 - Cold boot ~0.4–1 s accelerated, ~5–30 s under TCG; guest RAM 192–256 MB; ~+150–250 MB mod dist.
@@ -85,22 +96,26 @@ Three architecture classes were evaluated:
 ### 3.1 Architecture overview
 
 ```
-KSA game process (C#)                                    QEMU subprocess
-┌──────────────────────────────────────────┐             ┌─────────────────────────────┐
-│ purrTTY.Display / purrTTY.Terminal        │             │ Alpine Linux guest           │
-│   TerminalWindow tabs ◄── ITerminalSurface│             │  ┌────────────────────────┐  │
-│                                           │   slirp     │  │ dropbear sshd :22       │  │
-│ VmSessionBackend (new IProcessManager) ───┼──tcp 127.0.0.1:<p> ─►(hostfwd)            │  │
-│   SSH.NET ShellStream per tab             │             │  │ ash/bash, apk, vim, ...│  │
-│                                           │             │  └────────────────────────┘  │
-│ SimFs: C# 9P2000.L server :5640 ◄─────────┼── guest→10.0.2.2:5640 ── mount -t 9p /sim  │
-│   ▲ snapshot store (lock-free swap)       │             │                              │
-│   │ sampled per-tick on game thread       │             │  qcow2 overlay (per save)    │
-│ TerminalMod OnBeforeGui/OnAfterUi         │             │  ── backing ──► base.qcow2   │
-└──────────────────────────────────────────┘             └─────────────────────────────┘
+KSA game process (C#) — both mods load in-process         QEMU subprocess (owned by the OS mod)
+┌───────────────────────────────────────────┐            ┌─────────────────────────────┐
+│ purrTTY mod (terminal emulator, unchanged) │            │ Alpine Linux guest           │
+│   TerminalWindow tabs ◄── ITerminalSurface │            │  ┌────────────────────────┐  │
+│        ▲                                   │            │  │ dropbear sshd :22       │  │
+│        │ ICustomShell (CustomShellContract)│            │  │ ash/bash, apk, vim, ...│  │
+├────────┼───────────────────────────────────┤   slirp    │  └────────────────────────┘  │
+│ OS mod ("purrOS", new, standalone)         │            │                              │
+│   SshShellSession : ICustomShell ──────────┼─tcp 127.0.0.1:<p>─►(hostfwd → :22)        │
+│     SSH.NET ShellStream per session        │            │                              │
+│   SimFs: C# 9P2000.L server :5640 ◄────────┼── guest→10.0.2.2:5640 ── mount -t 9p /sim │
+│     ▲ snapshot store (lock-free swap)      │            │                              │
+│     │ sampled per-tick on game thread      │            │  qcow2 overlay (per save)    │
+│   VM lifecycle ([StarMapMod] hooks)        │            │  ── backing ──► base.qcow2   │
+└───────────────────────────────────────────┘            └─────────────────────────────┘
 ```
 
 - One VM per game session (lazy-booted at first terminal open), N terminal tabs into it.
+- The dashed seam in the left box is the whole inter-mod surface: the OS mod registers its shell
+  with purrTTY's `CustomShellRegistry` and otherwise never touches purrTTY internals.
 - All host↔guest traffic is plain TCP through QEMU's user-mode networking — **deliberately no
   virtio-9p, no virtiofs, no vsock**, because none of those exist on Windows QEMU hosts (§3.4,
   [qemu#974](https://gitlab.com/qemu-project/qemu/-/issues/974),
@@ -139,7 +154,8 @@ and [exec-sandbox's Windows roadmap](https://github.com/dualeai/exec-sandbox/iss
   exactly this ladder (KVM → HVF → TCG) in production.
 
 Accel selection: try in order `kvm` → `whpx` → `hvf` → `tcg` (QEMU accepts a fallback list:
-`-accel whpx -accel tcg`). Surface the active accel in the perf HUD (gotcha 15 pattern).
+`-accel whpx -accel tcg`). Surface the active accel in a diagnostics overlay (purrTTY's perf-HUD
+pattern is the model; the OS mod owns its own).
 
 ### 3.3 Machine type, boot, and resume
 
@@ -219,22 +235,36 @@ console; do not build sessions on it.
 - Host-key handling: pre-generate an ed25519 host key per savegame (or accept-and-pin on first
   connect via `HostKeyReceived`) — it's a loopback VM, not the open internet.
 
-**purrTTY seam fit (this is the elegant part):** a guest session is just a new
-`IProcessManager`-shaped backend — call it `VmSessionManager` — next to `ProcessManager` (ConPTY)
-and `UnixProcessManager`:
+**purrTTY seam fit (this is the elegant part):** purrTTY's published custom-shell contract
+(`purrTTY.CustomShellContract` — the same extension point `GameConsoleShell` uses) was built for
+exactly this: a shell provided by C# code instead of a spawned process, speaking raw VT bytes.
+The OS mod takes a compile-time reference to that one contract assembly and implements
+`SshShellSession : ICustomShell` — the mapping is 1:1, verified against the contract as it exists
+today:
 
-| `IProcessManager` concept | SSH mapping |
+| `ICustomShell` member | SSH mapping in the OS mod |
 |---|---|
-| `StartAsync(options, cols, rows)` | ensure VM booted → `CreateShellStream(term, cols, rows, …)` |
-| `Write(bytes)` | `ShellStream.Write` (keep the bounded-queue pattern of gotcha 20) |
-| `DataReceived` | `ShellStream` reads → `Surface.Write` |
-| `Resize(cols, rows)` | `ChangeWindowSize(cols, rows, …)` |
-| exit/teardown | channel close events; VM keeps running for other tabs |
+| `StartAsync(options)` (`InitialWidth`/`InitialHeight`) | ensure VM booted → `CreateShellStream(term, cols, rows, …)` |
+| `WriteInputAsync(bytes)` | `ShellStream.Write` (bounded-queue discipline, mirroring purrTTY's PTY input pattern) |
+| `OutputReceived` event | `ShellStream` reads → raised to purrTTY → `Surface.Write` |
+| `NotifyTerminalResize(cols, rows)` | `ChangeWindowSize(cols, rows, …)` |
+| `StopAsync` / `Terminated` event | channel close; VM keeps running for other sessions |
+| `Metadata` / `SendInitialOutput()` | shell name for menus / connection banner |
 
-Nothing above `purrTTY.Terminal` changes: `TerminalWindow` tabs, theming, selection, the whole
-frontend works unmodified. A "Spaceship OS" entry appears in the New Tab / New Window shell menus
-alongside PowerShell/zsh/Game Console (`ShellMenuCache` already supports per-shell entries; VM
-readiness is async, which matches the existing background-detection pattern).
+Registration: `CustomShellRegistry.Instance.RegisterShell<SshShellSession>("purros", factory)` —
+the registry's registration API is public precisely so other mods can plug in (purrTTY's built-in
+*discovery scan* only covers its own `purrTTY.CustomShells` assembly, so the OS mod registers
+explicitly at init). purrTTY itself needs **no code changes** for sessions to work; the one small
+enhancement worth requesting upstream is menu freshness — purrTTY's `ShellMenuCache` snapshots
+shell entries once at init on a background thread, so the OS mod must register before that
+snapshot or purrTTY needs a registry-changed refresh hook (a deliberately tiny PR). VM readiness
+is async behind `StartAsync`, which matches purrTTY's existing slow-shell expectations.
+
+Everything else in purrTTY works unmodified: `TerminalWindow` tabs, theming, selection, rendering
+— a "purrOS" entry appears in the New Tab / New Window menus alongside PowerShell/zsh/Game
+Console. (The rejected alternative — building a VM-backed `IProcessManager` inside
+`purrTTY.Terminal` itself — would work technically but couples the terminal emulator to one
+specific consumer, which is exactly what the contract assembly exists to avoid.)
 
 ### 3.6 The sensor filesystem: `/sim` over 9p — "sensors as files", literally
 
@@ -248,8 +278,8 @@ mount -t 9p -o trans=tcp,port=5640,version=9p2000.L,cache=none 10.0.2.2 /sim
 
 The Linux kernel's 9p client speaks plain TCP (`trans=tcp`) to any 9P2000.L server — QEMU is not
 involved in the transport at all ([kernel v9fs docs](https://docs.kernel.org/filesystems/9p.html);
-[diod](https://github.com/chaos/diod) documents exactly this mount shape). The game implements the
-server in C#. Verified specifics:
+[diod](https://github.com/chaos/diod) documents exactly this mount shape). The OS mod implements
+the server in C#. Verified specifics:
 
 - **`cache=none` is the default and correct mode** — every guest `read()` becomes a `Tread` to the
   C# server, so data is always live (procfs semantics).
@@ -275,8 +305,8 @@ NinePSharp v0.1.0 has no public source; nothing else) — **so we write one**, a
 fine: a read-mostly 9P2000.L server is **~11 message handlers** over a trivial little-endian
 framing (`Tversion Tattach Twalk Tlopen Tread Tgetattr Treaddir Tclunk Tflush Tstatfs` + optional
 `Twrite`; everything else `Rlerror(EOPNOTSUPP)`). The wire format is `BinaryPrimitives`/
-`Span<byte>` territory — squarely within this repo's demonstrated competence (see
-`RenderState.FrameReader`). Reference: [diod's protocol.md](https://github.com/chaos/diod/blob/master/protocol.md)
+`Span<byte>` territory — the same kind of Span-based wire/bit work purrTTY already demonstrates
+(see its `RenderState.FrameReader`), so well within reach for the same author + AI toolchain. Reference: [diod's protocol.md](https://github.com/chaos/diod/blob/master/protocol.md)
 is *the* 9P2000.L spec; [hugelgupf/p9](https://github.com/hugelgupf/p9) (Go, extracted from gVisor)
 is the cleanest implementation to crib from. **Estimate: 3–8 days including conformance testing
 against a live mount.**
@@ -312,7 +342,8 @@ as a gameplay-design decision, not a technical one.
 **Concurrency design:** sample telemetry **on the game thread** (`OnBeforeGui` — the KSA sweep
 confirms vehicle state is main-thread; §10) into an immutable snapshot object, swap a reference;
 9p server threads only ever read the latest snapshot, blocked stream-readers wake on swap. No
-locks across the seam, same discipline as gotcha 1.
+locks across the seam — the same single-writer discipline purrTTY applies to its native engine
+(its gotcha 1).
 
 **Fallback** if the v9fs spike sours: a tiny guest FUSE daemon (C/musl via `zig cc`, the toolchain
 already in this repo's build notes, or static Go) proxying the same host protocol — strictly more
@@ -354,8 +385,9 @@ Image build: a script (dev machine or CI, can run in Docker on the Linux CI runn
 [alpine-make-vm-image](https://github.com/alpinelinux/alpine-make-vm-image) or plain
 apk-tools-static chroot: install `dropbear openssh-sftp-server qemu-guest-agent`, bake
 `authorized_keys` + inittab (getty on emergency console, dropbear, 9p remount supervisor), strip
-docs. Output: `base.qcow2` + `vmlinuz-virt` + `initramfs-virt`, checked into the mod dist like the
-native libghostty blobs are today (same vendoring pattern, `vendor/guest-os/` or similar).
+docs. Output: `base.qcow2` + `vmlinuz-virt` + `initramfs-virt`, vendored into the OS mod's dist
+the same way purrTTY vendors its native libghostty blobs (a `vendor/guest-os/` analog in the new
+repo).
 
 ### 3.9 Multiple "computers" (R10)
 
@@ -378,8 +410,9 @@ occasionally, wasteful as the default fiction. Better ladder:
 - **GPLv2 compliance is the textbook easy case**: QEMU runs as a separate process communicating
   over argv/sockets — "mere aggregation" per the
   [GPL FAQ](https://www.gnu.org/licenses/gpl-faq.html#MereAggregation); the mod's license is
-  unaffected. Obligations: ship GPLv2 text + QEMU notices (extend `THIRD-PARTY-NOTICES.md`, same
-  as the Ghostty.Vt precedent) and provide **corresponding source for the exact binaries** —
+  unaffected. Obligations: ship GPLv2 text + QEMU notices (the OS mod's own
+  `THIRD-PARTY-NOTICES.md`, following purrTTY's Ghostty.Vt precedent) and provide **corresponding
+  source for the exact binaries** —
   mirror the source tarball + build scripts in a repo/release you control
   ([SFLC guide](https://softwarefreedom.org/resources/2008/compliance-guide.html)). Same for the
   guest image's GPL components (kernel, busybox): mirror Alpine's sources for the pinned versions.
@@ -409,7 +442,7 @@ module that boots a **real Linux kernel on an emulated CPU** (Bochs-in-wasm for 
 fork for riscv64). It runs under **wasmtime**, and
 [wasmtime-dotnet](https://github.com/bytecodealliance/wasmtime-dotnet) is actively maintained
 (v44, May 2026) — so this genuinely runs **inside the game process**, pure cross-platform, no
-subprocess, no shipped QEMU, stdio mapping naturally onto `ITerminalSurface`.
+subprocess, no shipped QEMU, stdio mapping naturally onto the same `ICustomShell` seam.
 
 - **Pros:** only true in-process option; real kernel → real apk/apt/fork; no host accel
   dependencies, identical everywhere; Apache-2.0 converter (guest bundles GPL bits — shippable
@@ -503,8 +536,8 @@ its bespoke VT emulator for libghostty-vt.
 ## 10. KSA integration: what telemetry is actually reachable (verified against decompiled sources)
 
 The decompiled-source sweep confirms everything the `/sim` tree needs is reachable from mod code
-today, on the established purrTTY hook pattern (`[StarMapMod]`, `OnBeforeGui`/`OnAfterUi`,
-Harmony where needed):
+today. The OS mod is its own `[StarMapMod]`, using the same hook pattern purrTTY has already
+proven (`OnBeforeGui`/`OnAfterUi`, Harmony where needed):
 
 - **Enumeration:** `Program.ControlledVehicle` (active vessel);
   `Universe.CurrentSystem?.All.OfType<Vehicle>()` (all vessels). Stable `vehicle.Id` strings.
@@ -541,27 +574,31 @@ document.
 
 **Phase 0 — De-risking spike (~2–4 days).** Hand-build an Alpine qcow2 on the dev machine; launch
 QEMU by hand (HVF); ① throwaway 20-line 9p server: `cat` a synthetic file, `tail` a blocking
-stream, Ctrl-C a blocked read (Tflush), drop the TCP connection; ② SSH.NET shell into a purrTTY
-tab with live resize. *Exit criterion: both channels demonstrably work end-to-end. This spike
-validates every novel assumption in the plan for half a week of effort.*
+stream, Ctrl-C a blocked read (Tflush), drop the TCP connection; ② SSH.NET shell surfaced through
+a throwaway `ICustomShell` into a purrTTY tab with live resize. *Exit criterion: both channels
+demonstrably work end-to-end. This spike validates every novel assumption in the plan — including
+the inter-mod shell registration — for half a week of effort.*
 
-**Phase 1 — VM lifecycle + sessions (~2–3 weeks).** `purrTTY.Vm` project: QEMU process manager
-(accel ladder, port allocation, readiness probe, clean shutdown, crash surfacing),
-`VmSessionManager : IProcessManager`-shaped backend over SSH.NET, "Spaceship OS" in the shell
-menus, scripted image build, **Windows validation pass** (WHPX + TCG, WHP-missing UX). *Exit:
-open a tab into the VM on Windows and Linux; `apk add htop` works; resize works.*
+**Phase 1 — VM lifecycle + sessions (~2–3 weeks).** Stand up the standalone OS mod (own
+repo/solution, referencing `purrTTY.CustomShellContract`): QEMU process manager (accel ladder,
+port allocation, readiness probe, clean shutdown, crash surfacing), `SshShellSession :
+ICustomShell` over SSH.NET registered with purrTTY's `CustomShellRegistry`, "purrOS" appearing in
+purrTTY's shell menus (settle the registration-timing/menu-refresh question, §12), scripted image
+build, **Windows validation pass** (WHPX + TCG, WHP-missing UX). *Exit: open a purrTTY tab into
+the VM on Windows and Linux; `apk add htop` works; resize works.*
 
-**Phase 2 — `/sim` sensor filesystem (~1–2 weeks).** C# 9P2000.L server (~11 handlers);
-game-thread telemetry sampler + snapshot store; read-only tree + `stream`/`events` blocking
-files; conformance tests in `purrTTY.Terminal.Tests` style (server is engine-free, testable
-headless). *Exit: `watch cat /sim/vessels/active/altitude/radar` live in-game.*
+**Phase 2 — `/sim` sensor filesystem (~1–2 weeks).** C# 9P2000.L server (~11 handlers) in the OS
+mod; game-thread telemetry sampler + snapshot store; read-only tree + `stream`/`events` blocking
+files; conformance tests in the OS mod's own NUnit project, mirroring `purrTTY.Terminal.Tests`
+conventions (the server is game-free, testable headless). *Exit:
+`watch cat /sim/vessels/active/altitude/radar` live in-game.*
 
 **Phase 3 — Persistence + savegame integration (~1 week).** Overlay-per-save creation/copy/delete
 wired to the save lifecycle hooks; base-image versioning + `qemu-img rebase` migration path;
 single-writer enforcement.
 
 **Phase 4 — Polish & options (~2+ weeks, à la carte).** Packaging/licensing (QEMU vendoring,
-source mirrors, THIRD-PARTY-NOTICES); perf HUD additions (accel mode, VM RSS); writable control
+source mirrors, THIRD-PARTY-NOTICES); diagnostics overlay (accel mode, VM RSS); writable control
 files (gameplay-gated); Debian-minbase image variant (R9); savevm/loadvm instant-resume
 experiment (WHPX validation); multi-"computer" fiction via guest containers; optional
 download-on-first-use for the QEMU bundle.
@@ -584,6 +621,11 @@ Windows/WHPX quirk-chasing in Phase 1 — time-box it and lean on TCG, which is 
 4. **Write access to the sim** (control files): pure-sensor MVP first; decide the gameplay rules
    for actuation separately.
 5. **QEMU bundling vs download-on-first-use** — dist-size tolerance for the release zip.
+6. **Inter-mod contract mechanics**: the OS mod takes a compile-time dependency on
+   `purrTTY.CustomShellContract` — decide versioning policy for that assembly (it is now a public
+   inter-mod API), mod load-order handling, whether purrTTY's `ShellMenuCache` (snapshotted once
+   at init) needs a registry-changed refresh hook for late-registering mods, and the OS mod's
+   graceful behavior when purrTTY isn't installed (idle headless vs. refuse to load).
 
 ---
 
