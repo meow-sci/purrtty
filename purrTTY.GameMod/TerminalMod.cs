@@ -170,9 +170,42 @@ public class TerminalMod
                 continue;
             }
 
+            if (shellType == ShellType.Auto && !OperatingSystem.IsWindows())
+            {
+                DrawUnixShellItems(launch);
+                continue;
+            }
+
             if (ImGui.MenuItem(label))
             {
                 launch(CreateLaunchOptionsFor(controller, shellType));
+            }
+        }
+    }
+
+    /// <summary>
+    ///     On Linux/macOS the generic "Default Shell" entry is replaced by one item
+    ///     per detected shell (/etc/shells + $SHELL), with the user's default marked
+    ///     — the Unix analogue of the per-distribution WSL items.
+    /// </summary>
+    private static void DrawUnixShellItems(Action<ProcessLaunchOptions> launch)
+    {
+        var shells = UnixShellDetector.GetInstalledShells();
+        if (shells.Count == 0)
+        {
+            if (ImGui.MenuItem("Default Shell"))
+            {
+                launch(ProcessLaunchOptions.CreateDefault());
+            }
+
+            return;
+        }
+
+        foreach (var shell in shells)
+        {
+            if (ImGui.MenuItem(shell.DisplayName))
+            {
+                launch(ProcessLaunchOptions.CreateCustom(shell.Path));
             }
         }
     }
@@ -553,11 +586,15 @@ public class TerminalMod
             // Game-console shells are launchable from the menus at any time.
             GhosttySessionManagerFactory.EnsureGameShellsDiscovered();
 
-            // Prewarm the WSL distribution cache off-thread so the first New Tab /
-            // New Window menu open does not stall on `wsl --list`.
+            // Prewarm the shell-detection caches off-thread so the first New Tab /
+            // New Window menu open does not stall on `wsl --list` / /etc/shells probing.
             if (OperatingSystem.IsWindows())
             {
                 _ = Task.Run(() => WslDistributionDetector.GetInstalledDistributions());
+            }
+            else
+            {
+                _ = Task.Run(() => UnixShellDetector.GetInstalledShells());
             }
 
             var themeConfig = ThemeConfiguration.Load();

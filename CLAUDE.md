@@ -12,7 +12,7 @@ all terminal emulation to **libghostty-vt** — the standalone, conformance-test
 (`Ghostty.Vt`). purrtty owns a clean three-layer architecture on top of it.
 
 What this project/mod does:
-- Runs real shell sessions (ConPTY shells on Windows; an in-game `GameConsoleShell` cross-platform) inside an in-game terminal window.
+- Runs real shell sessions (ConPTY shells on Windows; POSIX-pty shells on Linux/macOS; an in-game `GameConsoleShell` cross-platform) inside an in-game terminal window.
 - Feeds shell output to libghostty-vt and renders the resulting grid through ImGui in KSA.
 - Encodes keyboard/mouse/paste input through libghostty-vt's encoders and writes it back to the shell.
 
@@ -101,8 +101,11 @@ dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v qui
 
 `purrTTY.Terminal.Tests` (NUnit) validates frame production, theming, selection, OSC sidecar,
 key/mouse encoding, bracketed paste, DSR replies, scrollback, and the session-wiring data flow.
-`purrTTY.CustomShellContract.Tests` + `purrTTY.CustomShells.Tests` cover the custom-shell layer.
-Keep test output minimal so it does not flood the CLI.
+`UnixProcessManagerTests` exercises the POSIX pty backend against real `/bin/sh` children
+(output, exit codes, pty echo, initial winsize, working directory, shell detection); it runs on
+macOS (dev) and linux-x64 (CI) and self-skips on Windows — this is the pre-player coverage for
+Linux shell launching. `purrTTY.CustomShellContract.Tests` + `purrTTY.CustomShells.Tests` cover
+the custom-shell layer. Keep test output minimal so it does not flood the CLI.
 
 > The legacy emulator test/app projects (`purrTTY.Core.Tests`, `purrTTY.Display.Tests`,
 > `purrTTY.Display.Playground`, `purrTTY.TestApp`) were deleted with the emulator.
@@ -192,7 +195,17 @@ Frontend (`purrTTY.Display/`):
   `Configuration/` (fonts, `ThemeConfiguration` = global defaults/hotkey/geometry, shell config)
 
 PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
-- ConPTY host: `Process/*`, `ProcessManager.cs`; interface: `IProcessManager.cs`
+- Two real-PTY backends behind `IProcessManager.cs`, selected per-OS by `TerminalSessionFactory`:
+  ConPTY on Windows (`ProcessManager.cs` + `Process/ConPty*` etc.) and POSIX pty on Linux/macOS
+  (`UnixProcessManager.cs` + `Process/UnixPtyNative.cs` / `UnixPtySpawner.cs` /
+  `UnixPtyOutputPump.cs`) — see gotcha 16
+- Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommand` (joined string,
+  ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec; never join-then-split, it
+  corrupts arguments containing spaces). `Auto` on Unix = `$SHELL`, then zsh/bash/sh from PATH.
+- Shell detection for menus: `ShellAvailabilityChecker.cs` (platform-aware),
+  `WslDistributionDetector.cs` (Windows), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`,
+  deduped by executable name, default marked, cached; deliberately no game-logging dependency
+  so it works from the test host)
 - Custom-shell adapter: `CustomShellPtyBridge.cs`; launch options: `ProcessLaunchOptions.cs`
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
 
@@ -201,8 +214,10 @@ Game/integration (`purrTTY.GameMod/`):
   `TerminalMod.DrawMenuContent()` and is registered two ways with identical content: via the
   `[ModMenuEntry("purrTTY")]` attribute when the ModMenu companion mod is present, and via the
   `Patcher.cs` `DrawMenuBar` transpiler fallback otherwise. Menus: Toggle Terminal / Toggle Hotkey,
-  New Tab / New Window (shell submenus filtered by `ShellAvailabilityChecker`, WSL distros via
-  `WslDistributionDetector` — prewarmed at init; Game Console always offered), Theme (built-in +
+  New Tab / New Window (shell submenus filtered by `ShellAvailabilityChecker`; WSL distros via
+  `WslDistributionDetector` on Windows, per-shell items via `UnixShellDetector` on Linux/macOS
+  replacing the generic "Default Shell" entry — both prewarmed at init; Game Console always
+  offered), Theme (built-in +
   saved lists, Save Current As... modal with name input, Refresh), Font (size slider + family list),
   Window (hide-chrome + performance-HUD checkboxes + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
 - Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
@@ -313,6 +328,29 @@ Custom shells:
    populate ms (`GhosttyTerminalSurface.LastFrameStats`), ImGui submit ms, dirty state
    (clean/partial/full/sync-hold), PTY MB/s, and the renderer's draw-call breakdown
    (`GridRenderStats`). Use it before optimizing anything further.
+
+16. **The Unix PTY backend is deliberately fork-free.** `UnixPtySpawner` uses
+   `posix_openpt` + `posix_spawnp` (SETSID + addopen of the slave onto stdin → the child acquires
+   the pty as controlling terminal on both Linux and macOS; SETSIGDEF/SETSIGMASK reset signal
+   state because .NET ignores SIGPIPE process-wide and SIG_IGN survives exec, which would break
+   pipelines in the shell). Never switch this to `fork()`/`forkpty()`: forking the multi-GB,
+   heavily-threaded game process risks allocator-lock deadlocks in the child and ENOMEM under
+   strict overcommit. Hard-won specifics encoded in the implementation:
+   - **winsize must be set on a slave fd** (parent opens the slave `O_NOCTTY`, ioctls, closes it
+     after spawn) — set on the master before the slave ever opens, it does not stick.
+   - **`ioctl` is variadic and Apple arm64 passes variadic args on the stack** — a plain 3-arg
+     P/Invoke sends the `winsize*` in x2 and the kernel reads garbage. `UnixPtyNative.WinSizeIoctl`
+     pads with 8 named args so the pointer lands at sp on macOS/arm64; Linux uses the plain form.
+   - **`DllImport("libc")` does not reliably resolve on glibc** (libc.so is a linker script); a
+     ModuleInitializer DllImportResolver maps it to `libc.so.6` / `libSystem.B.dylib`.
+   - The output pump (`UnixPtyOutputPump`) mirrors gotcha 14 — no sleeping — but blocks in
+     `poll(100ms)` instead of `read` so teardown can cancel without closing the fd under a blocked
+     read; exit is detected by EOF (macOS) / EIO (Linux) after the child dies, and a waiter thread
+     `waitpid`s for the real exit code. `CleanupProcess` closes the master only behind the write
+     lock and after the reader joins (fd-reuse race), and resets `_pid` so
+     `SessionManager.RestartSession` can reuse the manager.
+   - Working directory uses `posix_spawn_file_actions_addchdir_np` (glibc ≥ 2.29 / macOS ≥ 10.15)
+     with a graceful skip when the entry point is missing.
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`
