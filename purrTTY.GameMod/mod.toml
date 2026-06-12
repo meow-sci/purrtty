@@ -5,3 +5,8 @@ author = "purrTTY Project"
 
 [StarMap]
 EntryAssembly = "purrTTY.GameMod"
+# The published inter-mod ABI: mods implementing ICustomShell resolve these from
+# purrTTY's ALC so both sides share one CustomShellRegistry.Instance (same Assembly
+# -> same Type identity -> same statics). purrTTY.Logging rides along because the
+# contract assembly references it - an importer needs both from the same ALC.
+ExportedAssemblies = ["purrTTY.CustomShellContract", "purrTTY.Logging"]

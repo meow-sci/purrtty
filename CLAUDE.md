@@ -355,6 +355,13 @@ Custom shells:
   `BaseLineBufferedShell`, `WellKnownShellEnvironment` — well-known env-var names; shell
   configuration like the Game Console prompt rides launch-option environment variables so
   shells never reference display-layer config types)
+- The contract is a **published inter-mod ABI**: `mod.toml` exports
+  `purrTTY.CustomShellContract` + `purrTTY.Logging` over the StarMap ALC
+  (`[StarMap] ExportedAssemblies`), so a mod that lists them in its purrTTY
+  `[[StarMap.ModDependencies]]` `ImportedAssemblies` resolves purrTTY's loaded copies —
+  one type identity, one shared `CustomShellRegistry.Instance` (the consumer is gatOS).
+  `purrTTY.Logging` is exported because the contract assembly references it; an importer
+  needs both from the same ALC. Treat both assemblies' public surfaces as versioned API.
 - Built-in game shell: `purrTTY.CustomShells/GameConsoleShell.cs` (emits VT bytes → `Surface.Write`;
   prompt from `WellKnownShellEnvironment.GameShellPrompt`, stamped by
   `ThemeConfiguration.CreateGameShellLaunchOptions` / the menu launch path)
