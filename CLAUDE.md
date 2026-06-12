@@ -324,13 +324,24 @@ Game/integration (`purrTTY.GameMod/`):
   never run detection itself, because a slow probe — wsl.exe service spin-up, a dead network share
   in PATH — hangs the render thread; a detection *failure* falls back to Default Shell (`Auto`,
   valid everywhere, needs no detection) + Game Console, never Game Console alone. The menu draw
-  path is also allocation-free per frame: cached hotkey-shortcut string, static launch delegates
-  reading `MenuController`, static accessor lambdas for the sliders, indexed loops. WSL2 is
+  path is also allocation-free per frame — cached hotkey-shortcut string, static launch delegates
+  reading `MenuController`, static accessor lambdas for the sliders, indexed loops — except the
+  custom-shell enumeration below, a small LINQ read that runs only while a New Tab/New Window
+  menu is open. WSL2 is
   offered only when ≥1 distribution was detected:
   wsl.exe ships with stock Windows even when WSL was never set up, so executable presence is not
   evidence of a working WSL, and bare `wsl` with no distro yields a dead session. Per-shell items
   via `UnixShellDetector` on Linux/macOS replace the generic "Default Shell" entry; Game Console
-  always offered), Theme (built-in +
+  always offered. Custom shells registered by **other mods** over the exported contract (e.g.
+  gatOS) are appended by `DrawRegisteredCustomShellItems`: it enumerates
+  `CustomShellRegistry.GetAvailableShells()` **live on every draw** (skipping the built-in
+  `GameConsoleShell` id) and launches via `ProcessLaunchOptions.CreateCustomGame(id)`. Live
+  reading instead of a `ShellMenuCache` snapshot solves cross-mod registration timing — load
+  order is undefined, so another mod may register after this mod's init — without a refresh
+  hook, and it honors the never-detect-on-the-draw-path rule: the read is a plain
+  ConcurrentDictionary enumeration, and registry discovery already ran synchronously in
+  `InitializeTerminal` before `MenuController` (the gate on drawing these menus) was
+  published), Theme (built-in +
   saved lists, Save Current As... modal with name input, Refresh), Font (size slider + family list),
   Focus (cursor style/blink, focus+hover border + opacity, lock mode + hot zone
   placement/size/color/opacities — gotcha 22),
@@ -620,6 +631,12 @@ Custom shells:
 ### Adding a custom shell
 1. Implement `ICustomShell` (or inherit `BaseLineBufferedShell`) in `purrTTY.CustomShells`.
 2. Ensure metadata + a stable shell ID; verify discovery via `CustomShellRegistry`.
+
+From **another mod**: import the exported contract assemblies (see the Custom shells section),
+call `CustomShellRegistry.Instance.RegisterShell(id, factory)` at mod init — registration
+probe-instantiates and disposes one instance, so the shell ctor must be trivial and Dispose safe
+on a never-started instance — and the shell appears in the New Tab / New Window menus
+automatically (live registry enumeration, no purrTTY change needed).
 
 ### Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.

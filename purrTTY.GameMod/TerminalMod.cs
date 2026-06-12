@@ -1,15 +1,12 @@
 using Brutal.ImGuiApi;
-using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Theming;
-using PurrTTY.Terminal.Rendering;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
 using float2 = Brutal.Numerics.float2;
-using float3 = Brutal.Numerics.float3;
 using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.GameMod;
@@ -17,7 +14,9 @@ namespace purrTTY.GameMod;
 /// <summary>
 ///     KSA game mod for purrTTY terminal emulator.
 ///     Provides multi-window, multi-tab terminal sessions toggled with a
-///     configurable hotkey and driven from the top-level game menus.
+///     configurable hotkey and driven from the top-level game menus
+///     (menu content lives in <see cref="TerminalMenus"/>; this class owns
+///     lifecycle, the toggle hotkey, and the settings modals).
 /// </summary>
 [StarMapMod]
 public class TerminalMod
@@ -199,6 +198,7 @@ public class TerminalMod
                 launch(CreateLaunchOptionsFor(controller, ShellType.CustomGame));
             }
 
+            DrawRegisteredCustomShellItems(launch);
             return;
         }
 
@@ -221,6 +221,36 @@ public class TerminalMod
             if (ImGui.MenuItem(label))
             {
                 launch(CreateLaunchOptionsFor(controller, shellType));
+            }
+        }
+
+        DrawRegisteredCustomShellItems(launch);
+    }
+
+    /// <summary>
+    ///     Custom shells registered by <b>other mods</b> (over the exported
+    ///     <c>purrTTY.CustomShellContract</c>), enumerated live from the registry on
+    ///     every draw. Reading live — instead of snapshotting into
+    ///     <see cref="ShellMenuCache"/> — solves cross-mod registration timing without
+    ///     a refresh hook: mod load order is undefined, so another mod may register
+    ///     its shell after this mod's init built the snapshot. The read stays within
+    ///     the never-detect-on-the-draw-path rule: it is a plain ConcurrentDictionary
+    ///     enumeration, and registry discovery already ran synchronously in
+    ///     <c>InitializeTerminal</c> before <see cref="MenuController"/> — the gate on
+    ///     reaching this code — was published.
+    /// </summary>
+    private static void DrawRegisteredCustomShellItems(Action<ProcessLaunchOptions> launch)
+    {
+        foreach (var (id, metadata) in CustomShellRegistry.Instance.GetAvailableShells())
+        {
+            if (id == nameof(GameConsoleShell))
+            {
+                continue; // built-in: already drawn via its ShellType.CustomGame entry
+            }
+
+            if (ImGui.MenuItem(metadata.Name))
+            {
+                launch(ProcessLaunchOptions.CreateCustomGame(id));
             }
         }
     }
