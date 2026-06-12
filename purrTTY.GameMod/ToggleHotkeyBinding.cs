@@ -166,7 +166,11 @@ internal readonly struct ToggleHotkeyBinding
 
     public bool MatchesPress(ImGuiIOPtr io)
     {
-        if (!ImGui.IsKeyPressed(Key))
+        // Don't fire while an ImGui text field has focus: a toggle bound to a
+        // printable key (e.g. 'T') must not toggle the terminal when that key is
+        // typed into the game console or any mod text box. repeat:false stops a
+        // held hotkey from rapid-toggling every frame.
+        if (io.WantTextInput || !ImGui.IsKeyPressed(Key, repeat: false))
         {
             return false;
         }

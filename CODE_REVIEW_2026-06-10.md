@@ -15,14 +15,14 @@ Test suite was run during the review: **287 tests, 0 failures, 2 skipped.**
 
 | # | Finding | Severity | Effort |
 |---|---------|----------|--------|
-| 1 | Game keyboard black hole: `IsAnyTerminalActive` stuck `true` after hiding a focused terminal | CRITICAL | 1 line |
+| 1 | ~~Game keyboard black hole: `IsAnyTerminalActive` stuck `true` after hiding a focused terminal~~ **FIXED** (D1) | CRITICAL | 1 line |
 | 2 | ~~Native use-after-free: surface disposed on pool thread during tab close while tick thread may be in `BuildFrame`~~ **FIXED** (A1) | CRITICAL | small |
 | 3 | ~~Double `FreeHGlobal` of env block on `CreateProcess` failure → Windows heap corruption~~ **FIXED** (B1) | CRITICAL | 1 line |
 | 4 | ~~Unbounded `_inbox` growth for hidden terminal / inactive tabs~~ **FIXED** (A3) **[2x]** | MAJOR | medium |
 | 5 | ~~Cross-thread `SetTheme` on session create races tick-thread `BuildFrame`~~ **FIXED** (A2) **[2x]** | MAJOR | small |
 | 6 | ~~Drag-selection anchor is an untracked native `GridRef` — dangles if scrollback prunes mid-drag~~ **FIXED** (A4) **[2x]** | MAJOR | medium |
 | 7 | ~~Linux/macOS first run: default shell is PowerShell → dead empty window~~ **FIXED** (C1) | MAJOR | tiny |
-| 8 | All-or-nothing Harmony `PatchAll`: one drifted target kills the whole mod | MAJOR | small |
+| 8 | ~~All-or-nothing Harmony `PatchAll`: one drifted target kills the whole mod~~ **FIXED** (D2) | MAJOR | small |
 | 9 | Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`; deploy never cleans stale DLLs | MAJOR | tiny |
 | 10 | ~~ConPTY: handle-close races, exit-path output loss, blocking writes on render thread, unquoted command line~~ **FIXED** (B3–B7) | MAJOR | medium |
 
@@ -211,6 +211,24 @@ Seam integrity (no `Ghostty.Vt` types in Display — grep-verified). Chrome hidi
 ---
 
 ## D. Game integration (purrTTY.GameMod + custom shells)
+
+> **STATUS 2026-06-11: D1–D5 all FIXED** (branch `feature/fable-review`). D1:
+> `TerminalMod.OnAfterUi` now calls `controller.Render()` unconditionally — its hidden early-out
+> is what clears `_anyTerminalActive`, so the game-key gate can no longer stick `true` after
+> hiding a focused terminal. D2: `Patcher.patch()` applies each patch independently via
+> `CreateClassProcessor(type).Patch()` with a per-class try/catch, classified required (`Patch01`,
+> `Patch03_HotkeyGuard`) vs optional (`Patch02`, `ConsoleWindowPrintPatch`); failures are logged at
+> Error and never abort the mod or block `InitializeTerminal()` (which now also logs init failure at
+> Error). D3: the fragile `DrawMenuBar` IL transpiler is replaced by a `[HarmonyPostfix]` on KSA's
+> empty public `Program.DrawProgramMenusHook()` menu-bar extension point (verified present in the
+> pinned KSA build, called once per frame for `MainViewport` right after the View menu; sets
+> `MainViewport.MenuBarInUse`). D4: the Harmony instance is recreated lazily (`m_harmony ??= new
+> Harmony(...)`) so a reload after `unload()` nulled it still patches. D5: `Patch01` forwards key
+> *releases* even while gated (held-key state no longer sticks); `Patch03_HotkeyGuard` null-guards
+> the `Program.ConsoleWindow` static; the toggle hotkey uses `IsKeyPressed(repeat:false)` and is
+> suppressed while a text field has focus; the inherent game-console `\r\n`/capture-extent limits
+> are documented on `GameConsoleShell.OnConsolePrint`. See CLAUDE.md gotcha 21. Sections E–F remain
+> unapplied.
 
 ### D1. CRITICAL — `IsAnyTerminalActive` gets stuck `true` when the terminal is hidden while focused → game keyboard black hole
 - `GhosttyTerminalController.cs:293-338` (flag written only inside `Render()`), `TerminalMod.cs:436-440` (`Render()` called only while visible), `Patcher.cs:113-121` (consumer).

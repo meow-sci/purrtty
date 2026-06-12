@@ -209,6 +209,15 @@ public class GameConsoleShell : BaseLineBufferedShell
     /// <summary>
     ///     Internal method called by Harmony patch to handle captured console output.
     /// </summary>
+    /// <remarks>
+    ///     Known limitations (inherent to capturing the game's <c>Print</c> sink):
+    ///     each captured <c>Print</c> call is terminated with <c>\r\n</c>, so a
+    ///     single logical line emitted as multiple colored segments shows spurious
+    ///     line breaks. Capture is bounded to the synchronous extent of the
+    ///     command's <c>Execute</c> (see <see cref="IsCapturing"/>): output a
+    ///     command produces asynchronously after it returns is lost, and unrelated
+    ///     cross-thread prints during <c>Execute</c> are mis-attributed to it.
+    /// </remarks>
     public static void OnConsolePrint(string output, ImColor8 color)
     {
         lock (_activeLock)

@@ -229,8 +229,9 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 Game/integration (`purrTTY.GameMod/`):
 - Lifecycle + toggle + game menus: `TerminalMod.cs`. The full menu content lives in
   `TerminalMod.DrawMenuContent()` and is registered two ways with identical content: via the
-  `[ModMenuEntry("purrTTY")]` attribute when the ModMenu companion mod is present, and via the
-  `Patcher.cs` `DrawMenuBar` transpiler fallback otherwise. Menus: Toggle Terminal / Toggle Hotkey,
+  `[ModMenuEntry("purrTTY")]` attribute when the ModMenu companion mod is present, and via a
+  `Patcher.cs` postfix on KSA's empty public `Program.DrawProgramMenusHook()` menu-bar extension
+  point otherwise (replaced the former fragile `DrawMenuBar` IL transpiler — gotcha 21). Menus: Toggle Terminal / Toggle Hotkey,
   New Tab / New Window (items read from `ShellMenuCache` — an immutable snapshot of shell entries +
   WSL distros + Unix shells built **once on a background thread at init**; the menu draw path must
   never run detection itself, because a slow probe — wsl.exe service spin-up, a dead network share
@@ -243,9 +244,17 @@ Game/integration (`purrTTY.GameMod/`):
   Window (hide-chrome + performance-HUD checkboxes + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
 - Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
   to the build output and the deployed mod dir by the csproj.
-- Harmony patches: `Patcher.cs` (gates `KSA.Program.OnKey` via `GhosttyTerminalController.IsAnyTerminalActive`;
-  `Patch03_HotkeyGuard` blocks `GameSettings.OnKeyAll` while `ImGui.GetIO().WantTextInput` is set so typing
-  in mod text fields never fires game hotkeys), `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
+- Harmony patches: `Patcher.cs` applies each patch **independently** via
+  `CreateClassProcessor(type).Patch()` with a per-class try/catch (gotcha 21) — required
+  (`Patch01` input gate, `Patch03_HotkeyGuard`) vs optional (`Patch02` menu fallback,
+  `ConsoleWindowPrintPatch`); the harmony instance is recreated lazily (`??=`) so a reload after
+  `unload()` nulled it still patches. `Patch01` gates `KSA.Program.OnKey` via
+  `GhosttyTerminalController.IsAnyTerminalActive` **but always forwards key *releases*** (suppressing
+  a Release at the focus boundary strands the game's held-key state). `Patch03_HotkeyGuard` blocks
+  `GameSettings.OnKeyAll` while `ImGui.GetIO().WantTextInput` is set (null-guards the
+  `Program.ConsoleWindow` static) so typing in mod text fields never fires game hotkeys. The toggle
+  hotkey (`ToggleHotkeyBinding.MatchesPress`) uses `IsKeyPressed(repeat:false)` and is suppressed
+  while a text field has focus. `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
 
 Custom shells:
 - Contract: `purrTTY.CustomShellContract/` (`ICustomShell`, `CustomShellRegistry`, `BaseLineBufferedShell`)
@@ -433,6 +442,21 @@ Custom shells:
    (`AppendQuotedArgument`, CommandLineToArgvW rules) — never bare-space-join argv; it is the
    same join-then-split corruption the Unix side documents. Contracts pinned by
    `PtyInputContractTests`.
+
+21. **Game integration is failure-isolated; the input gate must never get stuck.**
+   `TerminalMod.OnAfterUi` calls `controller.Render()` **unconditionally** (not only while visible):
+   `Render()` early-outs when hidden and that early-out is the *only* thing that clears
+   `_anyTerminalActive` (the `KSA.Program.OnKey` gate). Calling it only while visible stranded the
+   flag `true` after hiding a focused terminal — a total game-keyboard black hole until the terminal
+   was shown again. `Patcher.patch()` applies each Harmony patch with its own try/catch
+   (`CreateClassProcessor(type).Patch()`) and classifies them required vs optional, so one drifted
+   target can never abort the mod or block `InitializeTerminal()`; the menu fallback is a **postfix
+   on `Program.DrawProgramMenusHook()`** (KSA's empty public menu-bar extension point — called once
+   per frame for `MainViewport` right after the View menu) rather than an IL transpiler. The
+   `Harmony` instance is created lazily so a StarMap reload after `unload()` re-patches. `Patch01`
+   forwards key *releases* even while gated (else held-key state sticks); `Patch03_HotkeyGuard`
+   null-guards the `Program.ConsoleWindow` static; the toggle hotkey is `repeat:false` and skipped
+   while any ImGui text field has focus.
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`

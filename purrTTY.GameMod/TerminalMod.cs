@@ -434,14 +434,15 @@ public class TerminalMod
 
             // Update runs even while hidden: it drains hidden sessions' PTY
             // backlogs on a low cadence (their inboxes otherwise grow unbounded
-            // under chatty output). Render only runs while visible.
+            // under chatty output). Render() is also called unconditionally and
+            // early-outs when hidden — that early-out clears the game-key gate
+            // (_anyTerminalActive). Calling it only while visible would strand
+            // the flag `true` after hiding a focused terminal, killing the
+            // game's entire keyboard pipeline until the terminal is shown again.
             if (_controller != null)
             {
                 _controller.Update((float)dt);
-                if (IsTerminalVisible)
-                {
-                    _controller.Render();
-                }
+                _controller.Render();
             }
         }
         catch (Exception ex)
@@ -471,13 +472,17 @@ public class TerminalMod
         ModLog.Log.Debug("purrTTY OnFullyLoaded");
         try
         {
+            // patch() applies each Harmony patch independently and never throws —
+            // an optional patch (menu fallback, console capture) failing must not
+            // block terminal init, and a required one failing is logged loudly but
+            // still lets the terminal come up.
             Patcher.patch();
 
             InitializeTerminal();
         }
         catch (Exception ex)
         {
-            ModLog.Log.Debug($"purrTTY GameMod initialization failed: {ex.Message}");
+            ModLog.Log.Error($"purrTTY GameMod initialization failed: {ex.Message}");
         }
     }
 
