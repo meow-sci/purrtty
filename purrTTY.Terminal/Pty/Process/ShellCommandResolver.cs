@@ -235,7 +235,11 @@ internal static class ShellCommandResolver
     }
 
     /// <summary>
-    ///     Resolves a custom shell path.
+    ///     Resolves a custom shell: a path is used as-is; a bare executable name
+    ///     (no directory component) is resolved via PATH like every other shell
+    ///     type — a configured <c>nu</c> or <c>cmd.exe</c> must launch the same
+    ///     way it does in any other terminal, not be checked against the game's
+    ///     working directory.
     /// </summary>
     private static (string shellPath, string[] arguments) ResolveCustomShell(ProcessLaunchOptions options)
     {
@@ -244,13 +248,20 @@ internal static class ShellCommandResolver
             throw new ProcessStartException("Custom shell path is required when using ShellType.Custom");
         }
 
-        if (!File.Exists(options.CustomShellPath))
+        string? shellPath = options.CustomShellPath;
+        if (!File.Exists(shellPath))
         {
-            throw new ProcessStartException($"Custom shell not found: {options.CustomShellPath}",
-                options.CustomShellPath);
+            bool isBareName = options.CustomShellPath == Path.GetFileName(options.CustomShellPath);
+            shellPath = isBareName ? FindExecutableInPath(options.CustomShellPath) : null;
+
+            if (shellPath == null)
+            {
+                throw new ProcessStartException($"Custom shell not found: {options.CustomShellPath}",
+                    options.CustomShellPath);
+            }
         }
 
-        return (options.CustomShellPath, options.Arguments?.ToArray() ?? Array.Empty<string>());
+        return (shellPath, options.Arguments?.ToArray() ?? Array.Empty<string>());
     }
 
     /// <summary>

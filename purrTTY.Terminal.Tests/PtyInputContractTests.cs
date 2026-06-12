@@ -93,6 +93,35 @@ public sealed class PtyInputContractTests
     }
 
     [Test]
+    public void ResolveCustomShell_BareName_ResolvesViaPath()
+    {
+        // A custom shell configured as a bare executable name must resolve via
+        // PATH like every other shell type — checking it against the process
+        // working directory rejected names ("cmd.exe", "nu") that launch fine
+        // in any other terminal.
+        string bareName = OperatingSystem.IsWindows() ? "cmd.exe" : "sh";
+
+        (string shellPath, string[] argv) =
+            ShellCommandResolver.ResolveShellCommandArgv(ProcessLaunchOptions.CreateCustom(bareName));
+
+        Assert.That(Path.IsPathRooted(shellPath), Is.True, $"bare name resolved to a non-rooted path: {shellPath}");
+        Assert.That(File.Exists(shellPath), Is.True, $"bare name resolved to a missing file: {shellPath}");
+        Assert.That(argv, Is.Empty);
+    }
+
+    [Test]
+    public void ResolveCustomShell_MissingShell_Throws()
+    {
+        // A bare name absent from PATH still fails resolution, and PATH lookup
+        // is bare-name-only: a relative path with a directory component stays a
+        // plain file check.
+        Assert.Throws<ProcessStartException>(() => ShellCommandResolver.ResolveShellCommandArgv(
+            ProcessLaunchOptions.CreateCustom("purrtty-no-such-shell-exists")));
+        Assert.Throws<ProcessStartException>(() => ShellCommandResolver.ResolveShellCommandArgv(
+            ProcessLaunchOptions.CreateCustom(Path.Combine("no-such-dir", "purrtty-no-such-shell-exists"))));
+    }
+
+    [Test]
     public void ResolveShellCommandArgv_Auto_ResolvesToExistingShell()
     {
         if (OperatingSystem.IsWindows())

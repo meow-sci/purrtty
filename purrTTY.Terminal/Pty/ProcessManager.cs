@@ -261,21 +261,19 @@ public class ProcessManager : IProcessManager
         ThrowIfDisposed();
 
         SysProcess? processToStop;
-        CancellationTokenSource? cancellationSource;
-        Task? readTask;
         int generation;
 
         lock (_processLock)
         {
             processToStop = _process;
-            cancellationSource = _readCancellationSource;
-            readTask = _outputReadTask;
             generation = _generation;
         }
 
         try
         {
-            await ProcessLifecycleManager.StopProcessGracefullyAsync(processToStop, cancellationSource, readTask);
+            // Ends the child only; the output pump keeps draining until
+            // CleanupProcess closes the pseudoconsole (tail-output contract).
+            await ProcessLifecycleManager.StopProcessGracefullyAsync(processToStop);
         }
         finally
         {
@@ -481,10 +479,15 @@ public class ProcessManager : IProcessManager
     ///     Cleans up process resources including ConPTY handles. No-ops if
     ///     <paramref name="generation"/> is stale (a restart superseded it).
     ///     Teardown order matters: close the pseudoconsole FIRST — conhost flushes its
-    ///     remaining output and breaks both pipes, which ends the output pump without
-    ///     yanking the read handle out from under a blocked ReadFile and unblocks a
-    ///     writer stuck on a full input pipe — then drain the pump, join the writer,
-    ///     and only then close the pipe handles.
+    ///     remaining output and breaks both pipes (it never breaks them on its own
+    ///     after the client exits — verified empirically; an exit-then-wait drain just
+    ///     stalls), which ends the output pump without yanking the read handle out
+    ///     from under a blocked ReadFile and unblocks a writer stuck on a full input
+    ///     pipe — then drain the pump, join the writer, and only then close the pipe
+    ///     handles. The read CTS is cancelled AFTER the drain: the token is checked
+    ///     between reads, so cancelling earlier raced the pump out of the loop with
+    ///     the flushed tail still unread in the pipe — post-drain it is purely a
+    ///     backstop that lets a stuck pump exit if its blocked ReadFile ever returns.
     /// </summary>
     private void CleanupProcess(int generation)
     {
@@ -523,10 +526,6 @@ public class ProcessManager : IProcessManager
             _outputReadHandle = IntPtr.Zero;
         }
 
-        // Cancel + dispose outside the lock, exactly like the Unix manager: a
-        // CTS callback must never run while _processLock is held.
-        PtyTeardown.CancelAndDispose(cts);
-
         if (pseudoConsole != IntPtr.Zero)
         {
             ConPtyNative.ClosePseudoConsole(pseudoConsole);
@@ -536,6 +535,9 @@ public class ProcessManager : IProcessManager
         // command's entire result) before its handle goes away.
         bool readerExited = PtyTeardown.WaitForPump(readTask, 2000);
         bool writerExited = PtyTeardown.ShutdownWriter(inputQueue, 2000);
+
+        // Outside the lock — a CTS callback must never run while _processLock is held.
+        PtyTeardown.CancelAndDispose(cts);
 
         // Close a handle only when its pump thread is provably out of it; otherwise
         // leak it — closing a handle another thread is blocked on races Win32 handle

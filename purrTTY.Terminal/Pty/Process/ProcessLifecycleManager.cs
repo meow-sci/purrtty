@@ -10,30 +10,19 @@ internal static class ProcessLifecycleManager
 {
     /// <summary>
     ///     Performs graceful shutdown of a process with fallback to forced termination.
+    ///     Deliberately does NOT touch the output pump or its cancellation source:
+    ///     the pump must keep reading until the pseudoconsole is closed (in
+    ///     CleanupProcess, which always follows) so the dying shell's tail output is
+    ///     drained, not raced — cancelling reads here lost the tail whenever the
+    ///     pump was between reads.
     /// </summary>
     /// <param name="process">The process to stop</param>
-    /// <param name="readCancellationSource">Cancellation source for read operations</param>
-    /// <param name="outputReadTask">The output read task to wait for</param>
     /// <returns>A task that completes when the process has stopped</returns>
-    internal static async Task StopProcessGracefullyAsync(
-        SysProcess? process,
-        CancellationTokenSource? readCancellationSource,
-        Task? outputReadTask)
+    internal static Task StopProcessGracefullyAsync(SysProcess? process)
     {
         if (process == null)
         {
-            return; // No process running
-        }
-
-        // Cancel read operations. The exit handler's cleanup can dispose this
-        // CTS concurrently (it races this stop on the threadpool), so a
-        // disposed source here just means cancellation already happened.
-        try
-        {
-            readCancellationSource?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
+            return Task.CompletedTask; // No process running
         }
 
         // Try graceful shutdown first. Every process call can throw if the
@@ -60,13 +49,7 @@ internal static class ProcessLifecycleManager
             // Process already exited / disposed by the concurrent exit handler.
         }
 
-        // Wait briefly for the read task; full drain + handle cleanup happens in
-        // CleanupProcess (the pump only unblocks once the pseudoconsole is closed
-        // there, so an unbounded await here could hang teardown).
-        if (outputReadTask != null)
-        {
-            await Task.WhenAny(outputReadTask, Task.Delay(2000));
-        }
+        return Task.CompletedTask;
     }
 
     /// <summary>

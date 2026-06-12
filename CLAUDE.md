@@ -308,7 +308,10 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 - Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommandLine` (quoted
   CreateProcess command line, ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec);
   never join-then-split — Windows args are quoted per CommandLineToArgvW rules
-  (`AppendQuotedArgument`), Unix args stay discrete. `Auto` on Unix = `$SHELL`, then zsh/bash/sh
+  (`AppendQuotedArgument`), Unix args stay discrete. `Custom` takes a path or a bare executable
+  name — a bare name (no directory component) resolves via PATH like every other shell type
+  (a user-configured `nu`/`cmd.exe` must launch the way it does in any other terminal, not be
+  checked against the game's working directory). `Auto` on Unix = `$SHELL`, then zsh/bash/sh
   from PATH; `Auto` on Windows offers WSL only when `WslDistributionDetector` finds ≥1 distro,
   then PowerShell, then cmd. `Auto` is also the config **default and unparsable-value fallback**
   (`ThemeConfiguration`) — the only shell type valid on every platform.
@@ -496,9 +499,20 @@ Custom shells:
    **pseudoconsole first** — conhost flushes its remaining output and breaks the pipes
    (ERROR_BROKEN_PIPE/ERROR_INVALID_HANDLE exit the loop quietly) — then waits ≤2 s for the pump
    to drain the tail before closing the pipe handles, so a short command's final output is not
-   truncated and the read handle is never yanked from under a blocked `ReadFile`. A handle whose
+   truncated and the read handle is never yanked from under a blocked `ReadFile`. Closing the
+   pseudoconsole is the **only** flush/unblock path — conhost never breaks the pipes on its own
+   after the client exits (verified empirically; an exit-then-wait "natural drain" just stalls) —
+   and the pump's read-cancellation CTS is cancelled only **after** the drain: the token is
+   checked between reads, so cancelling earlier raced the pump out of its loop with the flushed
+   tail still unread in the pipe. A handle whose
    pump thread fails to stop is **leaked, never closed** (Win32 handle recycling means a write
-   through a recycled handle value lands in an unrelated kernel object).
+   through a recycled handle value lands in an unrelated kernel object). ConPTY children are
+   created with `STARTF_USESTDHANDLES` and **null** std handles (`StartupInfoBuilder`, same as
+   node-pty/Windows Terminal): without the flag, CreateProcess clones the parent's non-console
+   std handles into the child (Win 8.1+ behavior, even with `bInheritHandles=false`), so under
+   any parent with redirected stdio — test host, CI runner, the game launched with pipes — the
+   shell's text output and stdin silently bypass the pseudoconsole (title/console-API calls still
+   work, which makes it look "attached") and the terminal renders empty.
 
 15. **Perf HUD for render diagnostics.** Window menu → "Show performance HUD"
    (`TerminalWindow.ShowPerfHud`, all windows) overlays per-tick numbers: engine write / update /
