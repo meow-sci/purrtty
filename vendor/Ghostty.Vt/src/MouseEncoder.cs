@@ -57,8 +57,9 @@ public sealed class MouseEncoder : IDisposable
             var result = NativeMethods.ghostty_mouse_encoder_encode(
                 _handle.DangerousGetHandle(), mouseEvent.NativeHandle, ptr, 64, &len);
             GhosttyException.ThrowIfFailure(result);
-            // Copy out of the stack buffer while it is still alive — returning a
-            // span into `buf` would be a use-after-scope (see KeyEncoder.Encode).
+            // purrtty fix: copy out of the stack buffer while it is still alive —
+            // returning a span into `buf` would be a use-after-scope (see
+            // KeyEncoder.Encode).
             return buf[..(int)len].ToArray();
         }
     }

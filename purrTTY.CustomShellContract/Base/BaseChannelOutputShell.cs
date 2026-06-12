@@ -84,11 +84,19 @@ public abstract class BaseChannelOutputShell : BaseCustomShell
 
         IsRunning = false;
 
-        // Call derived class cleanup hook
-        await OnStoppingAsync(cancellationToken);
-
-        // Complete the output channel - this signals the pump to finish after draining
-        _outputChannel?.Writer.Complete();
+        // Call derived class cleanup hook. The channel MUST be completed even
+        // if the hook throws (e.g. a Terminated subscriber raising): an
+        // uncompleted channel leaves the pump task awaiting forever — a leaked
+        // task and CTS per occurrence, with no way to retry the stop.
+        try
+        {
+            await OnStoppingAsync(cancellationToken);
+        }
+        finally
+        {
+            // Complete the output channel - this signals the pump to finish after draining
+            _outputChannel?.Writer.TryComplete();
+        }
 
         // Wait for the output pump to finish processing remaining items
         if (_outputPumpTask != null)

@@ -141,7 +141,7 @@ public static class PurrTTYFontManager
     /// back to the Regular variant for styles the family does not provide (and
     /// to the default family when the name is unknown).
     /// </summary>
-    public static TerminalFontConfig CreateFontConfigForFamily(string displayName, float fontSize = 32.0f)
+    public static TerminalFontConfig CreateFontConfigForFamily(string displayName)
     {
         if (displayName is null || !s_fontRegistry.TryGetValue(displayName, out var definition))
         {
@@ -155,7 +155,6 @@ public static class PurrTTYFontManager
             BoldFontName = definition.HasBold ? $"{definition.FontBaseName}-Bold" : regularFontName,
             ItalicFontName = definition.HasItalic ? $"{definition.FontBaseName}-Italic" : regularFontName,
             BoldItalicFontName = definition.HasBoldItalic ? $"{definition.FontBaseName}-BoldItalic" : regularFontName,
-            FontSize = fontSize,
         };
     }
 }

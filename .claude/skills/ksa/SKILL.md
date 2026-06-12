@@ -69,7 +69,7 @@ State that must be visible to the **physics solvers each sim step** (battery cha
 ## Researching KSA Game APIs
 
 When you need to understand game types, APIs, or behavior:
-- **Prefer the decompiled sources** in `decomp/ksa/` — they contain all available information and are much easier to read
+- **Prefer the decompiled sources** — in this repo they live at `thirdparty/ksa/` (other repos may use `decomp/ksa/`); they contain all available information and are much easier to read
 - Do **not** attempt to inspect DLL files directly using shell commands or reflection tooling — use the decompiled sources instead
 
 > **Important:** The decompiled sources may be outdated. The running binary can have a completely different internal structure — field names that appear in decompiled code may not exist at runtime. When in doubt, use the runtime reflection dump strategy to discover the real structure. See [debug.md](debug.md).
@@ -130,7 +130,8 @@ ExportedAssemblies = ["MeowSci.BlinkyLib"]
 # Universe & Vehicles
 
 ```csharp
-var vehicles = Universe.CurrentSystem?.Vehicles.GetList(); // List<Vehicle>
+// CelestialSystem has no Vehicles collection; filter the live registry (LookupCollection<Astronomical>):
+var vehicles = Universe.CurrentSystem?.All.UnsafeAsList().OfType<Vehicle>().ToList();
 Vehicle? controlled = Program.ControlledVehicle;           // currently player-controlled vehicle
 double simTime = Universe.GetElapsedSimTime();
 ```
@@ -449,7 +450,7 @@ Key points:
 - `doubleQuat.Concatenate(q1, q2)` composes rotations (q2 applied first, then q1 — same convention as `Quaternion.Concatenate` in .NET)
 - `source.Parent` must equal `target.Parent`; validate before teleporting or the coordinate math is invalid
 - To maintain a locked relative position, call `Teleport` every frame (e.g. in `OnAfterUi`)
-- Guard `BodyRates` for NaN, especially when rotation is unlocked: `if (double.IsNaN(rates.X) || ...) rates = double3.zero;`
+- Guard `BodyRates` for NaN, especially when rotation is unlocked: `if (double.IsNaN(rates.X) || ...) rates = double3.Zero;`
 
 ## Euler to Quaternion (ZYX intrinsic)
 
@@ -480,9 +481,14 @@ Notable names: `Custard`, `RadioactiveGreen`, `Orangeish`, `GreenApple`, `Orangi
 
 # Game Menu Bar — Adding Top-Level Menus
 
-Custom top-level menus can be injected into the game's title bar menu (alongside File / Universe / View) using a Harmony **Transpiler** on `Program.DrawMenuBar`. This is the only viable approach because injection must happen inside the game's existing `ImGui.BeginMenuBar()` / `ImGui.EndMenuBar()` block. Setting `viewport.MenuBarInUse = true` inside the open menu is required to suppress game hotkeys and prevent the bar from auto-hiding.
+Custom top-level menus are injected via a plain Harmony **postfix on
+`Program.DrawProgramMenusHook()`** — an empty public extension point the game calls inside its
+`BeginMenuBar()` block right after the View menu (no IL rewriting; the old `DrawMenuBar`
+transpiler approach is obsolete and breaks on IL reshuffles). Setting
+`Program.MainViewport.MenuBarInUse = true` inside the open menu is required to suppress game
+hotkeys and prevent the bar from auto-hiding.
 
-See [game-menus.md](game-menus.md) for the complete pattern including the transpiler code, injection offset rationale, and all available ImGui menu calls.
+See [game-menus.md](game-menus.md) for the complete pattern and all available ImGui menu calls.
 
 To add items into the **existing View menu** (rather than a new top-level menu) the transpiler is overkill — a plain Harmony prefix on `GaugeCanvas.OnDrawMenuBar` (which the game calls inside the open View menu) works with no IL rewriting. See [gauges-orbits.md](gauges-orbits.md).
 
@@ -538,8 +544,10 @@ float4x4.CreateFromQuaternion(floatQuat)
 var music = ModLibrary.Get<MusicPlayList>("AssetName");
 music.PlayMusic(out ChannelWrapper? channel);
 
+// MultiSound.Play has no parameterless overload:
+// Play(SpatialAudio spatial, float volume, out IChannel? iChannel, bool startPaused = false)
 var sound = ModLibrary.Get<MultiSound>("AssetName");
-sound.Play();
+sound.Play(spatialAudio, 1.0f, out IChannel? channel2);
 ```
 
 Assets are defined in an `Assets.xml` file in the mod directory.

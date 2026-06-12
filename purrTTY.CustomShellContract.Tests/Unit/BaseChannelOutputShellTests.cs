@@ -206,11 +206,13 @@ public class BaseChannelOutputShellTests
         shell.CompleteStop();
         await stopTask;
 
-        // Wait a bit for pump to process
-        outputCount.Wait(TimeSpan.FromSeconds(2));
-
-        // Assert
-        Assert.That(outputReceived.Count, Is.GreaterThanOrEqualTo(3), "All queued output should be drained before stopping");
+        // Assert — StopAsync's contract is drain-before-return, so all three
+        // outputs must already be delivered with no extra wait. (Asserting via
+        // a timed wait here would hide a drain regression as a 2 s slowdown.)
+        lock (outputReceived)
+        {
+            Assert.That(outputReceived.Count, Is.EqualTo(3), "all queued output must be drained before StopAsync returns");
+        }
     }
 
     [Test]

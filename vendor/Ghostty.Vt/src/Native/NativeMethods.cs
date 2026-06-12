@@ -32,10 +32,6 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_terminal_get(nint terminal, int data, void* @out);
 
     [LibraryImport(LibraryName)]
-    internal static partial int ghostty_terminal_get_multi(
-        nint terminal, nuint count, int* keys, void** values, nuint* out_written);
-
-    [LibraryImport(LibraryName)]
     internal static partial int ghostty_terminal_set(
         nint terminal, int option, void* value);
 
@@ -45,19 +41,11 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_terminal_grid_ref(
         nint terminal, GhosttyPointNative point, GhosttyGridRefNative* out_ref);
 
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_terminal_point_from_grid_ref(
-        nint terminal, GhosttyGridRefNative* grid_ref, int tag, GhosttyPointCoordinateNative* @out);
-
     // --- Terminal mode ---
 
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_terminal_mode_get(
         nint terminal, uint mode, byte* out_value);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_terminal_mode_set(
-        nint terminal, uint mode, byte value);
 
     // --- Terminal scroll ---
 
@@ -129,12 +117,6 @@ internal static unsafe partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ghostty_render_state_row_cells_next(nint cells);
 
-    // ghostty_render_state_row_cells_select positions at a specific COLUMN (uint16_t x),
-    // NOT at a row. It is for random-access by column index.
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_render_state_row_cells_select(
-        nint cells, ushort x);
-
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_render_state_row_cells_get(
         nint cells, int data, void* @out);
@@ -148,28 +130,6 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_cell_get(ulong cell, int data, void* @out);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_render_state_get_multi(
-        nint state, nuint count, int* keys, void** values, nuint* out_written);
-
-    // --- Formatter lifecycle ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_formatter_terminal_new(
-        nint allocator, nint* formatter, nint terminal,
-        void* options);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_formatter_free(nint formatter);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_formatter_format_buf(
-        nint formatter, byte* buf, nuint buf_len, nuint* out_written);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_formatter_format_alloc(
-        nint formatter, nint allocator, byte** out_ptr, nuint* out_len);
 
     // --- Key encoder ---
 
@@ -261,120 +221,6 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName)]
     internal static partial void ghostty_key_event_set_utf8(nint key_event, byte* utf8, nuint len);
 
-    // --- OSC parser (note: function names changed from ghostty_osc_parser_* to ghostty_osc_*) ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_osc_new(
-        nint allocator, nint* parser);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_osc_free(nint parser);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_osc_reset(nint parser);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_osc_next(
-        nint parser, byte b);
-
-    [LibraryImport(LibraryName)]
-    internal static partial nint ghostty_osc_end(
-        nint parser, byte terminator);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_osc_command_type(nint command);
-
-    [LibraryImport(LibraryName)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool ghostty_osc_command_data(
-        nint command, int data, void* @out);
-
-    // --- SGR parser (note: function names changed from ghostty_sgr_parser_* to ghostty_sgr_*) ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_sgr_new(
-        nint allocator, nint* parser);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_sgr_free(nint parser);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_sgr_reset(nint parser);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_sgr_set_params(
-        nint parser, ushort* parameters, byte* separators, nuint len);
-
-    [LibraryImport(LibraryName)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool ghostty_sgr_next(nint parser, void* attr);
-
-    // --- Kitty graphics ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_get(
-        nint kitty, int data, void* @out);
-
-    [LibraryImport(LibraryName)]
-    internal static partial nint ghostty_kitty_graphics_image(
-        nint kitty, uint image_id);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_image_get(
-        nint image, int data, void* @out);
-
-    // --- Kitty graphics placement iterator ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_iterator_new(
-        nint allocator, nint* iter);
-
-    [LibraryImport(LibraryName)]
-    internal static partial void ghostty_kitty_graphics_placement_iterator_free(nint iter);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_iterator_set(
-        nint iter, int option, void* value);
-
-    [LibraryImport(LibraryName)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool ghostty_kitty_graphics_placement_next(nint iter);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_get(
-        nint placement, int data, void* @out);
-
-    // --- Kitty graphics placement computed methods ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_render_info(
-        nint placement, nint image, nint terminal, void* @out);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_rect(
-        nint placement, nint image, nint terminal, void* @out);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_pixel_size(
-        nint placement, nint image, nint terminal, uint* width, uint* height);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_grid_size(
-        nint placement, nint image, nint terminal, uint* cols, uint* rows);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_viewport_pos(
-        nint placement, nint image, nint terminal, int* col, int* row);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_kitty_graphics_placement_source_rect(
-        nint placement, nint image, uint* x, uint* y, uint* width, uint* height);
-
-    // --- Sys callbacks ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_sys_set(int option, void* value);
-
     // --- Grid ref introspection ---
 
     [LibraryImport(LibraryName)]
@@ -390,29 +236,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_grid_ref_style(void* gridRef, void* @out);
 
-    // --- Build info ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_build_info(int data, void* @out);
-
-    // --- Type introspection ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial byte* ghostty_type_json();
-
     // --- Allocator ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial byte* ghostty_alloc(nint allocator, nuint len);
+    // Only the free side is wrapped: the one native-allocated buffer purrtty
+    // receives is the selection-format result (Terminal.GetSelectionText).
 
     [LibraryImport(LibraryName)]
     internal static partial void ghostty_free(nint allocator, byte* ptr, nuint len);
-
-    // --- Focus ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_focus_encode(
-        int @event, byte* buf, nuint buf_len, nuint* out_written);
 
     // --- Paste ---
 
@@ -423,13 +252,6 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_paste_encode(
         byte* data, nuint data_len, [MarshalAs(UnmanagedType.Bool)] bool bracketed,
-        byte* buf, nuint buf_len, nuint* out_written);
-
-    // --- Size report ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_size_report_encode(
-        int style, GhosttySizeReportSizeNative size,
         byte* buf, nuint buf_len, nuint* out_written);
 }
 
@@ -457,15 +279,6 @@ internal struct GhosttyPointNative
     private ulong _pad2;  // remaining 8 bytes of 16-byte union
 }
 
-// Native struct matching GhosttyPointCoordinate: { uint16_t x, uint32_t y }
-[StructLayout(LayoutKind.Sequential)]
-internal struct GhosttyPointCoordinateNative
-{
-    public ushort X;
-    private ushort _pad;
-    public uint Y;
-}
-
 // Native struct matching GhosttyTerminalScrollViewport: { tag (int), value (union with intptr_t delta + padding) }
 [StructLayout(LayoutKind.Sequential)]
 internal struct GhosttyTerminalScrollViewportNative
@@ -475,19 +288,8 @@ internal struct GhosttyTerminalScrollViewportNative
     public nuint _padding1; // padding for the union
 }
 
-// Native struct matching GhosttyFormatterTerminalOptions (sized struct)
-[StructLayout(LayoutKind.Sequential)]
-internal struct GhosttyFormatterTerminalOptionsNative
-{
-    public nuint Size; // sizeof(GhosttyFormatterTerminalOptions)
-    public int Emit;   // GhosttyFormatterFormat enum
-    public byte Unwrap;
-    public byte Trim;
-    // GhosttyFormatterTerminalExtra extra — large struct, zero for now (all extras disabled)
-    // We set size to just cover the fields we use
-}
-
 // Native struct matching GhosttySizeReportSize: { uint16_t rows, uint16_t columns, uint32_t cell_width, uint32_t cell_height }
+// Used by the Size (in-band size report) terminal callback.
 [StructLayout(LayoutKind.Sequential)]
 internal struct GhosttySizeReportSizeNative
 {
@@ -515,18 +317,6 @@ internal struct GhosttyGridRefNative
     public ushort Y;
 }
 
-// Legacy alias for backward compat within the codebase
-[StructLayout(LayoutKind.Sequential)]
-internal struct PointNative
-{
-    public int Tag;
-    private int _pad0;
-    public ushort X;
-    private ushort _pad1;
-    public uint Y;
-    private ulong _pad2;
-}
-
 // Native struct matching GhosttyColorRgb: { uint8_t r, uint8_t g, uint8_t b }
 [StructLayout(LayoutKind.Sequential)]
 internal struct GhosttyColorRgbNative
@@ -546,25 +336,6 @@ internal struct GhosttyBufferNative
     public nuint Len;
 }
 
-// Native struct matching GhosttyKittyGraphicsPlacementRenderInfo (sized struct).
-[StructLayout(LayoutKind.Sequential)]
-internal struct GhosttyKittyPlacementRenderInfoNative
-{
-    public nuint Size;
-    public uint PixelWidth;
-    public uint PixelHeight;
-    public uint GridCols;
-    public uint GridRows;
-    public int ViewportCol;
-    public int ViewportRow;
-    public byte ViewportVisible;
-    private byte _pad0, _pad1, _pad2;
-    public uint SourceX;
-    public uint SourceY;
-    public uint SourceWidth;
-    public uint SourceHeight;
-}
-
 // Native struct matching GhosttySelection (sized struct, 64 bytes, align 8).
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct GhosttySelectionNative
@@ -574,16 +345,6 @@ internal unsafe struct GhosttySelectionNative
     public GhosttyGridRefNative End;
     public byte Rectangle;
     private fixed byte _padding[7];
-}
-
-// Native struct matching GhosttySysImage.
-[StructLayout(LayoutKind.Sequential)]
-internal unsafe struct GhosttySysImageNative
-{
-    public uint Width;
-    public uint Height;
-    public byte* Data;
-    public nuint DataLen;
 }
 
 // Native struct matching GhosttyMousePosition: { float x, float y }

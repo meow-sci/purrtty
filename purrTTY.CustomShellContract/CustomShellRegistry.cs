@@ -51,25 +51,24 @@ public class CustomShellRegistry
             throw new ArgumentNullException(nameof(factory));
         }
 
-        // Check if shell is already registered
-        if (_shellFactories.ContainsKey(shellId))
-        {
-            throw new ArgumentException($"Shell with ID '{shellId}' is already registered", nameof(shellId));
-        }
-
         try
         {
             // Validate the shell implementation by creating a temporary instance
             using var testInstance = factory();
             ValidateShellImplementation(testInstance, shellId);
 
+            // Store the factory atomically: TryAdd makes the duplicate check and
+            // the insert one operation (a ContainsKey-then-set pair lets two
+            // concurrent registrations of the same ID both pass the guard).
+            // Func<T> is covariant, so the factory is stored directly — no
+            // wrapping closure needed.
+            if (!_shellFactories.TryAdd(shellId, factory))
+            {
+                throw new ArgumentException($"Shell with ID '{shellId}' is already registered", nameof(shellId));
+            }
+
             // Store metadata from the test instance
-            var metadata = testInstance.Metadata;
-            _shellMetadata[shellId] = metadata;
-
-            // Store the factory function
-            _shellFactories[shellId] = () => factory();
-
+            _shellMetadata[shellId] = testInstance.Metadata;
         }
         catch (Exception ex) when (!(ex is ArgumentException || ex is ArgumentNullException))
         {
@@ -302,13 +301,21 @@ public class CustomShellRegistry
     {
         try
         {
-            ModLog.Log.Debug(message);
+            LogViaModLog(message);
         }
         catch
         {
             // Discovery and registration behavior must not depend on optional logging infrastructure.
         }
     }
+
+    // The ModLog reference lives in its own non-inlined method: resolving it can
+    // throw FileNotFoundException when the game logging assembly chain
+    // (purrTTY.Logging → Brutal.Logging) is absent — e.g. in a test host — and a
+    // JIT-time failure inside SafeLogDebug itself would escape its try/catch
+    // (and previously escaped DiscoverShells through its own catch handler).
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void LogViaModLog(string message) => ModLog.Log.Debug(message);
 
     /// <summary>
     ///     Validates that a custom shell implementation meets the requirements.

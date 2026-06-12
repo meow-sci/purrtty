@@ -17,13 +17,11 @@ internal static class ConPtyOutputPump
     ///     Returns a task representing the dedicated reader thread.
     /// </summary>
     /// <param name="outputHandle">The output pipe handle to read from</param>
-    /// <param name="getProcessId">Function to get the current process ID</param>
     /// <param name="onDataReceived">Callback invoked when data is received (receives byte array)</param>
     /// <param name="onProcessError">Callback invoked when an error occurs (receives exception and message)</param>
     /// <param name="cancellationToken">Cancellation token (checked between reads; teardown closes the pipe to unblock a pending read)</param>
     internal static Task ReadOutputAsync(
         IntPtr outputHandle,
-        Func<int?> getProcessId,
         Action<byte[]> onDataReceived,
         Action<Exception, string> onProcessError,
         CancellationToken cancellationToken)

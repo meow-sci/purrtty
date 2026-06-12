@@ -46,6 +46,11 @@ public class ProcessManager : IProcessManager
     private EventHandler? _exitedHandler;
     private PtyInputQueue? _inputQueue;
 
+    // Exit code retained across cleanup (CleanupProcess nulls _process before
+    // consumers like the tab label read it). Mirrors UnixProcessManager's
+    // _exitCode semantics: set on exit, reset on the next StartAsync.
+    private int? _lastExitCode;
+
     private IntPtr _pseudoConsole = IntPtr.Zero;
     private CancellationTokenSource? _readCancellationSource;
 
@@ -73,7 +78,22 @@ public class ProcessManager : IProcessManager
     /// <summary>
     ///     Gets the exit code of the last process, or null if no process has exited.
     /// </summary>
-    public int? ExitCode => ProcessStateManager.GetExitCode(_process, _processLock);
+    public int? ExitCode
+    {
+        get
+        {
+            int? live = ProcessStateManager.GetExitCode(_process, _processLock);
+            if (live is not null)
+            {
+                return live;
+            }
+
+            lock (_processLock)
+            {
+                return _lastExitCode;
+            }
+        }
+    }
 
     /// <summary>
     ///     Event raised when data is received from the shell process stdout/stderr.
@@ -119,6 +139,7 @@ public class ProcessManager : IProcessManager
 
             _starting = true;
             generation = ++_generation;
+            _lastExitCode = null; // new process — the previous exit code no longer applies
         }
 
         try
@@ -171,17 +192,23 @@ public class ProcessManager : IProcessManager
                 var exitedHandler = new EventHandler((sender, e) => OnProcessExited(sender, e, generation));
                 var process = ProcessLifecycleManager.WrapProcessHandle(processInfo, exitedHandler);
 
+                // Capture the pid for error reports: the ProcessId property reads
+                // the live Process, which is nulled by cleanup — a late pump/write
+                // error would otherwise carry no pid (the Unix manager captures
+                // spawn.Pid the same way).
+                int childPid = processInfo.dwProcessId;
+
                 lock (_processLock)
                 {
                     _process = process;
                     _exitedHandler = exitedHandler;
                     _readCancellationSource = new CancellationTokenSource();
                     CancellationToken readToken = _readCancellationSource.Token;
-                    _outputReadTask = ReadOutputAsync(readToken);
+                    _outputReadTask = ReadOutputAsync(readToken, childPid);
                     _inputQueue = new PtyInputQueue(
                         "purrTTY ConPTY input",
                         WriteChunkToPipe,
-                        (exception, message) => OnProcessError(new ProcessErrorEventArgs(exception, message, ProcessId)));
+                        (exception, message) => OnProcessError(new ProcessErrorEventArgs(exception, message, childPid)));
                 }
 
                 // Validate that the process started successfully
@@ -270,7 +297,7 @@ public class ProcessManager : IProcessManager
         {
             if (_process == null || _inputWriteHandle == IntPtr.Zero)
             {
-                throw new InvalidOperationException("No process is currently running");
+                throw new InvalidOperationException("No process is running");
             }
 
             queue = _inputQueue;
@@ -360,13 +387,13 @@ public class ProcessManager : IProcessManager
     ///     Reads data from the ConPTY output pipe asynchronously and raises DataReceived events.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    private Task ReadOutputAsync(CancellationToken cancellationToken)
+    /// <param name="childPid">The child pid, captured at start for error reports</param>
+    private Task ReadOutputAsync(CancellationToken cancellationToken, int childPid)
     {
         return ConPtyOutputPump.ReadOutputAsync(
             _outputReadHandle,
-            () => ProcessId,
             data => OnDataReceived(new DataReceivedEventArgs(data)),
-            (exception, message) => OnProcessError(new ProcessErrorEventArgs(exception, message, ProcessId)),
+            (exception, message) => OnProcessError(new ProcessErrorEventArgs(exception, message, childPid)),
             cancellationToken);
     }
 
@@ -398,7 +425,32 @@ public class ProcessManager : IProcessManager
     /// </summary>
     private void OnProcessExited(object? sender, EventArgs e, int generation)
     {
-        ProcessEvents.HandleProcessExited(sender, e, () => CleanupProcess(generation), ProcessExited, this);
+        // Gate the whole handler on the generation, not just the cleanup:
+        // detaching the Exited handler cannot recall an in-flight invocation,
+        // so after a restart a late callback would read the disposed previous
+        // process (snapshot degrades to 0/0) and raise a bogus ProcessExited
+        // against the fresh session. Mirrors UnixProcessManager.WaitForExit.
+        lock (_processLock)
+        {
+            if (generation != _generation)
+            {
+                return;
+            }
+        }
+
+        ProcessEvents.HandleProcessExited(
+            sender,
+            e,
+            () => CleanupProcess(generation),
+            ProcessExited,
+            this,
+            (exitCode, _) =>
+            {
+                lock (_processLock)
+                {
+                    _lastExitCode = exitCode;
+                }
+            });
     }
 
     /// <summary>
@@ -434,6 +486,7 @@ public class ProcessManager : IProcessManager
         IntPtr inputWrite;
         IntPtr outputRead;
 
+        CancellationTokenSource? cts;
         lock (_processLock)
         {
             if (generation != _generation)
@@ -441,8 +494,7 @@ public class ProcessManager : IProcessManager
                 return; // stale teardown (timed-out waiter / late exit callback) after a restart
             }
 
-            _readCancellationSource?.Cancel();
-            _readCancellationSource?.Dispose();
+            cts = _readCancellationSource;
             _readCancellationSource = null;
 
             ProcessCleanup.CleanupProcess(_process, _exitedHandler);
@@ -461,6 +513,20 @@ public class ProcessManager : IProcessManager
             _inputWriteHandle = IntPtr.Zero;
             outputRead = _outputReadHandle;
             _outputReadHandle = IntPtr.Zero;
+        }
+
+        // Cancel + dispose outside the lock, exactly like the Unix manager: a
+        // CTS callback must never run while _processLock is held.
+        if (cts != null)
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            finally
+            {
+                cts.Dispose();
+            }
         }
 
         if (pseudoConsole != IntPtr.Zero)

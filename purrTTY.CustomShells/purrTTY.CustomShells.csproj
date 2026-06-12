@@ -14,8 +14,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Deliberately contract-only: shells receive configuration (e.g. the game
+         prompt) via launch-option environment variables, never by referencing
+         the display layer's configuration types. -->
     <ProjectReference Include="..\purrTTY.CustomShellContract\purrTTY.CustomShellContract.csproj" />
-    <ProjectReference Include="..\purrTTY.Display\purrTTY.Display.csproj" />
   </ItemGroup>
 
   <ItemGroup>

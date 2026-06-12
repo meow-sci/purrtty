@@ -16,10 +16,11 @@ public static class GhosttySessionManagerFactory
 {
     private static bool _shellsDiscovered;
 
-    public static SessionManager CreateWithPersistedConfiguration(int maxSessions = 20, ILogger? logger = null)
-        => CreateSessionManager(ThemeConfiguration.Load(), maxSessions, logger);
-
-    /// <summary>Creates a session manager from an already-loaded configuration.</summary>
+    /// <summary>
+    /// Creates a session manager from an already-loaded configuration. Always
+    /// pass the controller's single <see cref="ThemeConfiguration"/> instance
+    /// (loading a second one here is the gotcha-6 config-revert trap).
+    /// </summary>
     public static SessionManager CreateSessionManager(
         ThemeConfiguration themeConfig,
         int maxSessions = 20,

@@ -38,9 +38,15 @@
     </ItemGroup>
 
     <ItemGroup>
-        <!-- KSA game DLLs for Harmony coordination and ConsoleWindow types -->
+        <!-- KSA game DLLs for Harmony coordination and ConsoleWindow types.
+             Brutal.ImGui carries ImColor8, which the OnConsolePrint capture
+             tests construct directly. -->
         <Reference Include="Brutal.ImGui.Abstractions" Condition="Exists('$(KSAFolder)/Brutal.ImGui.Abstractions.dll')">
             <HintPath>$(KSAFolder)/Brutal.ImGui.Abstractions.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="Brutal.ImGui" Condition="Exists('$(KSAFolder)/Brutal.ImGui.dll')">
+            <HintPath>$(KSAFolder)/Brutal.ImGui.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
@@ -53,7 +59,12 @@
         <None Include="$(KSAFolder)/Brutal.ImGui.Abstractions.dll" Condition="Exists('$(KSAFolder)/Brutal.ImGui.Abstractions.dll')">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
-        <None Include="$(KSAFolder)/Brutal.Core.Logging.dll" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+        <None Include="$(KSAFolder)/Brutal.ImGui.dll" Condition="Exists('$(KSAFolder)/Brutal.ImGui.dll')">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <!-- Transitive runtime closure of ImColor8 (byte4 / Color conversions
+             reach into the Brutal.Core.* assemblies). -->
+        <None Include="$(KSAFolder)/Brutal.Core.*.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>

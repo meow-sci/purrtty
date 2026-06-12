@@ -57,16 +57,6 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
     /// </summary>
     private readonly StringBuilder _escapeBuffer = new();
 
-    /// <summary>
-    ///     Terminal width in columns.
-    /// </summary>
-    private int _terminalWidth = 80;
-
-    /// <summary>
-    ///     Terminal height in rows.
-    /// </summary>
-    private int _terminalHeight = 24;
-
     // Control character constants
     /// <summary>Ctrl+C (cancel line)</summary>
     protected const byte CtrlC = 0x03;
@@ -105,7 +95,16 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
     /// <summary>
     ///     Gets the current cursor position for testing/inspection purposes.
     /// </summary>
-    protected int CursorPosition => _cursorPosition;
+    protected int CursorPosition
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _cursorPosition;
+            }
+        }
+    }
 
     /// <summary>
     ///     Abstract method called when user presses Enter to execute a command.
@@ -298,23 +297,33 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
             {
                 string trimmedCommand = commandLine.Trim();
 
-                // Add to history (avoid consecutive duplicates)
-                if (_commandHistory.Count == 0 || _commandHistory[^1] != trimmedCommand)
+                // History state shares _lock with the navigation handlers and
+                // the inspection properties; mutate it under the same lock
+                // (but run the command itself outside — it may re-enter).
+                lock (_lock)
                 {
-                    _commandHistory.Add(trimmedCommand);
-                }
+                    // Add to history (avoid consecutive duplicates)
+                    if (_commandHistory.Count == 0 || _commandHistory[^1] != trimmedCommand)
+                    {
+                        _commandHistory.Add(trimmedCommand);
+                    }
 
-                // Reset history navigation
-                _historyIndex = -1;
-                _savedCurrentLine = string.Empty;
+                    // Reset history navigation
+                    _historyIndex = -1;
+                    _savedCurrentLine = string.Empty;
+                }
 
                 ExecuteCommandLine(trimmedCommand);
             }
             else
             {
                 // Empty command, just show new prompt
-                _historyIndex = -1;
-                _savedCurrentLine = string.Empty;
+                lock (_lock)
+                {
+                    _historyIndex = -1;
+                    _savedCurrentLine = string.Empty;
+                }
+
                 SendPrompt();
             }
         }
@@ -378,13 +387,13 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
     /// </summary>
     private void NavigateHistoryUp()
     {
-        if (_commandHistory.Count == 0)
-        {
-            return;
-        }
-
         lock (_lock)
         {
+            if (_commandHistory.Count == 0)
+            {
+                return;
+            }
+
             // Save current line if starting navigation
             if (_historyIndex == -1)
             {
@@ -406,13 +415,13 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
     /// </summary>
     private void NavigateHistoryDown()
     {
-        if (_historyIndex == -1)
-        {
-            return; // Not navigating
-        }
-
         lock (_lock)
         {
+            if (_historyIndex == -1)
+            {
+                return; // Not navigating
+            }
+
             _historyIndex++;
 
             if (_historyIndex >= _commandHistory.Count)
@@ -586,9 +595,13 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
     }
 
     /// <summary>
-    ///     Handles Ctrl+C to cancel the current line and start fresh.
+    ///     Discards the current line buffer and resets history navigation.
+    ///     Shared by the Ctrl+C handler and shells implementing
+    ///     <see cref="ICustomShell.RequestCancellation"/> — a cancellation that
+    ///     only prints <c>^C</c> without this would leave the dismissed text to
+    ///     execute on the next Enter.
     /// </summary>
-    private void HandleCancelLine()
+    protected void CancelCurrentLine()
     {
         lock (_lock)
         {
@@ -597,7 +610,14 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
             _historyIndex = -1;
             _savedCurrentLine = string.Empty;
         }
+    }
 
+    /// <summary>
+    ///     Handles Ctrl+C to cancel the current line and start fresh.
+    /// </summary>
+    private void HandleCancelLine()
+    {
+        CancelCurrentLine();
         SendOutput("^C\r\n");
         SendOutput(GetPrompt());
     }
@@ -700,13 +720,4 @@ public abstract class BaseLineBufferedShell : BaseChannelOutputShell
         QueueOutput(data, ShellOutputType.Stderr);
     }
 
-    /// <inheritdoc />
-    public override void NotifyTerminalResize(int width, int height)
-    {
-        lock (_lock)
-        {
-            _terminalWidth = width;
-            _terminalHeight = height;
-        }
-    }
 }

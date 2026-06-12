@@ -2,8 +2,10 @@
 
 Transcribed from the BRUTAL `Brutal.ImGuiApi` sources so the skill needs no external
 files. The API mirrors upstream Dear ImGui v1.92.x (docking) with C# conventions.
-Namespaces: `Brutal.ImGuiApi` (core `ImGui` + types), `Brutal.ImGuiApi.Extensions`
-(`ImGuiEx`, `ImDrawList` `Add*`), `Brutal.ImGuiApi.Abstractions` (`ImGuiUtils`).
+Namespaces: `Brutal.ImGuiApi` (core `ImGui` + types **and** the `ImDrawListPtr` `Add*`
+extensions — `ImDrawListExtensions` lives here, not in `.Extensions`),
+`Brutal.ImGuiApi.Extensions` (`ImGuiEx` + a stray `AddEllipse(float rx, float ry, ...)`
+overload), `Brutal.ImGuiApi.Abstractions` (`ImGuiUtils`).
 Numeric types (`float2/3/4`, `int2/3/4`, `byte4`) live in `Brutal.Numerics`.
 
 ---
@@ -68,9 +70,9 @@ Members: `static ImString Empty`, `static ImString Null`, `bool IsEmpty`, `bool 
 - `ImGuiDragDropFlags`: SourceNoPreviewTooltip, SourceNoDisableHover, SourceNoHoldToOpenOthers, SourceAllowNullID, SourceExtern, PayloadAutoExpire, PayloadNoCrossContext, PayloadNoCrossProcess, AcceptBeforeDelivery, AcceptNoDrawDefaultRect, AcceptNoPreviewTooltip, AcceptPeekOnly
 - `ImGuiDataType` (not flags): S8, U8, S16, U16, S32, U32, S64, U64, Float, Double, Bool, String
 - `ImGuiMouseButton` (not flags): Left, Right, Middle
-- `ImGuiStyleVar` (not flags): Alpha, DisabledAlpha, WindowPadding, WindowRounding, WindowBorderSize, WindowMinSize, WindowTitleAlign, ChildRounding, ChildBorderSize, PopupRounding, PopupBorderSize, FramePadding, FrameRounding, FrameBorderSize, ItemSpacing, ItemInnerSpacing, IndentSpacing, CellPadding, ScrollbarSize, ScrollbarRounding, GrabMinSize, GrabRounding, ImageBorderSize, TabRounding, TabBorderSize, TabBarBorderSize, TabBarOverlineSize, ButtonTextAlign, SelectableTextAlign, SeparatorTextBorderSize, SeparatorTextAlign, SeparatorTextPadding, DockingSeparatorSize  *(`PushStyleVar` takes `float` for scalar vars or `float2` for the 2-component ones; also `PushStyleVarX`/`PushStyleVarY`)*
+- `ImGuiStyleVar` (not flags): Alpha, DisabledAlpha, WindowPadding, WindowRounding, WindowBorderSize, WindowMinSize, WindowTitleAlign, ChildRounding, ChildBorderSize, PopupRounding, PopupBorderSize, FramePadding, FrameRounding, FrameBorderSize, ItemSpacing, ItemInnerSpacing, IndentSpacing, CellPadding, ScrollbarSize, ScrollbarRounding, GrabMinSize, GrabRounding, ImageBorderSize, TabRounding, TabBorderSize, TabBarBorderSize, TabBarOverlineSize, TabMinWidthBase, TabMinWidthShrink, TableAngledHeadersAngle, TableAngledHeadersTextAlign, TreeLinesSize, TreeLinesRounding, ButtonTextAlign, SelectableTextAlign, SeparatorTextBorderSize, SeparatorTextAlign, SeparatorTextPadding, DockingSeparatorSize  *(`PushStyleVar` takes `float` for scalar vars or `float2` for the 2-component ones; also `PushStyleVarX`/`PushStyleVarY`)*
 - `ImGuiCol` (not flags): Text, TextDisabled, WindowBg, ChildBg, PopupBg, Border, BorderShadow, FrameBg, FrameBgHovered, FrameBgActive, TitleBg, TitleBgActive, TitleBgCollapsed, MenuBarBg, ScrollbarBg, ScrollbarGrab, ScrollbarGrabHovered, ScrollbarGrabActive, CheckMark, SliderGrab, SliderGrabActive, Button, ButtonHovered, ButtonActive, Header, HeaderHovered, HeaderActive, Separator, SeparatorHovered, SeparatorActive, ResizeGrip, ResizeGripHovered, ResizeGripActive, InputTextCursor, TabHovered, Tab, TabSelected, TabSelectedOverline, TabDimmed, TabDimmedSelected, TabDimmedSelectedOverline, DockingPreview, DockingEmptyBg, PlotLines, PlotLinesHovered, PlotHistogram, PlotHistogramHovered, TableHeaderBg, TableBorderStrong, TableBorderLight, TableRowBg, TableRowBgAlt, TextLink, TextSelectedBg, TreeLines, DragDropTarget, NavCursor, NavWindowingHighlight, NavWindowingDimBg, ModalWindowDimBg
-- `ImGuiKey`: full upstream key set — `A`..`Z`, `_0`..`_9` (digit keys are prefixed with `_`), `F1`..`F24`, `Keypad0`..`Keypad9`, arrows (`LeftArrow`/`RightArrow`/`UpArrow`/`DownArrow`), `Space`, `Enter`, `Escape`, `Backspace`, `Tab`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, modifiers (`LeftCtrl`/`RightCtrl`/`LeftShift`/`RightShift`/`LeftAlt`/`RightAlt`/`LeftSuper`/`RightSuper`), combined mods (`ModCtrl`/`ModShift`/`ModAlt`/`ModSuper`), mouse (`MouseLeft`/`MouseRight`/`MouseMiddle`/`MouseWheelX`/`MouseWheelY`), gamepad, etc. Use a `ImGuiKeyChord` (e.g. `ImGuiKey.ModCtrl | ImGuiKey.S`) for `Shortcut`/`IsKeyChordPressed`.
+- `ImGuiKey`: full upstream key set — `A`..`Z`, `_0`..`_9` (digit keys are prefixed with `_`), `F1`..`F24`, `Keypad0`..`Keypad9`, arrows (`LeftArrow`/`RightArrow`/`UpArrow`/`DownArrow`), `Space`, `Enter`, `Escape`, `Backspace`, `Tab`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, modifiers (`LeftCtrl`/`RightCtrl`/`LeftShift`/`RightShift`/`LeftAlt`/`RightAlt`/`LeftSuper`/`RightSuper`), combined mods (`Mod_Ctrl`/`Mod_Shift`/`Mod_Alt`/`Mod_Super` — note the underscore in the BRUTAL binding), mouse (`MouseLeft`/`MouseRight`/`MouseMiddle`/`MouseWheelX`/`MouseWheelY`), gamepad, etc. Use a `ImGuiKeyChord` (e.g. `ImGuiKey.Mod_Ctrl | ImGuiKey.S`) for `Shortcut`/`IsKeyChordPressed`.
 
 ---
 
@@ -100,7 +102,7 @@ void SetLastFocusOnAppearing(bool force = false)
 void TextShadow(ImString text, ImColor8 color)
 ```
 
-### `ImDrawListPtr` extensions (`using Brutal.ImGuiApi.Extensions;`) — colors are `ImColor8`
+### `ImDrawListPtr` extensions (`using Brutal.ImGuiApi;` — they live in the core namespace) — colors are `ImColor8`
 Obtain a list via `ImGui.GetWindowDrawList()` / `GetForegroundDrawList()` / `GetBackgroundDrawList()`.
 ```csharp
 void AddLine(in float2 p1, in float2 p2, ImColor8 col, float thickness = 1f)

@@ -16,12 +16,14 @@ internal static class ProcessEvents
     /// <param name="cleanupProcess">Callback to perform process cleanup</param>
     /// <param name="processExitedHandler">The ProcessExited event handler to invoke</param>
     /// <param name="eventSender">The object to use as sender when raising ProcessExited event</param>
+    /// <param name="recordExit">Invoked with (exitCode, processId) before cleanup, so the manager can retain the exit code past process disposal</param>
     internal static void HandleProcessExited(
         object? sender,
         EventArgs e,
         Action cleanupProcess,
         EventHandler<ProcessExitedEventArgs>? processExitedHandler,
-        object eventSender)
+        object eventSender,
+        Action<int, int>? recordExit = null)
     {
         if (sender is SysProcess process)
         {
@@ -39,6 +41,8 @@ internal static class ProcessEvents
             {
                 // Process disposed (or its handle closed) before we could read it.
             }
+
+            recordExit?.Invoke(exitCode, processId);
 
             // Clean up resources
             cleanupProcess();

@@ -11,9 +11,10 @@ public sealed unsafe partial class Terminal : IDisposable
     private readonly TerminalSafeHandle _handle;
     private readonly TerminalOptions? _options;
 
-    // Persistent pins for the Enquiry/Xtversion return-value callbacks. The
-    // native side reads the returned GhosttyString after the managed callback
-    // returns, so the backing array must outlive the callback (see RegisterCallbacks).
+    // purrtty fix: persistent pins for the Enquiry/Xtversion return-value
+    // callbacks. The native side reads the returned GhosttyString after the
+    // managed callback returns, so the backing array must outlive the callback
+    // (see RegisterCallbacks); upstream returned a pin freed inside the callback.
     private GCHandle _enquiryReplyPin;
     private GCHandle _xtversionReplyPin;
 
@@ -191,8 +192,6 @@ public sealed unsafe partial class Terminal : IDisposable
             NativeMethods.ghostty_terminal_set(handle, 8, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
-        // PwdChanged is not a native callback — it's observed via OnTitleChanged + reading Pwd.
-        // The native API doesn't have a dedicated PWD callback.
     }
 
     // --- VT Input ---
@@ -228,18 +227,6 @@ public sealed unsafe partial class Terminal : IDisposable
     public int HeightPx => QueryInt(TerminalData.HeightPx);
     public bool MouseTracking => QueryInt(TerminalData.MouseTracking) != 0;
 
-    public unsafe KittyKeyFlags KittyKeyboardFlags
-    {
-        get
-        {
-            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            byte value = 0;
-            NativeMethods.ghostty_terminal_get(
-                _handle.DangerousGetHandle(), (int)TerminalData.KittyKeyboardFlags, &value);
-            return (KittyKeyFlags)value;
-        }
-    }
-
     public unsafe Types.Scrollbar Scrollbar
     {
         get
@@ -255,57 +242,12 @@ public sealed unsafe partial class Terminal : IDisposable
         }
     }
 
-    public int ScrollOffset => (int)QueryScrollbarNative().Offset;
-
     public string? Title
     {
         get
         {
             ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
             return QueryString(TerminalData.Title);
-        }
-    }
-
-    public string? Pwd
-    {
-        get
-        {
-            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            return QueryString(TerminalData.Pwd);
-        }
-    }
-
-    public unsafe void SetPwd(string? pwd)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        if (pwd == null)
-        {
-            NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 10 /* OPT_PWD */, null);
-            return;
-        }
-        var bytes = System.Text.Encoding.UTF8.GetBytes(pwd);
-        fixed (byte* ptr = bytes)
-        {
-            GhosttyStringNative gs;
-            gs.Ptr = (nint)ptr;
-            gs.Len = (nuint)bytes.Length;
-            NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 10 /* OPT_PWD */, &gs);
-        }
-    }
-
-    public unsafe void SetTitle(string title)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(title ?? string.Empty);
-        fixed (byte* ptr = bytes)
-        {
-            GhosttyStringNative gs;
-            gs.Ptr = (nint)ptr;
-            gs.Len = (nuint)bytes.Length;
-            NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 9 /* OPT_TITLE */, &gs);
         }
     }
 
@@ -371,30 +313,6 @@ public sealed unsafe partial class Terminal : IDisposable
         }
     }
 
-    // --- Batch state queries ---
-    /// <summary>
-    /// Queries multiple terminal data fields in a single native call.
-    /// Each element in <paramref name="keys"/> specifies a data kind, and the
-    /// corresponding element in <paramref name="values"/> must be a pointer to
-    /// a variable whose type matches the output type for that key (see
-    /// GhosttyTerminalData in the upstream C header).
-    /// </summary>
-    public unsafe void GetMulti(ReadOnlySpan<TerminalData> keys, void** values)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        if (keys.Length == 0) return;
-
-        fixed (TerminalData* keyPtr = keys)
-        {
-            NativeMethods.ghostty_terminal_get_multi(
-                _handle.DangerousGetHandle(),
-                (nuint)keys.Length,
-                (int*)keyPtr,
-                values,
-                null); // out_written — not needed
-        }
-    }
-
     // --- Operations ---
     public void Resize(int cols, int rows, int cellWidthPx = 0, int cellHeightPx = 0)
     {
@@ -421,13 +339,6 @@ public sealed unsafe partial class Terminal : IDisposable
         NativeMethods.ghostty_terminal_mode_get(
             _handle.DangerousGetHandle(), (uint)mode, &value);
         return value != 0;
-    }
-
-    public void ModeSet(TerminalMode mode, bool value)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        NativeMethods.ghostty_terminal_mode_set(
-            _handle.DangerousGetHandle(), (uint)mode, (byte)(value ? 1 : 0));
     }
 
     public void ScrollViewportToTop()
@@ -467,38 +378,6 @@ public sealed unsafe partial class Terminal : IDisposable
         return new GridRef(gridRef, this);
     }
 
-    public unsafe Point PointFromGridRef(GridRef gridRef)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        GhosttyGridRefNative nativeRef = gridRef.Native;
-        // Ensure size is set for the sized struct
-        nativeRef.Size = (nuint)sizeof(GhosttyGridRefNative);
-        GhosttyPointCoordinateNative coord;
-        NativeMethods.ghostty_terminal_point_from_grid_ref(
-            _handle.DangerousGetHandle(),
-            &nativeRef,
-            0, // active tag
-            &coord);
-        return new Point { Tag = (PointTag)0, X = coord.X, Y = (int)coord.Y };
-    }
-
-    // --- Formatter factory ---
-    public Formatter CreateFormatter(FormatterFormat format, Action<FormatterOptions>? configure = null)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        return new Formatter(_handle.DangerousGetHandle(), format, configure);
-    }
-
-    // --- Kitty graphics accessor (borrowed, ref struct) ---
-    public KittyGraphicsAccessor KittyGraphics
-    {
-        get
-        {
-            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            return new KittyGraphicsAccessor(this);
-        }
-    }
-
     // --- Internal ---
     internal nint NativeHandle => _handle.DangerousGetHandle();
 
@@ -506,7 +385,10 @@ public sealed unsafe partial class Terminal : IDisposable
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         // Allocate 8 bytes to safely receive any scalar type:
-        // uint16_t, bool, int enum, size_t, uint32_t
+        // uint16_t, bool, int enum, size_t, uint32_t. The explicit `= 0` is
+        // load-bearing: the native side writes only sizeof(actual type) bytes,
+        // and the upper bytes must be zero for the (int) narrowing to be
+        // correct on every key (do not rely on implicit .locals init).
         long value = 0;
         NativeMethods.ghostty_terminal_get(
             _handle.DangerousGetHandle(), (int)data, &value);
@@ -530,64 +412,6 @@ public sealed unsafe partial class Terminal : IDisposable
         NativeMethods.ghostty_terminal_get(
             _handle.DangerousGetHandle(), (int)TerminalData.Scrollbar, &sb);
         return sb;
-    }
-
-    private unsafe ColorRgb? QueryColor(TerminalData data)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        var native = default(GhosttyColorRgbNative);
-        var result = NativeMethods.ghostty_terminal_get(
-            _handle.DangerousGetHandle(), (int)data, &native);
-        // Non-zero result means no value / not set
-        if (result != 0)
-            return null;
-        return new ColorRgb { R = native.R, G = native.G, B = native.B };
-    }
-
-    public ColorRgb? ColorForeground => QueryColor(TerminalData.ColorForeground);
-    public ColorRgb? ColorForegroundDefault => QueryColor(TerminalData.ColorForegroundDefault);
-
-    public ColorRgb? ColorBackground => QueryColor(TerminalData.ColorBackground);
-    public ColorRgb? ColorBackgroundDefault => QueryColor(TerminalData.ColorBackgroundDefault);
-
-    public ColorRgb? ColorCursor => QueryColor(TerminalData.ColorCursor);
-    public ColorRgb? ColorCursorDefault => QueryColor(TerminalData.ColorCursorDefault);
-
-    public unsafe ColorRgb[] ColorPalette => QueryPalette(TerminalData.ColorPalette);
-
-    public unsafe ColorRgb[] ColorPaletteDefault
-    {
-        get
-        {
-            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            var palette = new GhosttyColorRgbNative[256];
-            fixed (GhosttyColorRgbNative* ptr = palette)
-            {
-                var result = NativeMethods.ghostty_terminal_get(
-                    _handle.DangerousGetHandle(), (int)TerminalData.ColorPaletteDefault, ptr);
-                GhosttyException.ThrowIfFailure(result);
-            }
-            var colors = new ColorRgb[256];
-            for (int i = 0; i < 256; i++)
-                colors[i] = new ColorRgb { R = palette[i].R, G = palette[i].G, B = palette[i].B };
-            return colors;
-        }
-    }
-
-    private unsafe ColorRgb[] QueryPalette(TerminalData data)
-    {
-        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        var palette = new GhosttyColorRgbNative[256];
-        fixed (GhosttyColorRgbNative* ptr = palette)
-        {
-            var result = NativeMethods.ghostty_terminal_get(
-                _handle.DangerousGetHandle(), (int)data, ptr);
-            GhosttyException.ThrowIfFailure(result);
-        }
-        var colors = new ColorRgb[256];
-        for (int i = 0; i < 256; i++)
-            colors[i] = new ColorRgb { R = palette[i].R, G = palette[i].G, B = palette[i].B };
-        return colors;
     }
 
     public void Dispose()

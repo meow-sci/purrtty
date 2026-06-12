@@ -73,7 +73,7 @@ internal static class ProcessStateManager
     {
         if (process == null || process.HasExited)
         {
-            throw new InvalidOperationException("No process is currently running");
+            throw new InvalidOperationException("No process is running");
         }
 
         if (pseudoConsole == IntPtr.Zero)

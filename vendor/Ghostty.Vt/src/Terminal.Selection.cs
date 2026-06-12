@@ -103,7 +103,10 @@ public sealed unsafe partial class Terminal
         get
         {
             ObjectDisposedException.ThrowIf(NativeHandle == nint.Zero, this);
-            GhosttySelectionNative sel = default;
+            // Sized struct: the documented ABI requires Size set even on out
+            // params (the current pin happens to overwrite without checking,
+            // but honor the contract so a pin bump can't break this).
+            var sel = new GhosttySelectionNative { Size = (nuint)sizeof(GhosttySelectionNative) };
             return NativeMethods.ghostty_terminal_get(NativeHandle, DataSelection, &sel) == 0;
         }
     }
@@ -129,7 +132,7 @@ public sealed unsafe partial class Terminal
             BoundaryCodepoints = null,
             BoundaryCodepointsLen = 0,
         };
-        GhosttySelectionNative sel = default;
+        var sel = new GhosttySelectionNative { Size = (nuint)sizeof(GhosttySelectionNative) };
         if (NativeMethods.ghostty_terminal_select_word(NativeHandle, &opts, &sel) != 0)
             return false;
         NativeMethods.ghostty_terminal_set(NativeHandle, OptSelection, &sel);
@@ -151,7 +154,7 @@ public sealed unsafe partial class Terminal
             WhitespaceLen = 0,
             SemanticPromptBoundary = 0,
         };
-        GhosttySelectionNative sel = default;
+        var sel = new GhosttySelectionNative { Size = (nuint)sizeof(GhosttySelectionNative) };
         if (NativeMethods.ghostty_terminal_select_line(NativeHandle, &opts, &sel) != 0)
             return false;
         NativeMethods.ghostty_terminal_set(NativeHandle, OptSelection, &sel);
@@ -165,7 +168,7 @@ public sealed unsafe partial class Terminal
     public bool SelectAll()
     {
         ObjectDisposedException.ThrowIf(NativeHandle == nint.Zero, this);
-        GhosttySelectionNative sel = default;
+        var sel = new GhosttySelectionNative { Size = (nuint)sizeof(GhosttySelectionNative) };
         if (NativeMethods.ghostty_terminal_select_all(NativeHandle, &sel) != 0)
             return false;
         NativeMethods.ghostty_terminal_set(NativeHandle, OptSelection, &sel);

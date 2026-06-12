@@ -68,6 +68,11 @@ internal static class Patcher
   {
     m_harmony?.UnpatchAll("purrTTY");
     m_harmony = null;
+
+    // Statics survive a StarMap reload without an ALC unload (same reason
+    // m_harmony is recreated lazily above), so cached environment probes must
+    // be re-evaluated by the next patch() — the mod set may have changed.
+    Patch02.Reset();
   }
 }
 
@@ -82,6 +87,9 @@ internal static class Patcher
 static class Patch02
 {
   private static bool? s_isModMenuEnabled;
+
+  /// <summary>Drops the cached ModMenu-presence probe (called on unload; see Patcher.unload).</summary>
+  internal static void Reset() => s_isModMenuEnabled = null;
 
   [HarmonyPostfix]
   public static void Postfix()

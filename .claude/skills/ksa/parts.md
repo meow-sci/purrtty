@@ -263,7 +263,7 @@ These are set per-Part and the shader picks them up automatically during renderi
 - `ModLibrary.Get<PartTemplate>(id)` — works; throws `NullReferenceException` if not found
 - `ModLibrary.Get<MeshReference>(id)` — works; throws if not found
 - `ModLibrary.TryGet<MeshReference>(id, out var mesh)` — **does NOT work** for `MeshReference` (the `TryGet` method has no branch for `MeshReference` type and always returns false). Use `Get<MeshReference>` with try/catch instead.
-- `ModLibrary.TryGet<T>` supported types: `FileReference`, `SoundBehavior`, `PbrMaterialReference`, `GaugeCanvas`, `GaugeComponent`, `AstronomicalTemplate`, `SpatialSoundData`, `SoundGroupData`, `CharacterReference` and variants, `SituationTemplate`
+- `ModLibrary.TryGet<T>` supported types (non-exhaustive — the decompiled `ModLibrary.TryGet` switch is the authority): `FileReference`, `SoundBehavior`, `PbrMaterialReference`, `GaugeCanvas`, `GaugeComponent`, `AstronomicalTemplate`, `SpatialSoundData`, `SoundGroupData`, `CharacterReference` and variants, `SituationTemplate`, `ParticleEmitterReference`, `DistantGlintReference`, `ChannelGroupReference`, `DspReference`, and more — notably still **no** `PartTemplate` or `MeshReference` branch
 
 ## Coordinate Spaces for Part Positioning
 

@@ -79,15 +79,6 @@ public static class WslDistributionDetector
     }
 
     /// <summary>
-    /// Checks if WSL is available on the system.
-    /// </summary>
-    /// <returns>True if WSL is available, false otherwise</returns>
-    public static bool IsWslAvailable()
-    {
-        return ShellAvailabilityChecker.IsShellAvailable(ShellType.Wsl);
-    }
-
-    /// <summary>
     /// Clears the cached distribution list, forcing a refresh on the next call to GetInstalledDistributions.
     /// </summary>
     public static void ClearCache()
@@ -152,7 +143,15 @@ public static class WslDistributionDetector
                 return distributions;
             }
 
-            string output = outputTask.GetAwaiter().GetResult();
+            // WaitForExit(timeout) does not wait for redirected-output EOF; if a
+            // grandchild inherited the stdout handle the read could outlive the
+            // child indefinitely. Bound it like everything else here.
+            if (!outputTask.Wait(WslListTimeoutMs))
+            {
+                return distributions;
+            }
+
+            string output = outputTask.Result;
 
             // Parse output - each line is a distribution name
             var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);

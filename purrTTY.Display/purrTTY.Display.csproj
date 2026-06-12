@@ -29,6 +29,13 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- The theming tests reach internal helpers (ThemeTomlFormat, AtomicFile). -->
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>purrTTY.Display.Tests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+    <ItemGroup>
         <!-- Managed assembly references (only added if the file exists) -->
         <Reference Include="Brutal.Glfw" Condition="Exists('$(KSAFolder)/Brutal.Glfw.dll')">
             <HintPath>$(KSAFolder)/Brutal.Glfw.dll</HintPath>

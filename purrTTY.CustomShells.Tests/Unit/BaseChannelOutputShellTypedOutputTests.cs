@@ -31,9 +31,20 @@ public class BaseChannelOutputShellTypedOutputTests
     private async Task WaitForCapturedCountAsync(int expectedCount, int timeoutMs = 2000)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        while (_capturedOutput.Count < expectedCount && stopwatch.ElapsedMilliseconds < timeoutMs)
+        while (CapturedCount() < expectedCount && stopwatch.ElapsedMilliseconds < timeoutMs)
         {
             await Task.Delay(1);
+        }
+
+        // The list is appended from the pump thread; reads must take the same
+        // lock the subscriber's Add holds (an unsynchronized List<T> read can
+        // observe a torn internal-array growth).
+        int CapturedCount()
+        {
+            lock (_capturedOutput)
+            {
+                return _capturedOutput.Count;
+            }
         }
     }
 
@@ -234,12 +245,16 @@ public class BaseChannelOutputShellTypedOutputTests
         {
             _capturedOutput = capturedOutput;
 
-            // Subscribe to output events to capture for assertions
+            // Subscribe to output events to capture for assertions. Runs on the
+            // pump thread — synchronize with the test thread's reads.
             OutputReceived += (sender, args) =>
             {
                 // Copy the data since it's a ReadOnlyMemory
                 var dataCopy = args.Data.ToArray();
-                _capturedOutput.Add((dataCopy, args.OutputType));
+                lock (_capturedOutput)
+                {
+                    _capturedOutput.Add((dataCopy, args.OutputType));
+                }
             };
         }
 

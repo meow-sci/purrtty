@@ -14,57 +14,6 @@ using TKeyMods = PurrTTY.Terminal.Input.KeyModifiers;
 namespace purrTTY.Display.Ghostty;
 
 /// <summary>
-/// The live display settings of one terminal window. Mutated by the game menus
-/// (font/opacity sliders, theme application) and snapshotted by "save current
-/// settings as theme".
-/// </summary>
-public sealed class TerminalWindowSettings
-{
-    public string ThemeName { get; set; } = "Default";
-    public ThemeColors Colors { get; set; } = new();
-    public string FontFamily { get; set; } = "Hack";
-    public float FontSize { get; set; } = 32f;
-    public float BackgroundOpacity { get; set; } = 1f;
-    public float ForegroundOpacity { get; set; } = 1f;
-    public float CellBackgroundOpacity { get; set; } = 1f;
-
-    /// <summary>Default cursor shape (Block/Bar/Underline); apps may still override via DECSCUSR.</summary>
-    public CursorShape CursorStyle { get; set; } = CursorShape.Block;
-
-    /// <summary>Whether the default cursor blinks (animated by the controller's shared phase).</summary>
-    public bool CursorBlink { get; set; } = true;
-
-    /// <summary>Draw a border around the window while it holds ImGui focus.</summary>
-    public bool BorderOnFocus { get; set; }
-
-    /// <summary>Draw a border around the window while the mouse is over it.</summary>
-    public bool BorderOnHover { get; set; }
-
-    /// <summary>Opacity of the focus/hover border (0..1).</summary>
-    public float BorderOpacity { get; set; } = 0.5f;
-
-    /// <summary>
-    /// Lock mode: while the window is not focused, mouse input passes through
-    /// the terminal to the game. Refocus via the hot zone, menu, or hotkey.
-    /// </summary>
-    public bool LockMode { get; set; }
-
-    /// <summary>Show the click-to-focus hot zone while lock mode has the window click-through.</summary>
-    public bool HotZoneEnabled { get; set; } = true;
-
-    public HotZonePlacement HotZonePlacement { get; set; } = HotZonePlacement.TopRight;
-    public float HotZoneWidth { get; set; } = 28f;
-    public float HotZoneHeight { get; set; } = 28f;
-    public RgbaColor HotZoneColor { get; set; } = new(0x4E, 0x9A, 0xE9);
-
-    /// <summary>Hot zone fill opacity while idle (0 = invisible until hovered).</summary>
-    public float HotZoneOpacity { get; set; } = 0.25f;
-
-    /// <summary>Hot zone fill opacity while hovered.</summary>
-    public float HotZoneHoverOpacity { get; set; } = 0.6f;
-}
-
-/// <summary>
 /// One ImGui terminal window. Owns a <see cref="SessionManager"/> whose sessions
 /// are presented as tabs (the tab bar is hidden while there is a single tab),
 /// applies per-window theme/font/opacity settings, and hides all window chrome
@@ -220,8 +169,13 @@ public sealed class TerminalWindow : IDisposable
     /// <summary>Raised when this window gains or loses ImGui focus.</summary>
     public event Action<TerminalWindow, bool>? FocusChanged;
 
-    /// <summary>Raised with the raw bytes of any user input sent to the active session.</summary>
-    public event Action<byte[]>? DataInput;
+    /// <summary>
+    /// Raised whenever user input (key, mouse report, paste) was sent to the
+    /// active session. Deliberately payload-free: the only consumer is the
+    /// controller's blink-phase reset, and copying the bytes per keystroke was
+    /// avoidable garbage.
+    /// </summary>
+    public event Action? InputSent;
 
     public TerminalWindow(
         int id,
@@ -270,9 +224,13 @@ public sealed class TerminalWindow : IDisposable
             return;
         }
 
-        foreach (var session in Sessions.Sessions)
+        // Indexed loop: Sessions is an IReadOnlyList-typed array snapshot, and
+        // a foreach through the interface allocates an enumerator (this and the
+        // loops in Render run every frame / on the hidden-drain cadence).
+        var sessions = Sessions.Sessions;
+        for (int i = 0; i < sessions.Count; i++)
         {
-            session.Surface.BuildFrame();
+            sessions[i].Surface.BuildFrame();
         }
     }
 
@@ -294,96 +252,7 @@ public sealed class TerminalWindow : IDisposable
     {
         Settings.ThemeName = theme.Name;
         Settings.Colors = theme.Colors.Clone();
-
-        if (theme.FontFamily is { } family)
-        {
-            Settings.FontFamily = family;
-        }
-
-        if (theme.FontSize is { } size)
-        {
-            Settings.FontSize = Math.Clamp(size, Controllers.LayoutConstants.MIN_FONT_SIZE, Controllers.LayoutConstants.MAX_FONT_SIZE);
-        }
-
-        if (theme.BackgroundOpacity is { } bg)
-        {
-            Settings.BackgroundOpacity = Math.Clamp(bg, 0f, 1f);
-        }
-
-        if (theme.ForegroundOpacity is { } fg)
-        {
-            Settings.ForegroundOpacity = Math.Clamp(fg, 0f, 1f);
-        }
-
-        if (theme.CellBackgroundOpacity is { } cell)
-        {
-            Settings.CellBackgroundOpacity = Math.Clamp(cell, 0f, 1f);
-        }
-
-        if (theme.CursorStyle is { } cursorStyle)
-        {
-            Settings.CursorStyle = cursorStyle;
-        }
-
-        if (theme.CursorBlink is { } cursorBlink)
-        {
-            Settings.CursorBlink = cursorBlink;
-        }
-
-        if (theme.BorderOnFocus is { } borderOnFocus)
-        {
-            Settings.BorderOnFocus = borderOnFocus;
-        }
-
-        if (theme.BorderOnHover is { } borderOnHover)
-        {
-            Settings.BorderOnHover = borderOnHover;
-        }
-
-        if (theme.BorderOpacity is { } borderOpacity)
-        {
-            Settings.BorderOpacity = Math.Clamp(borderOpacity, 0f, 1f);
-        }
-
-        if (theme.LockMode is { } lockMode)
-        {
-            Settings.LockMode = lockMode;
-        }
-
-        if (theme.HotZoneEnabled is { } hotZoneEnabled)
-        {
-            Settings.HotZoneEnabled = hotZoneEnabled;
-        }
-
-        if (theme.HotZonePlacement is { } hotZonePlacement)
-        {
-            Settings.HotZonePlacement = hotZonePlacement;
-        }
-
-        if (theme.HotZoneWidth is { } hotZoneWidth)
-        {
-            Settings.HotZoneWidth = Math.Clamp(hotZoneWidth, MinHotZoneSize, MaxHotZoneSize);
-        }
-
-        if (theme.HotZoneHeight is { } hotZoneHeight)
-        {
-            Settings.HotZoneHeight = Math.Clamp(hotZoneHeight, MinHotZoneSize, MaxHotZoneSize);
-        }
-
-        if (theme.HotZoneColor is { } hotZoneColor)
-        {
-            Settings.HotZoneColor = hotZoneColor;
-        }
-
-        if (theme.HotZoneOpacity is { } hotZoneOpacity)
-        {
-            Settings.HotZoneOpacity = Math.Clamp(hotZoneOpacity, 0f, 1f);
-        }
-
-        if (theme.HotZoneHoverOpacity is { } hotZoneHoverOpacity)
-        {
-            Settings.HotZoneHoverOpacity = Math.Clamp(hotZoneHoverOpacity, 0f, 1f);
-        }
+        Settings.ApplyThemeOverrides(theme);
 
         PushThemeToSessions();
         ApplyCursorStyleToSessions();
@@ -480,7 +349,11 @@ public sealed class TerminalWindow : IDisposable
         // game UI. A pending focus request (hot zone click, menu action, toggle
         // hotkey) restores input on the same frame the focus is applied, so
         // there is never a frame where a freshly focused window ignores input.
-        bool clickThrough = Settings.LockMode && !_hasFocus && !_wantFocus;
+        // The open context menu counts as focus (it steals ImGui window focus —
+        // same reasoning as the controller's key gate): without it, right-
+        // clicking a locked terminal turned it click-through under its own
+        // popup and stranded it unfocused when the popup closed.
+        bool clickThrough = Settings.LockMode && !_hasFocus && !_wantFocus && !IsContextMenuOpen;
 
         // While click-through, hovering must not reveal chrome the mouse cannot
         // interact with — the hot zone (and optional hover border) are the only
@@ -645,12 +518,14 @@ public sealed class TerminalWindow : IDisposable
         // Tick every non-active tab too: the PTY pumps never sleep and a
         // surface inbox only drains inside BuildFrame, so an unticked chatty
         // background tab grows its inbox until the safety cap drops output.
-        // Dirty tracking makes ticking a quiet session nearly free.
-        foreach (var background in Sessions.Sessions)
+        // Dirty tracking makes ticking a quiet session nearly free. (Indexed:
+        // see DrainSessions.)
+        var allSessions = Sessions.Sessions;
+        for (int i = 0; i < allSessions.Count; i++)
         {
-            if (!ReferenceEquals(background, session))
+            if (!ReferenceEquals(allSessions[i], session))
             {
-                background.Surface.BuildFrame();
+                allSessions[i].Surface.BuildFrame();
             }
         }
 
@@ -832,13 +707,19 @@ public sealed class TerminalWindow : IDisposable
         if (ImGui.BeginTabBar("##session_tabs",
                 ImGuiTabBarFlags.Reorderable | ImGuiTabBarFlags.AutoSelectNewTabs | ImGuiTabBarFlags.FittingPolicyScroll))
         {
-            foreach (var session in sessions)
+            for (int i = 0; i < sessions.Count; i++)
             {
+                var session = sessions[i];
                 bool isActive = active != null && session.Id == active.Id;
                 var tabFlags = isActive && activeChanged ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
                 bool open = true;
                 if (ImGui.BeginTabItem(TabLabel(session), ref open, tabFlags))
                 {
+                    // The !activeChanged guard is load-bearing: on the frame
+                    // after an external active-session change (new tab created,
+                    // active closed), ImGui still reports the *previous* tab as
+                    // selected — switching on that stale report would instantly
+                    // revert the change the SetSelected flag above is applying.
                     if (!isActive && !activeChanged)
                     {
                         Sessions.SwitchToSession(session.Id);
@@ -939,12 +820,19 @@ public sealed class TerminalWindow : IDisposable
             }
         }
 
+        // AltGr (Windows international layouts) is delivered as Ctrl+Alt with
+        // the produced character in the ImGui character queue. When both are
+        // held AND text arrived, the text is what the user typed (@, {, €, ...)
+        // — prefer it over a spurious Ctrl+Alt chord. This is the standard
+        // terminal heuristic (ghostty/wezterm/Windows Terminal).
+        bool altGrText = io.KeyCtrl && io.KeyAlt && io.InputQueueCharacters.Count > 0;
+
         // Ctrl/Alt-modified keys never enter the ImGui character queue, so they
         // are encoded from key presses: Ctrl+letter controls, Alt+letter Meta
         // chords (readline Alt+B/F/D, Emacs, mc), Ctrl/Alt+digit, and the Ctrl
         // punctuation controls (NUL/ESC/FS/GS). The engine's key encoder
         // derives the bytes from key + modifiers.
-        if (io.KeyCtrl || io.KeyAlt)
+        if ((io.KeyCtrl || io.KeyAlt) && !altGrText)
         {
             foreach (var (imguiKey, key) in LetterKeys)
             {
@@ -972,8 +860,9 @@ public sealed class TerminalWindow : IDisposable
         }
 
         // Printable text. Skip when Ctrl/Alt are held (those are command combos
-        // handled above and do not represent typed text).
-        if (!io.KeyCtrl && !io.KeyAlt && io.InputQueueCharacters.Count > 0)
+        // handled above and do not represent typed text) — unless it's AltGr
+        // input, where the queued characters ARE the typed text.
+        if (((!io.KeyCtrl && !io.KeyAlt) || altGrText) && io.InputQueueCharacters.Count > 0)
         {
             int count = io.InputQueueCharacters.Count;
             Span<char> chars = stackalloc char[2];
@@ -1306,9 +1195,12 @@ public sealed class TerminalWindow : IDisposable
             ? "sync-hold"
             : frameStats.DirtyState switch { 0 => "clean", 1 => "partial", _ => "full" };
 
-        string l1 = $"grid {cols}x{rows}  build {buildMs:F2}ms (vt {frameStats.WriteMs:F2} upd {frameStats.UpdateMs:F2} pop {frameStats.PopulateMs:F2})";
-        string l2 = $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s";
-        string l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}";
+        // ImString interpolation writes UTF-8 into the binding's per-frame
+        // shared buffer — zero managed allocation. The HUD exists to observe
+        // the render path; it must not perturb it with three strings per frame.
+        ImString l1 = $"grid {cols}x{rows}  build {buildMs:F2}ms (vt {frameStats.WriteMs:F2} upd {frameStats.UpdateMs:F2} pop {frameStats.PopulateMs:F2})";
+        ImString l2 = $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s";
+        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}";
 
         float lineH = ImGui.GetTextLineHeight();
         float w = Math.Max(ImGui.CalcTextSize(l1).X, Math.Max(ImGui.CalcTextSize(l2).X, ImGui.CalcTextSize(l3).X));
@@ -1381,7 +1273,7 @@ public sealed class TerminalWindow : IDisposable
     private void Send(TerminalSession session, ReadOnlySpan<byte> bytes)
     {
         session.SendInput(bytes);
-        DataInput?.Invoke(bytes.ToArray());
+        InputSent?.Invoke();
     }
 
     private static TKeyMods ReadModifiers(ImGuiIOPtr io)
@@ -1510,7 +1402,7 @@ public sealed class TerminalWindow : IDisposable
 
     private FrameFonts ResolveFonts()
     {
-        var config = PurrTTYFontManager.CreateFontConfigForFamily(Settings.FontFamily, Settings.FontSize);
+        var config = PurrTTYFontManager.CreateFontConfigForFamily(Settings.FontFamily);
         var regular = ResolveFontByName(config.RegularFontName) ?? ImGui.GetFont();
         var bold = ResolveFontByName(config.BoldFontName) ?? regular;
         var italic = ResolveFontByName(config.ItalicFontName) ?? regular;

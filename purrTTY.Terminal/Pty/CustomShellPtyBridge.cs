@@ -12,6 +12,7 @@ public class CustomShellPtyBridge : IProcessManager
     private readonly TaskCompletionSource<int> _exitCodeSource;
     private readonly object _stateLock = new();
     private bool _isRunning;
+    private bool _starting;
     private bool _isDisposed;
     private int? _processId;
 
@@ -79,10 +80,14 @@ public class CustomShellPtyBridge : IProcessManager
 
         lock (_stateLock)
         {
-            if (_isRunning)
+            // The _starting guard closes the check-then-act window across the
+            // await below, same as the real PTY managers (gotcha 20 / B9).
+            if (_isRunning || _starting)
             {
                 throw new InvalidOperationException("Custom shell is already running");
             }
+
+            _starting = true;
         }
 
         try
@@ -103,16 +108,32 @@ public class CustomShellPtyBridge : IProcessManager
 
             lock (_stateLock)
             {
-                _isRunning = true;
+                // A shell that terminated synchronously inside its StartAsync has
+                // already fired Terminated and completed the exit-code source;
+                // setting _isRunning here would resurrect a dead shell's flag.
+                if (!_exitCodeSource.Task.IsCompleted)
+                {
+                    _isRunning = true;
+                }
+
                 // Use current process ID as a placeholder since custom shells don't have real process IDs
                 _processId = Environment.ProcessId;
             }
         }
-        catch (Exception ex) when (ex is not CustomShellStartException)
+        catch (Exception ex) when (ex is not ProcessStartException)
         {
-            // Wrap non-custom shell exceptions in ProcessStartException for consistency
+            // Wrap everything (including CustomShellStartException, which does NOT
+            // derive from ProcessStartException) so the IProcessManager contract
+            // — "start failures throw ProcessStartException" — holds for callers.
             var shellId = options.CustomShellId ?? _customShell.Metadata.Name;
             throw new ProcessStartException($"Failed to start custom shell '{shellId}': {ex.Message}", ex, shellId);
+        }
+        finally
+        {
+            lock (_stateLock)
+            {
+                _starting = false;
+            }
         }
     }
 

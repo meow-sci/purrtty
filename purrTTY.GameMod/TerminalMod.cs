@@ -31,6 +31,10 @@ public class TerminalMod
     private bool _isInitialized;
     private bool _terminalVisible;
     private ToggleHotkeyBinding _toggleHotkey = ToggleHotkeyBinding.Default;
+
+    // Rendered shortcut text for the menu, rebuilt only when the binding
+    // changes (the menu reads it every frame; ToShortcutString allocates).
+    private string _toggleHotkeyShortcut = ToggleHotkeyBinding.Default.ToShortcutString();
     private ToggleHotkeyBinding _draftToggleHotkey = ToggleHotkeyBinding.Default;
     private ToggleHotkeyBinding? _lastCapturedToggleHotkey;
     private bool _isCapturingToggleHotkey;
@@ -93,13 +97,36 @@ public class TerminalMod
         DrawMenuContent();
     }
 
+    // The menu draw path runs every frame while a menu is open; everything it
+    // needs per frame is pre-built (cached shortcut string, static launch
+    // delegates reading MenuController) so drawing allocates nothing.
+    private static readonly string DefaultToggleShortcut = ToggleHotkeyBinding.Default.ToShortcutString();
+
+    private static readonly Action<ProcessLaunchOptions> LaunchAsTab = static options =>
+    {
+        if (MenuController is { } c)
+        {
+            c.OpenTab(options);
+            c.IsVisible = true;
+        }
+    };
+
+    private static readonly Action<ProcessLaunchOptions> LaunchAsWindow = static options =>
+    {
+        if (MenuController is { } c)
+        {
+            c.OpenWindow(options);
+            c.IsVisible = true;
+        }
+    };
+
     /// <summary>
     ///     Draws the shared menu content used by both ModMenu and the fallback injected menu.
     /// </summary>
     internal static void DrawMenuContent()
     {
         var isVisible = GetIsVisible?.Invoke() ?? false;
-        var hotkeyShortcut = GetToggleHotkeyShortcut?.Invoke() ?? ToggleHotkeyBinding.Default.ToShortcutString();
+        var hotkeyShortcut = GetToggleHotkeyShortcut?.Invoke() ?? DefaultToggleShortcut;
 
         if (ImGui.MenuItem("Toggle Terminal", hotkeyShortcut, isVisible))
         {
@@ -121,21 +148,13 @@ public class TerminalMod
 
         if (ImGui.BeginMenu("New Tab"))
         {
-            DrawShellItems(controller, options =>
-            {
-                controller.OpenTab(options);
-                controller.IsVisible = true;
-            });
+            DrawShellItems(controller, LaunchAsTab);
             ImGui.EndMenu();
         }
 
         if (ImGui.BeginMenu("New Window"))
         {
-            DrawShellItems(controller, options =>
-            {
-                controller.OpenWindow(options);
-                controller.IsVisible = true;
-            });
+            DrawShellItems(controller, LaunchAsWindow);
             ImGui.EndMenu();
         }
 
@@ -183,8 +202,10 @@ public class TerminalMod
             return;
         }
 
-        foreach (var (label, shellType) in snapshot.Entries)
+        var entries = snapshot.Entries;
+        for (int i = 0; i < entries.Count; i++)
         {
+            var (label, shellType) = entries[i];
             if (shellType == ShellType.Wsl)
             {
                 DrawWslItems(snapshot, launch);
@@ -221,11 +242,12 @@ public class TerminalMod
             return;
         }
 
-        foreach (var shell in snapshot.UnixShells)
+        var shells = snapshot.UnixShells;
+        for (int i = 0; i < shells.Count; i++)
         {
-            if (ImGui.MenuItem(shell.DisplayName))
+            if (ImGui.MenuItem(shells[i].DisplayName))
             {
-                launch(ProcessLaunchOptions.CreateCustom(shell.Path));
+                launch(ProcessLaunchOptions.CreateCustom(shells[i].Path));
             }
         }
     }
@@ -237,11 +259,12 @@ public class TerminalMod
         // (launching wsl.exe without a distribution yields a dead session).
         if (ImGui.BeginMenu("WSL2"))
         {
-            foreach (var distribution in snapshot.WslDistributions)
+            var distributions = snapshot.WslDistributions;
+            for (int i = 0; i < distributions.Count; i++)
             {
-                if (ImGui.MenuItem(distribution.DisplayName))
+                if (ImGui.MenuItem(distributions[i].DisplayName))
                 {
-                    launch(ProcessLaunchOptions.CreateWsl(distribution.Name));
+                    launch(ProcessLaunchOptions.CreateWsl(distributions[i].Name));
                 }
             }
 
@@ -255,8 +278,8 @@ public class TerminalMod
             ShellType.PowerShell => ProcessLaunchOptions.CreatePowerShell(),
             ShellType.PowerShellCore => ProcessLaunchOptions.CreatePowerShellCore(),
             ShellType.Cmd => ProcessLaunchOptions.CreateCmd(),
-            ShellType.CustomGame => ProcessLaunchOptions.CreateCustomGame(
-                controller.Configuration.DefaultCustomGameShellId ?? "GameConsoleShell"),
+            // Stamps the configured prompt into the shell environment.
+            ShellType.CustomGame => controller.Configuration.CreateGameShellLaunchOptions(),
             _ => ProcessLaunchOptions.CreateDefault(),
         };
 
@@ -310,8 +333,9 @@ public class TerminalMod
         IReadOnlyList<ThemeDefinition> themes,
         string currentTheme)
     {
-        foreach (var theme in themes)
+        for (int i = 0; i < themes.Count; i++)
         {
+            var theme = themes[i];
             bool selected = theme.Name.Equals(currentTheme, StringComparison.OrdinalIgnoreCase);
             if (ImGui.MenuItem(theme.Name, "", selected))
             {
@@ -419,7 +443,7 @@ public class TerminalMod
         }
 
         DrawOpacitySlider(controller, target, "Border Opacity", "##purrtty_border_opacity",
-            () => settings.BorderOpacity, v => settings.BorderOpacity = v);
+            static s => s.BorderOpacity, static (s, v) => s.BorderOpacity = v);
 
         ImGui.Separator();
         ImGui.TextDisabled("Lock Mode");
@@ -458,9 +482,9 @@ public class TerminalMod
         }
 
         DrawHotZoneSizeSlider(controller, target, "Hot Zone Width", "##purrtty_hotzone_w",
-            () => settings.HotZoneWidth, v => settings.HotZoneWidth = v);
+            static s => s.HotZoneWidth, static (s, v) => s.HotZoneWidth = v);
         DrawHotZoneSizeSlider(controller, target, "Hot Zone Height", "##purrtty_hotzone_h",
-            () => settings.HotZoneHeight, v => settings.HotZoneHeight = v);
+            static s => s.HotZoneHeight, static (s, v) => s.HotZoneHeight = v);
 
         var zoneColor = settings.HotZoneColor;
         var rgb = new float3(zoneColor.R / 255f, zoneColor.G / 255f, zoneColor.B / 255f);
@@ -485,9 +509,9 @@ public class TerminalMod
         }
 
         DrawOpacitySlider(controller, target, "Hot Zone Opacity", "##purrtty_hotzone_opacity",
-            () => settings.HotZoneOpacity, v => settings.HotZoneOpacity = v);
+            static s => s.HotZoneOpacity, static (s, v) => s.HotZoneOpacity = v);
         DrawOpacitySlider(controller, target, "Hot Zone Hover Opacity", "##purrtty_hotzone_hover_opacity",
-            () => settings.HotZoneHoverOpacity, v => settings.HotZoneHoverOpacity = v);
+            static s => s.HotZoneHoverOpacity, static (s, v) => s.HotZoneHoverOpacity = v);
     }
 
     private static void DrawCursorStyleItem(
@@ -503,20 +527,23 @@ public class TerminalMod
         }
     }
 
+    // Slider helpers take static accessor lambdas over the settings object
+    // (cached by the compiler) instead of closures over locals — the menus draw
+    // every frame while open and must not allocate per slider per frame.
     private static void DrawHotZoneSizeSlider(
         GhosttyTerminalController controller,
         TerminalWindow target,
         string label,
         string id,
-        Func<float> get,
-        Action<float> set)
+        Func<TerminalWindowSettings, float> get,
+        Action<TerminalWindowSettings, float> set)
     {
-        int pixels = (int)MathF.Round(get());
+        int pixels = (int)MathF.Round(get(target.Settings));
         ImGui.Text(label);
         ImGui.SetNextItemWidth(220f);
         if (ImGui.SliderInt(id, ref pixels, (int)TerminalWindow.MinHotZoneSize, 200, "%d px"))
         {
-            set(Math.Clamp(pixels, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize));
+            set(target.Settings, Math.Clamp(pixels, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize));
         }
 
         if (ImGui.IsItemDeactivatedAfterEdit())
@@ -549,11 +576,11 @@ public class TerminalMod
         ImGui.Separator();
 
         DrawOpacitySlider(controller, target, "Background Opacity", "##purrtty_bg_opacity",
-            () => target.Settings.BackgroundOpacity, v => target.Settings.BackgroundOpacity = v);
+            static s => s.BackgroundOpacity, static (s, v) => s.BackgroundOpacity = v);
         DrawOpacitySlider(controller, target, "Foreground Opacity", "##purrtty_fg_opacity",
-            () => target.Settings.ForegroundOpacity, v => target.Settings.ForegroundOpacity = v);
+            static s => s.ForegroundOpacity, static (s, v) => s.ForegroundOpacity = v);
         DrawOpacitySlider(controller, target, "Cell Background Opacity", "##purrtty_cellbg_opacity",
-            () => target.Settings.CellBackgroundOpacity, v => target.Settings.CellBackgroundOpacity = v);
+            static s => s.CellBackgroundOpacity, static (s, v) => s.CellBackgroundOpacity = v);
     }
 
     private static void DrawOpacitySlider(
@@ -561,15 +588,15 @@ public class TerminalMod
         TerminalWindow target,
         string label,
         string id,
-        Func<float> get,
-        Action<float> set)
+        Func<TerminalWindowSettings, float> get,
+        Action<TerminalWindowSettings, float> set)
     {
-        int percent = (int)MathF.Round(get() * 100f);
+        int percent = (int)MathF.Round(get(target.Settings) * 100f);
         ImGui.Text(label);
         ImGui.SetNextItemWidth(220f);
         if (ImGui.SliderInt(id, ref percent, 0, 100, "%d%%"))
         {
-            set(Math.Clamp(percent, 0, 100) / 100f);
+            set(target.Settings, Math.Clamp(percent, 0, 100) / 100f);
         }
 
         if (ImGui.IsItemDeactivatedAfterEdit())
@@ -631,16 +658,6 @@ public class TerminalMod
     }
 
     /// <summary>
-    ///     Called before the GUI is rendered.
-    /// </summary>
-    /// <param name="dt">Delta time.</param>
-    [StarMapBeforeGui]
-    public void OnBeforeUi(double dt)
-    {
-        // No pre-UI logic needed currently
-    }
-
-    /// <summary>
     ///     Called when all mods are loaded.
     /// </summary>
     [StarMapAllModsLoaded]
@@ -667,9 +684,9 @@ public class TerminalMod
     ///     Called for immediate loading.
     /// </summary>
     [StarMapImmediateLoad]
-    public void OnImmediatLoad()
+    public void OnImmediateLoad()
     {
-        ModLog.Log.Debug("purrTTY OnImmediatLoad");
+        ModLog.Log.Debug("purrTTY OnImmediateLoad");
         // No immediate load logic needed
     }
 
@@ -759,7 +776,7 @@ public class TerminalMod
 
             Toggle = ToggleTerminal;
             GetIsVisible = () => IsTerminalVisible;
-            GetToggleHotkeyShortcut = () => _toggleHotkey.ToShortcutString();
+            GetToggleHotkeyShortcut = () => _toggleHotkeyShortcut;
             OpenToggleHotkeySettings = RequestOpenToggleHotkeyModal;
             OpenSaveThemeDialog = RequestOpenSaveThemeModal;
             OpenDeleteThemeDialog = RequestOpenDeleteThemeModal;
@@ -820,6 +837,8 @@ public class TerminalMod
             _lastCapturedToggleHotkey = _toggleHotkey;
             ModLog.Log.Debug($"purrTTY GameMod: Failed to load toggle hotkey from config, defaulting to F12. Error: {ex.Message}");
         }
+
+        _toggleHotkeyShortcut = _toggleHotkey.ToShortcutString();
     }
 
     private bool IsToggleHotkeyPressed()
@@ -1234,6 +1253,7 @@ public class TerminalMod
     private void ApplyToggleHotkeySetting(ToggleHotkeyBinding binding)
     {
         _toggleHotkey = binding;
+        _toggleHotkeyShortcut = binding.ToShortcutString();
         _draftToggleHotkey = binding;
 
         try
@@ -1260,14 +1280,6 @@ public class TerminalMod
 
         _suppressNextTerminalKeyboardInputFrame = false;
         return true;
-    }
-
-    /// <summary>
-    ///     Gets a loaded font by name, or null if not found.
-    /// </summary>
-    public static ImFontPtr? GetFont(string fontName)
-    {
-        return PurrTTYFontManager.LoadedFonts.TryGetValue(fontName, out ImFontPtr font) ? font : null;
     }
 
     /// <summary>

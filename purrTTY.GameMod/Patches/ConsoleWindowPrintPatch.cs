@@ -16,6 +16,11 @@ namespace purrTTY.GameMod.Patches;
 ///     captures all colored console output in one place. (The older API exposed a
 ///     <c>Print(string, uint, int, ConsoleLineType)</c> sink; both
 ///     <c>ConsoleLineType</c> and the <c>uint</c> color overloads were removed.)
+///     Caveat for the next Brutal bump: the byte-span/<c>ImString</c> <c>Print</c>
+///     overloads call <c>AddPendingMessage</c> directly and bypass this sink —
+///     capture is complete only because every current KSA call site prints
+///     string/char. A future build printing <c>u8</c> literals directly would
+///     silently escape capture; re-verify the funnel when the pin moves.
 /// </remarks>
 [HarmonyPatch(typeof(ConsoleWindow))]
 [HarmonyPatch(nameof(ConsoleWindow.Print))]

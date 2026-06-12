@@ -145,7 +145,7 @@ Timestamp samples with `Universe.GetElapsedSimTime().Seconds()` (sim time, corre
 Stateless detector comparing prev vs current snapshot, with a per-event-type debounce (~2s). Rules worth reusing:
 
 - **SoI change:** `prev.ParentBodyId != curr.ParentBodyId`
-- **Liftoff:** was landed, now `!HasSurfaceContact` and not Floating/Sailing
+- **Liftoff:** was landed, now `!HasAnyContact()` (SituationEx; there is no `HasSurfaceContact`) and not Floating/Sailing
 - **Landing:** was airborne, now `Landed` or `Rolling`
 - **Splashdown:** was airborne, now `Floating`/`Sailing`
 - **Atmosphere entry/exit:** flip of the derived `IsInAtmosphere` bool

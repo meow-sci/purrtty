@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace purrTTY.Core.Terminal;
 
 /// <summary>
@@ -15,17 +13,6 @@ public class DataReceivedEventArgs : EventArgs
     public DataReceivedEventArgs(ReadOnlyMemory<byte> data, bool isError = false)
     {
         Data = data;
-        IsError = isError;
-    }
-
-    /// <summary>
-    ///     Creates new data received event arguments from string data.
-    /// </summary>
-    /// <param name="text">The text received (will be converted to UTF-8)</param>
-    /// <param name="isError">Whether the data is from stderr</param>
-    public DataReceivedEventArgs(string text, bool isError = false)
-    {
-        Data = Encoding.UTF8.GetBytes(text);
         IsError = isError;
     }
 

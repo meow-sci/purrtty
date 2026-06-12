@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Text;
+using Brutal.ImGuiApi.Abstractions;
 using purrTTY.Core.Terminal;
 using purrTTY.CustomShells;
-using purrTTY.Display.Configuration;
 using NUnit.Framework;
 
 namespace purrTTY.CustomShells.Tests.Unit;
@@ -22,9 +22,6 @@ public class GameConsoleShellTests
     {
         _outputBuffer = new StringBuilder();
         _shell = new TestGameConsoleShell(_outputBuffer);
-
-        // Clean up any test configuration files
-        ThemeConfiguration.OverrideConfigDirectory = Path.Combine(Path.GetTempPath(), $"purrTTY-test-{Guid.NewGuid()}");
     }
 
     [TearDown]
@@ -36,22 +33,6 @@ public class GameConsoleShellTests
         }
         _shell?.Dispose();
         _shell = null;
-
-        // Clean up test configuration directory
-        if (!string.IsNullOrEmpty(ThemeConfiguration.OverrideConfigDirectory)
-            && Directory.Exists(ThemeConfiguration.OverrideConfigDirectory))
-        {
-            try
-            {
-                Directory.Delete(ThemeConfiguration.OverrideConfigDirectory, true);
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-        }
-
-        ThemeConfiguration.OverrideConfigDirectory = null;
     }
 
     #region Lifecycle Tests
@@ -130,7 +111,7 @@ public class GameConsoleShellTests
     #region Prompt Configuration Tests
 
     [Test]
-    public async Task GetPrompt_ReturnsDefaultPromptWhenNoConfig()
+    public async Task GetPrompt_ReturnsDefaultPromptWhenEnvironmentUnset()
     {
         // Arrange
         var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
@@ -146,16 +127,11 @@ public class GameConsoleShellTests
     }
 
     [Test]
-    public async Task GetPrompt_ReturnsCustomPromptFromConfiguration()
+    public async Task GetPrompt_ReturnsCustomPromptFromEnvironment()
     {
-        // Arrange
-        var config = new ThemeConfiguration
-        {
-            GameShellPrompt = "custom-prompt> "
-        };
-        config.Save();
-
+        // Arrange - the launcher stamps the configured prompt into the shell environment
         var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
+        options.EnvironmentVariables[WellKnownShellEnvironment.GameShellPrompt] = "custom-prompt> ";
         await _shell!.StartAsync(options);
 
         // Act
@@ -168,41 +144,18 @@ public class GameConsoleShellTests
     }
 
     [Test]
-    public async Task PromptConfiguration_LoadedOnStart()
+    public async Task GetPrompt_EmptyEnvironmentValue_KeepsDefault()
     {
-        // Arrange - Save custom prompt before starting shell
-        var config = new ThemeConfiguration
-        {
-            GameShellPrompt = "loaded> "
-        };
-        config.Save();
+        // Arrange - an empty configured prompt must not blank the prompt out
+        var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
+        options.EnvironmentVariables[WellKnownShellEnvironment.GameShellPrompt] = "";
+        await _shell!.StartAsync(options);
 
         // Act
-        var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
-        await _shell!.StartAsync(options);
         _shell.SendInitialOutput();
         await _shell!.FlushOutputAsync();
 
         // Assert
-        var output = _outputBuffer.ToString();
-        Assert.That(output, Does.Contain("loaded> "));
-    }
-
-    [Test]
-    public async Task PromptConfiguration_FallsBackToDefaultOnLoadError()
-    {
-        // Arrange - Use invalid directory to force load error
-        var invalidPath = Path.Combine(Path.GetTempPath(), "invalid-\0-path");
-        ThemeConfiguration.OverrideConfigDirectory = invalidPath;
-
-        var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
-
-        // Act
-        await _shell!.StartAsync(options);
-        _shell.SendInitialOutput();
-        await _shell!.FlushOutputAsync();
-
-        // Assert - Should fall back to default "ksa> "
         var output = _outputBuffer.ToString();
         Assert.That(output, Does.Contain("ksa> "));
     }
@@ -482,58 +435,13 @@ public class GameConsoleShellTests
 
     #region Output Capture Tests
 
-    private static void InvokeOnConsolePrint(string output, uint color, object lineTypeValue)
-    {
-        var method = typeof(GameConsoleShell).GetMethod(nameof(GameConsoleShell.OnConsolePrint),
-            BindingFlags.Public | BindingFlags.Static);
-        Assert.That(method, Is.Not.Null);
-        method!.Invoke(null, new[] { output, color, lineTypeValue });
-    }
-
-    private static uint GetConsoleWindowColor(string fieldName)
-    {
-        var consoleWindowType = typeof(GameConsoleShell).Assembly.GetType("KSA.ConsoleWindow");
-        if (consoleWindowType == null)
-        {
-            // KSA ConsoleWindow type not available outside the game runtime - skip silently
-            Assert.Ignore();
-        }
-
-        var field = consoleWindowType!.GetField(fieldName, BindingFlags.Public | BindingFlags.Static);
-        if (field == null)
-        {
-            // ConsoleWindow color field not available in this KSA build - skip silently
-            Assert.Ignore();
-        }
-
-        var value = field!.GetValue(null);
-        if (value == null)
-        {
-            // ConsoleWindow color value unavailable in this KSA build - skip silently
-            Assert.Ignore();
-        }
-
-        return (uint)value!;
-    }
-
-    private static object CreateConsoleLineTypeValue()
-    {
-        var consoleLineType = typeof(GameConsoleShell).Assembly.GetType("Brutal.ImGuiApi.Abstractions.ConsoleLineType");
-        if (consoleLineType == null)
-        {
-            // Brutal ConsoleLineType enum not available outside the game runtime - skip silently
-            Assert.Ignore();
-        }
-
-        var value = Enum.GetValues(consoleLineType!).GetValue(0);
-        if (value == null)
-        {
-            // ConsoleLineType enum has no values in this Brutal build - skip silently
-            Assert.Ignore();
-        }
-
-        return value!;
-    }
+    // These exercise the REAL capture entry point the Harmony patch calls —
+    // OnConsolePrint(string, ImColor8) — against the real ConsoleWindow color
+    // fields (plain constant statics in Brutal.ImGui.Abstractions, which the
+    // test csproj copies beside the tests). This is the one piece of logic
+    // CLAUDE.md flags as Brutal-version-sensitive, so it must have live
+    // coverage: a Brutal bump that changes the sink signature or the color
+    // fields should fail here, not in-game.
 
     [Test]
     public async Task OnConsolePrint_ErrorColor_EmitsStderr()
@@ -544,15 +452,13 @@ public class GameConsoleShellTests
         _shell.SetActiveForConsoleOutput(true);
         _shell.LastOutputType = ShellOutputType.Stdout;
 
-        var errorColor = GetConsoleWindowColor("ErrorColor");
-        var lineTypeValue = CreateConsoleLineTypeValue();
-
         // Act
-        InvokeOnConsolePrint("boom", errorColor, lineTypeValue);
+        GameConsoleShell.OnConsolePrint("boom", ConsoleWindow.ErrorColor);
         await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.LastOutputType, Is.EqualTo(ShellOutputType.Stderr));
+        Assert.That(_outputBuffer.ToString(), Does.Contain("boom"));
     }
 
     [Test]
@@ -564,15 +470,29 @@ public class GameConsoleShellTests
         _shell.SetActiveForConsoleOutput(true);
         _shell.LastOutputType = ShellOutputType.Stderr;
 
-        var infoColor = GetConsoleWindowColor("InfoColor");
-        var lineTypeValue = CreateConsoleLineTypeValue();
-
         // Act
-        InvokeOnConsolePrint("ok", infoColor, lineTypeValue);
+        GameConsoleShell.OnConsolePrint("ok", ConsoleWindow.InfoColor);
         await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.LastOutputType, Is.EqualTo(ShellOutputType.Stdout));
+        Assert.That(_outputBuffer.ToString(), Does.Contain("ok"));
+    }
+
+    [Test]
+    public async Task OnConsolePrint_WhileNotCapturing_IsIgnored()
+    {
+        // Arrange — no active executing instance
+        var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
+        await _shell!.StartAsync(options);
+        _outputBuffer.Clear();
+
+        // Act
+        GameConsoleShell.OnConsolePrint("unrelated", ConsoleWindow.InfoColor);
+        await _shell!.FlushOutputAsync();
+
+        // Assert — output printed outside a command's execution is not ours
+        Assert.That(_outputBuffer.ToString(), Does.Not.Contain("unrelated"));
     }
 
     [Test]
@@ -730,21 +650,12 @@ public class GameConsoleShellTests
             }
         }
 
-        protected override async Task OnStartingAsync(CustomShellStartOptions options, CancellationToken cancellationToken)
+        protected override Task OnStartingAsync(CustomShellStartOptions options, CancellationToken cancellationToken)
         {
-            // Skip the TerminalInterface check for testing
-            // Load prompt from configuration
-            LoadPromptFromConfigurationPublic();
-            await Task.CompletedTask;
-        }
-
-        // Expose protected method for testing
-        public void LoadPromptFromConfigurationPublic()
-        {
-            // Use reflection to call private method
-            var method = typeof(GameConsoleShell).GetMethod("LoadPromptFromConfiguration",
-                BindingFlags.NonPublic | BindingFlags.Instance);
-            method?.Invoke(this, null);
+            // Skip the TerminalInterface availability check for testing, but
+            // keep the real prompt-from-environment behavior under test.
+            ApplyPromptFromOptions(options);
+            return Task.CompletedTask;
         }
 
         // Override ExecuteCommandLine to avoid KSA dependency
@@ -773,11 +684,12 @@ public class GameConsoleShellTests
             return method != null && (bool)method.Invoke(this, new object[] { command })!;
         }
 
-        // Helper method to simulate user input
+        // Helper method to simulate user input (WriteInputAsync completes
+        // synchronously for line-buffered shells, so this never blocks).
         public void SimulateInput(string input)
         {
             var bytes = Encoding.UTF8.GetBytes(input);
-            WriteInputAsync(bytes).Wait();
+            WriteInputAsync(bytes).GetAwaiter().GetResult();
         }
 
         // Helper method to simulate complete command input (chars + enter)

@@ -43,14 +43,17 @@ public sealed class ShellDetectionCachingTests
     }
 
     [Test]
-    public void IsShellAvailable_IsStableAcrossCalls()
+    public void IsShellAvailable_UniversalTypes_AreAlwaysOfferable()
     {
-        foreach (ShellType shellType in Enum.GetValues<ShellType>())
-        {
-            bool first = ShellAvailabilityChecker.IsShellAvailable(shellType);
-            bool second = ShellAvailabilityChecker.IsShellAvailable(shellType);
-            Assert.That(second, Is.EqualTo(first), $"availability of {shellType} must be cached/stable");
-        }
+        // Auto / Custom / CustomGame need no probing and must never report
+        // unavailable — Auto in particular is the config default and the
+        // unparsable-value fallback, the one shell valid on every platform.
+        // (The bool result of probed types is environment-dependent and the
+        // caching itself is unobservable through a deterministic bool, so the
+        // reference-identity tests above are where the caching contract is pinned.)
+        Assert.That(ShellAvailabilityChecker.IsShellAvailable(ShellType.Auto), Is.True);
+        Assert.That(ShellAvailabilityChecker.IsShellAvailable(ShellType.Custom), Is.True);
+        Assert.That(ShellAvailabilityChecker.IsShellAvailable(ShellType.CustomGame), Is.True);
     }
 
     [Test]

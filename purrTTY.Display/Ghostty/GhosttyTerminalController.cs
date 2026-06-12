@@ -23,7 +23,6 @@ public sealed class GhosttyTerminalController : ITerminalController
     private TerminalWindow? _lastFocusedWindow;
     private int _nextWindowId = 1;
     private bool _isVisible;
-    private bool _hadAnyFocus;
     private bool _disposed;
 
     private double _blinkTimer;
@@ -41,9 +40,6 @@ public sealed class GhosttyTerminalController : ITerminalController
 
     /// <summary>Optional host hook to suppress keyboard input for a frame (e.g. when the toggle hotkey fires).</summary>
     public Func<bool>? KeyboardSuppression { get; set; }
-
-    public event EventHandler<DataInputEventArgs>? DataInput;
-    public event EventHandler<FocusChangedEventArgs>? FocusChanged;
 
     public GhosttyTerminalController(ThemeConfiguration config, ThemeCatalog catalog)
     {
@@ -63,10 +59,23 @@ public sealed class GhosttyTerminalController : ITerminalController
     {
         get
         {
-            var focused = _windows.FirstOrDefault(w => w.IsOpen && w.HasFocus);
-            if (focused != null)
+            // Plain loops (not LINQ): this is read every frame while a purrTTY
+            // menu is open, and per menu action.
+            TerminalWindow? firstOpen = null;
+            for (int i = 0; i < _windows.Count; i++)
             {
-                return focused;
+                var window = _windows[i];
+                if (!window.IsOpen)
+                {
+                    continue;
+                }
+
+                if (window.HasFocus)
+                {
+                    return window;
+                }
+
+                firstOpen ??= window;
             }
 
             if (_lastFocusedWindow is { IsOpen: true })
@@ -74,7 +83,7 @@ public sealed class GhosttyTerminalController : ITerminalController
                 return _lastFocusedWindow;
             }
 
-            return _windows.FirstOrDefault(w => w.IsOpen);
+            return firstOpen;
         }
     }
 
@@ -100,13 +109,12 @@ public sealed class GhosttyTerminalController : ITerminalController
         var window = new TerminalWindow(_nextWindowId++, sessions, settings, position, size);
         window.KeyboardSuppression = () => KeyboardSuppression?.Invoke() ?? false;
         window.FocusChanged += OnWindowFocusChanged;
-        window.DataInput += bytes =>
+        window.InputSent += () =>
         {
             // Typing resets the shared blink phase so the cursor is solid while
             // the user types (standard terminal behavior).
             _blinkTimer = 0;
             _cursorOn = true;
-            DataInput?.Invoke(this, new DataInputEventArgs(bytes));
         };
         _windows.Add(window);
         _lastFocusedWindow ??= window;
@@ -190,27 +198,7 @@ public sealed class GhosttyTerminalController : ITerminalController
             return;
         }
 
-        _config.SyncRuntimeDisplaySettings(
-            window.Settings.ThemeName,
-            window.Settings.FontFamily,
-            window.Settings.FontSize,
-            window.Settings.BackgroundOpacity,
-            window.Settings.ForegroundOpacity,
-            window.Settings.CellBackgroundOpacity);
-        _config.SyncRuntimeFocusSettings(
-            window.Settings.CursorStyle,
-            window.Settings.CursorBlink,
-            window.Settings.BorderOnFocus,
-            window.Settings.BorderOnHover,
-            window.Settings.BorderOpacity,
-            window.Settings.LockMode,
-            window.Settings.HotZoneEnabled,
-            window.Settings.HotZonePlacement,
-            window.Settings.HotZoneWidth,
-            window.Settings.HotZoneHeight,
-            window.Settings.HotZoneColor,
-            window.Settings.HotZoneOpacity,
-            window.Settings.HotZoneHoverOpacity);
+        _config.SyncRuntimeDisplaySettings(window.Settings);
         _config.Save();
     }
 
@@ -242,96 +230,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         };
 
         // A theme that carries display settings (user-saved) overrides the loose defaults.
-        if (theme.FontFamily is { } family)
-        {
-            settings.FontFamily = family;
-        }
-
-        if (theme.FontSize is { } size)
-        {
-            settings.FontSize = Math.Clamp(size, LayoutConstants.MIN_FONT_SIZE, LayoutConstants.MAX_FONT_SIZE);
-        }
-
-        if (theme.BackgroundOpacity is { } bg)
-        {
-            settings.BackgroundOpacity = Math.Clamp(bg, 0f, 1f);
-        }
-
-        if (theme.ForegroundOpacity is { } fg)
-        {
-            settings.ForegroundOpacity = Math.Clamp(fg, 0f, 1f);
-        }
-
-        if (theme.CellBackgroundOpacity is { } cell)
-        {
-            settings.CellBackgroundOpacity = Math.Clamp(cell, 0f, 1f);
-        }
-
-        if (theme.CursorStyle is { } cursorStyle)
-        {
-            settings.CursorStyle = cursorStyle;
-        }
-
-        if (theme.CursorBlink is { } cursorBlink)
-        {
-            settings.CursorBlink = cursorBlink;
-        }
-
-        if (theme.BorderOnFocus is { } borderOnFocus)
-        {
-            settings.BorderOnFocus = borderOnFocus;
-        }
-
-        if (theme.BorderOnHover is { } borderOnHover)
-        {
-            settings.BorderOnHover = borderOnHover;
-        }
-
-        if (theme.BorderOpacity is { } borderOpacity)
-        {
-            settings.BorderOpacity = Math.Clamp(borderOpacity, 0f, 1f);
-        }
-
-        if (theme.LockMode is { } lockMode)
-        {
-            settings.LockMode = lockMode;
-        }
-
-        if (theme.HotZoneEnabled is { } hotZoneEnabled)
-        {
-            settings.HotZoneEnabled = hotZoneEnabled;
-        }
-
-        if (theme.HotZonePlacement is { } hotZonePlacement)
-        {
-            settings.HotZonePlacement = hotZonePlacement;
-        }
-
-        if (theme.HotZoneWidth is { } hotZoneWidth)
-        {
-            settings.HotZoneWidth = Math.Clamp(hotZoneWidth, TerminalWindow.MinHotZoneSize, TerminalWindow.MaxHotZoneSize);
-        }
-
-        if (theme.HotZoneHeight is { } hotZoneHeight)
-        {
-            settings.HotZoneHeight = Math.Clamp(hotZoneHeight, TerminalWindow.MinHotZoneSize, TerminalWindow.MaxHotZoneSize);
-        }
-
-        if (theme.HotZoneColor is { } hotZoneColor)
-        {
-            settings.HotZoneColor = hotZoneColor;
-        }
-
-        if (theme.HotZoneOpacity is { } hotZoneOpacity)
-        {
-            settings.HotZoneOpacity = Math.Clamp(hotZoneOpacity, 0f, 1f);
-        }
-
-        if (theme.HotZoneHoverOpacity is { } hotZoneHoverOpacity)
-        {
-            settings.HotZoneHoverOpacity = Math.Clamp(hotZoneHoverOpacity, 0f, 1f);
-        }
-
+        settings.ApplyThemeOverrides(theme);
         return settings;
     }
 
@@ -371,13 +270,6 @@ public sealed class GhosttyTerminalController : ITerminalController
             }
         }
     }
-
-    public bool HasFocus => _windows.Any(w => w.IsOpen && w.HasFocus);
-    public bool IsInputCaptureActive => _isVisible && HasFocus;
-
-    public bool ShouldCaptureInput() => IsInputCaptureActive;
-
-    public void ForceFocus() => FocusTarget?.RequestFocus();
 
     public void Update(float deltaTime)
     {
@@ -419,6 +311,11 @@ public sealed class GhosttyTerminalController : ITerminalController
         }
 
         // Prune windows closed last frame (close button / last tab closed).
+        // Remember the geometry of a pruned window: if it turns out to be the
+        // last one, its geometry must be persisted here — the hide path's
+        // PersistWindowState only sees *open* windows, so without this the
+        // next toggle restored stale geometry from the previous hide.
+        (float2 Pos, float2 Size, int Cols, int Rows)? prunedGeometry = null;
         for (int i = _windows.Count - 1; i >= 0; i--)
         {
             if (!_windows[i].IsOpen)
@@ -426,6 +323,12 @@ public sealed class GhosttyTerminalController : ITerminalController
                 if (ReferenceEquals(_lastFocusedWindow, _windows[i]))
                 {
                     _lastFocusedWindow = null;
+                }
+
+                if (_windows[i].HasObservedGeometry)
+                {
+                    var (cols, rows) = _windows[i].Sessions.LastKnownTerminalDimensions;
+                    prunedGeometry = (_windows[i].LastKnownPosition, _windows[i].LastKnownSize, cols, rows);
                 }
 
                 _windows[i].Dispose();
@@ -436,18 +339,23 @@ public sealed class GhosttyTerminalController : ITerminalController
         if (_windows.Count == 0)
         {
             // Every window was closed; hide until the next toggle recreates one.
+            if (prunedGeometry is { } geo)
+            {
+                _config.SetTerminalWindowState(geo.Pos, geo.Size, geo.Cols, geo.Rows);
+                _config.Save();
+            }
+
             _isVisible = false;
             _anyTerminalActive = false;
             return;
         }
 
         bool hideChrome = _config.HideUiWhenNotHovered;
-        bool anyFocused = false;
         bool anyActive = false;
-        foreach (var window in _windows)
+        for (int i = 0; i < _windows.Count; i++)
         {
+            var window = _windows[i];
             window.Render(hideChrome, _cursorOn);
-            anyFocused |= window.HasFocus;
             // The grid context menu steals ImGui focus from its window while
             // open, but the user is still interacting with the terminal — keep
             // the game-key gate engaged or hotkeys fire under the popup.
@@ -455,11 +363,6 @@ public sealed class GhosttyTerminalController : ITerminalController
         }
 
         _anyTerminalActive = anyActive;
-        if (anyFocused != _hadAnyFocus)
-        {
-            FocusChanged?.Invoke(this, new FocusChangedEventArgs(anyFocused, _hadAnyFocus));
-            _hadAnyFocus = anyFocused;
-        }
     }
 
     /// <summary>Persists the primary window's geometry/grid so the next run restores it.</summary>
@@ -475,10 +378,6 @@ public sealed class GhosttyTerminalController : ITerminalController
         _config.SetTerminalWindowState(window.LastKnownPosition, window.LastKnownSize, cols, rows);
         _config.Save();
     }
-
-    public bool CopySelectionToClipboard() => FocusTarget?.CopySelectionToClipboard() ?? false;
-
-    public void PasteFromClipboard() => FocusTarget?.PasteFromClipboard();
 
     public void Dispose()
     {

@@ -2,7 +2,6 @@ using System.Text;
 using Brutal.ImGuiApi;
 using Brutal.ImGuiApi.Abstractions;
 using purrTTY.Core.Terminal;
-using purrTTY.Display.Configuration;
 using KSA;
 
 namespace purrTTY.CustomShells;
@@ -23,7 +22,9 @@ public class GameConsoleShell : BaseLineBufferedShell
     private static GameConsoleShell? _activeInstance;
     private static readonly object _activeLock = new();
 
-    // Track if we're currently executing a command (prevents recursion)
+    // True while a command is executing via TerminalInterface — the capture
+    // gate for the Harmony console-print patch (output printed outside this
+    // window is not ours and must not be captured).
     private bool _isExecutingCommand;
 
     /// <summary>
@@ -47,37 +48,37 @@ public class GameConsoleShell : BaseLineBufferedShell
         supportedFeatures: new[] { "colors", "clear-screen", "command-execution" }
     );
 
-    /// <summary>
-    ///     Loads the prompt string from the saved configuration.
-    /// </summary>
-    private void LoadPromptFromConfiguration()
-    {
-        try
-        {
-            var config = ThemeConfiguration.Load();
-            _promptValue = config.GameShellPrompt;
-        }
-        catch (Exception)
-        {
-            // If loading fails, keep the default prompt
-            _promptValue = "ksa> ";
-        }
-    }
-
     /// <inheritdoc />
-    protected override async Task OnStartingAsync(CustomShellStartOptions options, CancellationToken cancellationToken)
+    protected override Task OnStartingAsync(CustomShellStartOptions options, CancellationToken cancellationToken)
     {
-        // Verify TerminalInterface is available
-        if (Program.TerminalInterface == null)
+        // Verify the game console plumbing is available. Program.ConsoleWindow
+        // must be null-checked first: Program.TerminalInterface dereferences it
+        // (`=> ConsoleWindow.Terminal`), so probing TerminalInterface alone
+        // throws the very NRE this guard exists to convert into a clear error.
+        if (Program.ConsoleWindow is null || Program.TerminalInterface is null)
         {
             throw new InvalidOperationException(
                 "KSA TerminalInterface is not available. The game may not be fully initialized yet.");
         }
 
-        // Load prompt from configuration
-        LoadPromptFromConfiguration();
+        ApplyPromptFromOptions(options);
+        return Task.CompletedTask;
+    }
 
-        await Task.CompletedTask;
+    /// <summary>
+    ///     Applies the configured prompt from the launch options' environment
+    ///     (stamped by the launcher from the user's configuration; see
+    ///     <see cref="WellKnownShellEnvironment.GameShellPrompt"/>) — the shell
+    ///     layer has no dependency on the display layer's configuration types.
+    ///     Absent or empty keeps the default prompt.
+    /// </summary>
+    protected void ApplyPromptFromOptions(CustomShellStartOptions options)
+    {
+        if (options.EnvironmentVariables.TryGetValue(WellKnownShellEnvironment.GameShellPrompt, out var prompt)
+            && !string.IsNullOrEmpty(prompt))
+        {
+            _promptValue = prompt;
+        }
     }
 
     /// <inheritdoc />
@@ -95,9 +96,6 @@ public class GameConsoleShell : BaseLineBufferedShell
     /// <inheritdoc />
     public override void SendInitialOutput()
     {
-        // Load prompt from configuration before sending
-        LoadPromptFromConfiguration();
-
         // Send banner and prompt
         // This happens AFTER the shell is fully initialized and wired to the terminal
         var banner = "\x1b[1;36m" +  // Cyan bold
@@ -137,11 +135,12 @@ public class GameConsoleShell : BaseLineBufferedShell
 
             try
             {
-                // Execute the command via KSA's TerminalInterface
-                // Output will be captured by our Harmony patch on ConsoleWindow.Print()
-                bool success = Program.TerminalInterface.Execute(commandLine);
+                // Execute the command via KSA's TerminalInterface. Output —
+                // including Execute's own error text — is captured by the
+                // Harmony patch on ConsoleWindow.Print(), so the bool result
+                // carries no extra information.
+                Program.TerminalInterface.Execute(commandLine);
 
-                // Send prompt
                 SendPrompt();
             }
             finally
@@ -200,8 +199,10 @@ public class GameConsoleShell : BaseLineBufferedShell
     /// <inheritdoc />
     public override void RequestCancellation()
     {
-        // For now, we don't support command cancellation
-        // In the future, this could interrupt long-running game commands
+        // Game commands execute synchronously, so there is nothing in-flight to
+        // interrupt — but the visually cancelled input must also be discarded
+        // (otherwise the next Enter would execute the line the ^C dismissed).
+        CancelCurrentLine();
         SendOutput("\r\n\x1b[33m^C\x1b[0m\r\n");
         SendPrompt();
     }

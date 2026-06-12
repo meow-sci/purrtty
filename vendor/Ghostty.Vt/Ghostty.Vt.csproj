@@ -31,9 +31,8 @@
     <Compile Include="src/**/*.cs" />
   </ItemGroup>
 
-  <!-- Tests reach internal helpers (matches upstream binding). -->
+  <!-- purrTTY.Terminal's frame builder and its tests reach internal helpers. -->
   <ItemGroup>
-    <InternalsVisibleTo Include="Ghostty.Vt.Tests" />
     <InternalsVisibleTo Include="purrTTY.Terminal" />
     <InternalsVisibleTo Include="purrTTY.Terminal.Tests" />
   </ItemGroup>

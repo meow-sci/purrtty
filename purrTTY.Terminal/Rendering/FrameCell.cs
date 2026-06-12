@@ -1,8 +1,9 @@
 namespace PurrTTY.Terminal.Rendering;
 
 /// <summary>
-/// One rendered grid cell. Colors are pre-resolved by the engine (theme +
-/// palette + inverse already applied), so a frontend draws <see cref="Bg"/> /
+/// One rendered grid cell. Colors are pre-resolved by the backend (theme +
+/// palette + inverse applied in <c>GhosttyTerminalSurface.FillCell</c>,
+/// mirroring the native rules), so a frontend draws <see cref="Bg"/> /
 /// <see cref="Fg"/> directly. <see cref="Grapheme"/> carries the full grapheme
 /// cluster string (emoji / ZWJ safe); <see langword="null"/> means blank.
 /// </summary>

@@ -449,6 +449,89 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void Osc52_SplitAcrossWrites_WithStTerminator_Decodes()
+    {
+        using var surface = NewSurface();
+        ClipboardRequest? captured = null;
+        surface.ClipboardRequested += req => captured = req;
+
+        // Real PTYs chunk arbitrarily, and tmux/nvim terminate OSC 52 with
+        // ST (ESC \) rather than BEL — the sidecar must frame across both.
+        WriteText(surface, "\x1b]52;c;aGkg");
+        surface.BuildFrame();
+        Assert.That(captured, Is.Null, "incomplete sequence must not dispatch");
+
+        WriteText(surface, "dGhlcmU=\x1b\\");
+        surface.BuildFrame();
+
+        Assert.That(captured, Is.Not.Null);
+        Assert.That(captured!.Text, Is.EqualTo("hi there"));
+    }
+
+    [Test]
+    public void Osc52_Query_RaisesRequestWithNullText()
+    {
+        using var surface = NewSurface();
+        ClipboardRequest? captured = null;
+        surface.ClipboardRequested += req => captured = req;
+
+        // OSC 52 with "?" payload is a clipboard READ request; Text == null
+        // signals the query (the reply round-trip is handled by the frontend).
+        WriteText(surface, "\x1b]52;c;?\x07");
+        surface.BuildFrame();
+
+        Assert.That(captured, Is.Not.Null);
+        Assert.That(captured!.Target, Is.EqualTo("c"));
+        Assert.That(captured.Text, Is.Null);
+    }
+
+    [Test]
+    public void Osc52_PayloadPastCap_IsDiscardedNotTruncated()
+    {
+        using var surface = NewSurface();
+        ClipboardRequest? captured = null;
+        surface.ClipboardRequested += req => captured = req;
+
+        // An empty target makes the header ("52;;") a multiple of 4 chars, so a
+        // payload TRUNCATED at the 64 KiB cap would still be valid base64 — the
+        // dangerous case where a silent prefix could replace the clipboard. The
+        // sidecar must drop the oversized sequence outright instead.
+        string big = Convert.ToBase64String(new byte[80 * 1024]);
+        WriteText(surface, $"\x1b]52;;{big}\x07");
+        surface.BuildFrame();
+
+        Assert.That(captured, Is.Null, "a truncated OSC 52 must never dispatch a prefix");
+
+        // And the stream must be healthy again afterwards.
+        WriteText(surface, "\x1b]52;c;aGkgdGhlcmU=\x07");
+        surface.BuildFrame();
+        Assert.That(captured, Is.Not.Null);
+        Assert.That(captured!.Text, Is.EqualTo("hi there"));
+    }
+
+    [Test]
+    public void Osc_AbortedByCan_DoesNotDispatch()
+    {
+        using var surface = NewSurface();
+        ClipboardRequest? captured = null;
+        surface.ClipboardRequested += req => captured = req;
+
+        // The inbox-overflow heal sequence (CAN + ST, gotcha 18) relies on CAN
+        // aborting an open control string: a partial OSC 52 interrupted by a
+        // drop must be abandoned, never dispatched with stray bytes inside.
+        WriteText(surface, "\x1b]52;c;aGkg");
+        WriteText(surface, "\x18\x1b\\");
+        surface.BuildFrame();
+        Assert.That(captured, Is.Null);
+
+        // Parser is back in ground state: a complete OSC afterwards dispatches.
+        WriteText(surface, "\x1b]52;c;aGkgdGhlcmU=\x07");
+        surface.BuildFrame();
+        Assert.That(captured, Is.Not.Null);
+        Assert.That(captured!.Text, Is.EqualTo("hi there"));
+    }
+
+    [Test]
     public void TitleChange_RaisesTitleChanged()
     {
         using var surface = NewSurface();
@@ -708,6 +791,32 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void SynchronizedOutput_StuckMode_RendersLiveAfterTimeout()
+    {
+        using var surface = NewSurface();
+        surface.SyncOutputTimeout = TimeSpan.FromMilliseconds(50);
+
+        WriteText(surface, "before");
+        surface.BuildFrame();
+
+        // App sets 2026, redraws, and never clears the mode (hung/killed app).
+        WriteText(surface, "\x1b[?2026h\x1b[2J\x1b[Hafter");
+        Assert.That(RowText(surface.BuildFrame(), 0), Is.EqualTo("before"),
+            "frame must hold while the sync pause is within its timeout");
+
+        // Deadline-bounded poll: timeout behavior is the subject under test, so
+        // a short polling interval against a generous deadline is required here.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (RowText(surface.BuildFrame(), 0) != "after" && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(5);
+        }
+
+        Assert.That(RowText(surface.BuildFrame(), 0), Is.EqualTo("after"),
+            "a stuck 2026 mode must stop withholding frames after SyncOutputTimeout");
+    }
+
+    [Test]
     public void RawCellLayout_MatchesNativeAccessors()
     {
         // The fast frame reader decodes the packed u64 cell managed-side; this
@@ -726,7 +835,9 @@ public sealed class GhosttyTerminalSurfaceTests
         }
 
         var frame = surface.BuildFrame();
-        Assert.That(frame.Scrollbar.ScrollbackHeight, Is.GreaterThan(0),
-            "100 lines into a 5-row viewport should produce scrollback.");
+        // 100 lines into a 5-row viewport leaves at least 95 in scrollback
+        // (the engine may keep the partially-scrolled first row on screen).
+        Assert.That(frame.Scrollbar.ScrollbackHeight, Is.GreaterThanOrEqualTo(95),
+            "100 lines into a 5-row viewport should accumulate ~95 scrollback rows.");
     }
 }

@@ -66,11 +66,11 @@ private static bool UpdateRenderData_Prefix(Vehicle __instance, Viewport viewpor
 ## Engine Control
 
 ```csharp
-// Get all engines on a vehicle:
-EngineController[] engines = vehicle.Parts.Modules.Get<EngineController>();
+// Get all engines on a vehicle (ModuleList.Get<T>() returns Span<T>, not an array):
+Span<EngineController> engines = vehicle.Parts.Modules.Get<EngineController>();
 
 // Get engines on a specific part subtree:
-EngineController[] engines = part.SubtreeModules.Get<EngineController>();
+Span<EngineController> subtreeEngines = part.SubtreeModules.Get<EngineController>();
 
 // Activate/deactivate:
 engine.SetIsActive(null, false); // first arg is unused (pass null)

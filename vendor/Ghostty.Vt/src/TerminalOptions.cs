@@ -9,11 +9,13 @@ public sealed class TerminalOptions
 {
     internal DelegatePinner Pinner { get; } = new();
 
-    // Notification callbacks (void return) — native pushes data or event to managed code
+    // Notification callbacks (void return) — native pushes data or event to managed code.
+    // Note: there is no PWD-change callback in the native API; PWD changes are
+    // observable only indirectly (an OnPwdChanged property here would silently
+    // never fire — it was removed for exactly that reason).
     public Action<ReadOnlySpan<byte>>? OnWritePty { get; set; }
     public Action? OnBell { get; set; }
     public Action? OnTitleChanged { get; set; }
-    public Action? OnPwdChanged { get; set; }
 
     // Data-returning callbacks — managed code must return bytes (or null for empty/default)
     public Func<byte[]?>? OnEnquiry { get; set; }

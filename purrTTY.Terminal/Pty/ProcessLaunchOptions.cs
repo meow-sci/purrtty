@@ -16,7 +16,8 @@ public enum ShellType
     PowerShell,
 
     /// <summary>
-    ///     Windows Subsystem for Linux (wsl.exe) - Default for Windows.
+    ///     Windows Subsystem for Linux (wsl.exe). Preferred by <see cref="Auto"/>
+    ///     on Windows when at least one distribution is detected.
     /// </summary>
     Wsl,
 
@@ -89,18 +90,6 @@ public class ProcessLaunchOptions
     public int InitialHeight { get; set; } = 24;
 
     /// <summary>
-    ///     Gets or sets whether to create a window for the process.
-    ///     Should be false for game mod integration.
-    /// </summary>
-    public bool CreateWindow { get; set; } = false;
-
-    /// <summary>
-    ///     Gets or sets whether to use shell execute.
-    ///     Should be false for direct process control.
-    /// </summary>
-    public bool UseShellExecute { get; set; } = false;
-
-    /// <summary>
     ///     Creates a copy with independent argument/environment collections.
     ///     Session managers clone before stamping per-session dimensions so a
     ///     shared default (or caller-cached) instance is never mutated.
@@ -115,8 +104,6 @@ public class ProcessLaunchOptions
         EnvironmentVariables = new Dictionary<string, string>(EnvironmentVariables),
         InitialWidth = InitialWidth,
         InitialHeight = InitialHeight,
-        CreateWindow = CreateWindow,
-        UseShellExecute = UseShellExecute,
     };
 
     /// <summary>
@@ -130,7 +117,7 @@ public class ProcessLaunchOptions
         // Set platform-specific defaults
         if (OperatingSystem.IsWindows())
         {
-            // Default to cmd.exe for reliability and performance
+            // PowerShell: present on every supported Windows, no WSL setup needed
             options.ShellType = ShellType.PowerShell;
             options.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
@@ -147,19 +134,6 @@ public class ProcessLaunchOptions
         options.EnvironmentVariables["FORCE_COLOR"] = "1";
         options.EnvironmentVariables["CLICOLOR_FORCE"] = "1";
 
-        return options;
-    }
-
-    /// <summary>
-    ///     Creates launch options for PowerShell on Windows.
-    /// </summary>
-    /// <returns>PowerShell launch options</returns>
-    public static ProcessLaunchOptions CreatePowerShellQuietCDrive()
-    {
-        ProcessLaunchOptions options = CreateDefault();
-        options.ShellType = ShellType.PowerShell;
-        options.Arguments.Clear();
-        options.Arguments.AddRange(["-NoLogo", "-NoProfile"]);
         return options;
     }
 

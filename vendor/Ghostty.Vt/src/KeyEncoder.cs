@@ -32,11 +32,12 @@ public sealed class KeyEncoder : IDisposable
             var result = NativeMethods.ghostty_key_encoder_encode(
                 _handle.DangerousGetHandle(), keyEvent.NativeHandle, ptr, 256, &len);
             GhosttyException.ThrowIfFailure(result);
-            // Copy out of the stack buffer while it is still alive. Returning a
-            // span into `buf` is a use-after-scope (the stackalloc is freed when
-            // this method returns); the caller then reads clobbered stack memory.
-            // That was the real cause of the cross-platform "first-use misfire"
-            // (garbage byte read: 0x00 on macOS, 0xB0 on Windows x64).
+            // purrtty fix: copy out of the stack buffer while it is still alive.
+            // Returning a span into `buf` (upstream behavior) is a
+            // use-after-scope (the stackalloc is freed when this method
+            // returns); the caller then reads clobbered stack memory. That was
+            // the real cause of the cross-platform "first-use misfire" (garbage
+            // byte read: 0x00 on macOS, 0xB0 on Windows x64).
             return buf[..(int)len].ToArray();
         }
     }

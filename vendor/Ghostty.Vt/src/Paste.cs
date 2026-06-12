@@ -14,7 +14,7 @@ public static class Paste
 
     public static unsafe byte[] Encode(ReadOnlySpan<byte> data, bool bracketed = true)
     {
-        // ghostty_paste_encode modifies its input buffer IN PLACE (control bytes
+        // purrtty fix: ghostty_paste_encode modifies its input buffer IN PLACE (control bytes
         // → spaces, \n → \r per paste.h) before writing the encoded result to the
         // output buffer. The caller's span may point at read-only memory (a u8
         // literal lives on a read-only page), so copy into a mutable scratch and

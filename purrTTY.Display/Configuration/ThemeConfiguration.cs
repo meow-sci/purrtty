@@ -282,17 +282,6 @@ public class ThemeConfiguration
     }
 
     /// <summary>
-    /// String representation of DefaultShellType for TOML serialization.
-    /// This ensures stability across enum changes.
-    /// </summary>
-    [TomlIgnore]
-    public string DefaultShellTypeString
-    {
-        get => Settings.DefaultShellTypeString;
-        set => Settings.DefaultShellTypeString = value;
-    }
-
-    /// <summary>
     /// Custom shell path when DefaultShellType is Custom.
     /// </summary>
     [TomlIgnore]
@@ -420,33 +409,6 @@ public class ThemeConfiguration
     }
 
     /// <summary>
-    /// Attempts to retrieve the persisted terminal window position, size, and grid dimensions.
-    /// </summary>
-    /// <param name="position">The saved window position.</param>
-    /// <param name="size">The saved window size.</param>
-    /// <param name="columns">The saved terminal width in columns.</param>
-    /// <param name="rows">The saved terminal height in rows.</param>
-    /// <returns>True when a complete valid window and grid state is available.</returns>
-    public bool TryGetTerminalWindowState(out float2 position, out float2 size, out int columns, out int rows)
-    {
-        position = default;
-        size = default;
-        columns = 0;
-        rows = 0;
-
-        if (!TryGetTerminalWindowState(out position, out size) || !TryGetTerminalGridDimensions(out columns, out rows))
-        {
-            position = default;
-            size = default;
-            columns = 0;
-            rows = 0;
-            return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
     /// Attempts to retrieve the persisted terminal grid dimensions.
     /// </summary>
     /// <param name="columns">The saved terminal width in columns.</param>
@@ -500,76 +462,49 @@ public class ThemeConfiguration
     }
 
     /// <summary>
-    /// Synchronizes live display settings into the in-memory configuration snapshot.
-    /// This keeps later saves for unrelated settings from discarding the current theme, font, or opacity values.
+    /// Synchronizes a window's live display settings into the in-memory
+    /// configuration snapshot (the defaults applied to new windows). This keeps
+    /// later saves for unrelated settings from discarding the current theme,
+    /// font, opacity, cursor, border, or lock values. Taking the whole settings
+    /// object (instead of one positional parameter per field) means a new
+    /// display setting cannot silently miss — or transpose — its persistence.
     /// </summary>
-    /// <param name="selectedThemeName">Current selected theme name.</param>
-    /// <param name="fontFamily">Current font family.</param>
-    /// <param name="fontSize">Current font size.</param>
-    /// <param name="backgroundOpacity">Current background opacity.</param>
-    /// <param name="foregroundOpacity">Current foreground opacity.</param>
-    /// <param name="cellBackgroundOpacity">Current cell background opacity.</param>
-    public void SyncRuntimeDisplaySettings(
-        string? selectedThemeName,
-        string? fontFamily,
-        float? fontSize,
-        float backgroundOpacity,
-        float foregroundOpacity,
-        float cellBackgroundOpacity)
+    public void SyncRuntimeDisplaySettings(Ghostty.TerminalWindowSettings settings)
     {
-        if (!string.IsNullOrWhiteSpace(selectedThemeName))
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (!string.IsNullOrWhiteSpace(settings.ThemeName))
         {
-            SelectedThemeName = selectedThemeName;
+            SelectedThemeName = settings.ThemeName;
         }
 
-        if (!string.IsNullOrWhiteSpace(fontFamily))
+        if (!string.IsNullOrWhiteSpace(settings.FontFamily))
         {
-            FontFamily = fontFamily;
+            FontFamily = settings.FontFamily;
         }
 
-        if (fontSize.HasValue && fontSize.Value > 0.0f)
+        if (settings.FontSize > 0.0f)
         {
-            FontSize = fontSize.Value;
+            FontSize = settings.FontSize;
         }
 
-        BackgroundOpacity = backgroundOpacity;
-        ForegroundOpacity = foregroundOpacity;
-        CellBackgroundOpacity = cellBackgroundOpacity;
-    }
+        BackgroundOpacity = settings.BackgroundOpacity;
+        ForegroundOpacity = settings.ForegroundOpacity;
+        CellBackgroundOpacity = settings.CellBackgroundOpacity;
 
-    /// <summary>
-    /// Synchronizes the live cursor/border/lock display settings into the
-    /// in-memory configuration snapshot (the defaults applied to new windows),
-    /// mirroring <see cref="SyncRuntimeDisplaySettings"/>.
-    /// </summary>
-    public void SyncRuntimeFocusSettings(
-        CursorShape cursorStyle,
-        bool cursorBlink,
-        bool borderOnFocus,
-        bool borderOnHover,
-        float borderOpacity,
-        bool lockMode,
-        bool hotZoneEnabled,
-        HotZonePlacement hotZonePlacement,
-        float hotZoneWidth,
-        float hotZoneHeight,
-        RgbaColor hotZoneColor,
-        float hotZoneOpacity,
-        float hotZoneHoverOpacity)
-    {
-        CursorStyle = cursorStyle;
-        CursorBlink = cursorBlink;
-        BorderOnFocus = borderOnFocus;
-        BorderOnHover = borderOnHover;
-        BorderOpacity = borderOpacity;
-        LockMode = lockMode;
-        HotZoneEnabled = hotZoneEnabled;
-        HotZonePlacement = hotZonePlacement;
-        HotZoneWidth = hotZoneWidth;
-        HotZoneHeight = hotZoneHeight;
-        HotZoneColor = hotZoneColor;
-        HotZoneOpacity = hotZoneOpacity;
-        HotZoneHoverOpacity = hotZoneHoverOpacity;
+        CursorStyle = settings.CursorStyle;
+        CursorBlink = settings.CursorBlink;
+        BorderOnFocus = settings.BorderOnFocus;
+        BorderOnHover = settings.BorderOnHover;
+        BorderOpacity = settings.BorderOpacity;
+        LockMode = settings.LockMode;
+        HotZoneEnabled = settings.HotZoneEnabled;
+        HotZonePlacement = settings.HotZonePlacement;
+        HotZoneWidth = settings.HotZoneWidth;
+        HotZoneHeight = settings.HotZoneHeight;
+        HotZoneColor = settings.HotZoneColor;
+        HotZoneOpacity = settings.HotZoneOpacity;
+        HotZoneHoverOpacity = settings.HotZoneHoverOpacity;
     }
 
     /// <summary>
@@ -588,32 +523,21 @@ public class ThemeConfiguration
             ShellType.Cmd => ProcessLaunchOptions.CreateCmd(),
             ShellType.Custom when !string.IsNullOrEmpty(CustomShellPath) =>
                 ProcessLaunchOptions.CreateCustom(CustomShellPath, DefaultShellArguments.ToArray()),
-            ShellType.CustomGame =>
-                ProcessLaunchOptions.CreateCustomGame(DefaultCustomGameShellId ?? "GameConsoleShell"),
+            ShellType.CustomGame => CreateGameShellLaunchOptions(),
             _ => ProcessLaunchOptions.CreateDefault()
         };
     }
 
     /// <summary>
-    /// Gets a display name for the current shell configuration.
+    /// Game Console launch options with the configured prompt stamped into the
+    /// shell environment — the shell layer reads it from there instead of
+    /// depending on this configuration type (see WellKnownShellEnvironment).
     /// </summary>
-    /// <returns>Human-readable shell configuration name</returns>
-    public string GetShellDisplayName()
+    public ProcessLaunchOptions CreateGameShellLaunchOptions()
     {
-        return DefaultShellType switch
-        {
-            ShellType.Wsl => string.IsNullOrEmpty(WslDistribution)
-                ? "WSL2 (Default)"
-                : $"WSL2 ({WslDistribution})",
-            ShellType.PowerShell => "Windows PowerShell",
-            ShellType.PowerShellCore => "PowerShell Core",
-            ShellType.Cmd => "Command Prompt",
-            ShellType.Custom when !string.IsNullOrEmpty(CustomShellPath) =>
-                $"Custom ({Path.GetFileName(CustomShellPath)})",
-            ShellType.CustomGame when !string.IsNullOrEmpty(DefaultCustomGameShellId) =>
-                $"Game Console",
-            _ => "Auto-detect"
-        };
+        var options = ProcessLaunchOptions.CreateCustomGame(DefaultCustomGameShellId ?? "GameConsoleShell");
+        options.EnvironmentVariables[WellKnownShellEnvironment.GameShellPrompt] = GameShellPrompt;
+        return options;
     }
 
 
@@ -845,7 +769,7 @@ public class ThemeConfiguration
         public float HotZoneHeight { get; set; } = 28f;
 
         [TomlIgnore]
-        public RgbaColor HotZoneColor { get; set; } = new(0x4E, 0x9A, 0xE9);
+        public RgbaColor HotZoneColor { get; set; } = Ghostty.TerminalWindowSettings.DefaultHotZoneColor;
 
         [TomlPropertyName("HotZoneColor")]
         public string HotZoneColorHex
@@ -855,7 +779,7 @@ public class ThemeConfiguration
             {
                 HotZoneColor = ThemeTomlFormat.TryParseHexColor(value, out var color)
                     ? color
-                    : new RgbaColor(0x4E, 0x9A, 0xE9);
+                    : Ghostty.TerminalWindowSettings.DefaultHotZoneColor;
             }
         }
 

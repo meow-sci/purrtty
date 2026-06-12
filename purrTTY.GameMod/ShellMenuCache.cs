@@ -47,9 +47,13 @@ internal static class ShellMenuCache
             catch (Exception ex)
             {
                 ModLog.Log.Debug($"purrTTY ShellMenuCache: shell detection failed: {ex.Message}");
+
+                // Detection failing must not strand the player with only the
+                // Game Console: Auto needs no detection and is the one shell
+                // type valid on every platform.
                 s_snapshot = new Snapshot
                 {
-                    Entries = [("Game Console", ShellType.CustomGame)],
+                    Entries = [("Default Shell", ShellType.Auto), ("Game Console", ShellType.CustomGame)],
                     WslDistributions = [],
                     UnixShells = [],
                 };

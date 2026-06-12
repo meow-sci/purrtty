@@ -39,6 +39,7 @@ public sealed class MouseEvent : IDisposable
     public int Modifiers
     {
         get => _modifiers;
+        // purrtty fix: mods are uint16_t on the native side (upstream passed int).
         set { _modifiers = value; NativeMethods.ghostty_mouse_event_set_mods(_handle, (ushort)value); }
     }
 
@@ -63,7 +64,7 @@ public sealed class MouseEvent : IDisposable
         if (_handle != nint.Zero)
         {
             NativeMethods.ghostty_mouse_event_free(_handle);
-            _handle = nint.Zero; // guard against a double-free on a second Dispose
+            _handle = nint.Zero; // purrtty fix: guard against a double-free on a second Dispose
         }
     }
 }

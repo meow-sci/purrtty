@@ -317,8 +317,21 @@ RawCell bit decode is exactly right vs `page.zig`'s `packed struct(u64)` (conten
 
 ## F. Build / CI / tests / docs
 
-> **STATUS 2026-06-11: F1–F6 all FIXED** (branch `feature/fable-review`); **F7 (test coverage
-> gaps) deliberately left open.** F1+F2: `CopyCustomContent` now wipes the destination `purrTTY/`
+> **STATUS 2026-06-11: F1–F6 all FIXED** (branch `feature/fable-review`).
+> **STATUS 2026-06-12: F7 also FIXED — the entire review is now applied.** F7.1: sync-output
+> safety-timeout test (`SyncOutputTimeout` internal-settable). F7.2: OscSidecar split-chunk /
+> ESC-\ / clipboard-query / oversize tests; the truncation nit became a real fix (oversized
+> payloads are discarded, never dispatched as a base64 prefix; CAN/SUB abort an open sequence;
+> the unwired `Reset()` was removed). F7.3: Unix discrete-argv + `Auto` resolution tests join
+> the Windows quoting tests in `PtyInputContractTests`. F7.4: new `purrTTY.Display.Tests`
+> project (theme TOML round-trip, all 18 bundled schemes parse, override clamping, AtomicFile).
+> F7.5 was already covered. F7.6: `CustomShellPtyBridgeTests` + SessionManager
+> configurator-ordering/restart tests + session resize-settings test. F7.7: the tautological
+> `IsShellAvailable` test replaced, the scrollback assert strengthened to ≥95. Bonus: the two
+> permanently-skipped `OnConsolePrint` tests were dead (wrong assembly + removed 3-arg API) and
+> now run for real against `ImColor8`/`ConsoleWindow` colors on every OS. Suite: 325 passed,
+> 0 skipped.
+> F1+F2: `CopyCustomContent` now wipes the destination `purrTTY/`
 > folder before copying and copies the managed payload by glob (`purrTTY.*.dll` + explicit deps
 > incl. `Microsoft.Extensions.Logging.Abstractions.dll`); release notes tell players to delete
 > the old folder before unzipping. F3: branch-derived values are validated against

@@ -7,27 +7,35 @@ KSA has two camera controller types that can be patched via Harmony to intercept
 - `OrbitController` — orbit/follow camera mode
 - `FlyController` — free-fly camera mode
 
-Both expose an `OnFrame(double inDeltaTime)` method that drives the camera each frame.
+Both override `Controller.OnFrame(Viewport inViewport, double inDeltaTime)` (virtual on the
+`Controller` base), which drives the camera each frame.
 
 ## Harmony Patch Pattern
+
+The camera transform IS the camera: `Camera` derives from `Transform3D`
+(`public class Camera : Transform3D`), and every controller exposes it via the public
+`Controller.Camera` field — there is no private `Transform` field to inject (a
+`Transform3D ___Transform` parameter makes Harmony throw at patch time).
 
 ```csharp
 [HarmonyPatch(typeof(OrbitController), "OnFrame")]
 [HarmonyPrefix]
-private static bool OrbitController_OnFrame_Prefix(OrbitController __instance, double inDeltaTime, Transform3D ___Transform)
-    => HandleOnFramePrefix(__instance, inDeltaTime, ___Transform);
+private static bool OrbitController_OnFrame_Prefix(OrbitController __instance, Viewport inViewport, double inDeltaTime)
+    => HandleOnFramePrefix(__instance, inDeltaTime);
 
 [HarmonyPatch(typeof(FlyController), "OnFrame")]
 [HarmonyPrefix]
-private static bool FlyController_OnFrame_Prefix(FlyController __instance, double inDeltaTime, Transform3D ___Transform)
-    => HandleOnFramePrefix(__instance, inDeltaTime, ___Transform);
+private static bool FlyController_OnFrame_Prefix(FlyController __instance, Viewport inViewport, double inDeltaTime)
+    => HandleOnFramePrefix(__instance, inDeltaTime);
 
 // Return false to suppress default camera logic; return true to run it normally.
-private static bool HandleOnFramePrefix(Controller controller, double deltaTime, Transform3D transform)
+private static bool HandleOnFramePrefix(Controller controller, double deltaTime)
 {
     if (shouldOverride)
     {
-        // ... manipulate transform ...
+        // Manipulate the camera transform directly:
+        controller.Camera.PositionEcl = ...;     // double3 (ECL frame)
+        controller.Camera.LocalRotation = ...;   // doubleQuat
         return false; // skip original
     }
     return true; // pass through
@@ -35,7 +43,7 @@ private static bool HandleOnFramePrefix(Controller controller, double deltaTime,
 ```
 
 - Both types derive from `Controller` — use `Controller` as the parameter type in shared handlers
-- `___Transform` (triple-underscore) accesses the private `Transform3D` field by name via Harmony injection
+- `Controller.Camera` is a public field; `PositionEcl` / `LocalRotation` live on `Transform3D`
 
 ## Coordinate Frame: ECL (Ecliptic)
 

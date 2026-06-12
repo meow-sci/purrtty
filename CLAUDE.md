@@ -37,12 +37,14 @@ frontend is a frontend swap, not a backend rewrite.
 ```
 purrTTY.Logging
 vendor/Ghostty.Vt              # vendored libghostty-vt binding (+ native lib) — MIT, see its README
-purrTTY.CustomShellContract    # ICustomShell, CustomShellRegistry (namespace purrTTY.Core.Terminal)
-purrTTY.CustomShells           # GameConsoleShell
+purrTTY.CustomShellContract    # ICustomShell, CustomShellRegistry, WellKnownShellEnvironment (namespace purrTTY.Core.Terminal)
+purrTTY.CustomShells           # GameConsoleShell — refs CustomShellContract + KSA DLLs ONLY (deliberately
+    │                          #   no purrTTY.Display: shell config arrives via launch-option env vars)
 purrTTY.Terminal               # BACKEND: surface + sessions + RELOCATED PTY layer (Pty/)
     │  refs vendor/Ghostty.Vt + purrTTY.CustomShellContract + purrTTY.Logging
     └── purrTTY.Terminal.Tests (NUnit integration tests)
 purrTTY.Display                # ImGui FRONTEND: refs purrTTY.Terminal + KSA ImGui DLLs
+    └── purrTTY.Display.Tests  (pure-logic theming/config tests — no ImGui)
 purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; StarMap hooks + Harmony patches
 ```
 
@@ -107,19 +109,26 @@ The terminal-emulation behavior is **trusted to libghostty-vt** and is not re-te
 cover purrtty's **integration** with the engine.
 
 ```bash
-dotnet test purrtty.slnx --nologo -v quiet                                  # full suite (3 test projects)
+dotnet test purrtty.slnx --nologo -v quiet                                  # full suite (4 test projects)
 dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v quiet   # engine integration only
 ```
 
-`purrTTY.Terminal.Tests` (NUnit) validates frame production, theming, selection, OSC sidecar,
-key/mouse encoding, bracketed paste, DSR replies, scrollback, the session-wiring data flow, and
-the PTY input contracts (`PtyInputContractTests`: Windows argv quoting + `PtyInputQueue`
-ordering/overflow/failure semantics — pure logic, runs on every host OS).
-`UnixProcessManagerTests` exercises the POSIX pty backend against real `/bin/sh` children
-(output, exit codes, pty echo, initial winsize, working directory, shell detection); it runs on
-macOS (dev) and linux-x64 (CI) and self-skips on Windows — this is the pre-player coverage for
-Linux shell launching. `purrTTY.CustomShellContract.Tests` + `purrTTY.CustomShells.Tests` cover
-the custom-shell layer.
+`purrTTY.Terminal.Tests` (NUnit) validates frame production, theming, selection, the OSC
+sidecar (incl. split-chunk/ST framing, the clipboard-query path, oversize-discard, and CAN
+abort), key/mouse encoding, bracketed paste, DSR replies, scrollback, the DEC 2026 hold +
+safety timeout, the session-wiring data flow and `SessionManager` lifecycle
+(configurator-before-publication, restart reuse — driven through a registered headless custom
+shell), the `CustomShellPtyBridge` adapter contract, and the PTY input contracts
+(`PtyInputContractTests`: Windows argv quoting, Unix discrete-argv + `Auto` resolution, and
+`PtyInputQueue` ordering/overflow/failure/stuck-writer semantics — pure logic, runs on every
+host OS). `UnixProcessManagerTests` exercises the POSIX pty backend against real `/bin/sh`
+children (output, exit codes, pty echo, initial winsize, working directory, shell detection);
+it runs on macOS (dev) and linux-x64 (CI) and self-skips on Windows — this is the pre-player
+coverage for Linux shell launching. `purrTTY.CustomShellContract.Tests` +
+`purrTTY.CustomShells.Tests` cover the custom-shell layer (incl. the Brutal-version-sensitive
+`OnConsolePrint` capture, exercised against the real `ImColor8`/`ConsoleWindow` color fields).
+`purrTTY.Display.Tests` covers the pure-logic display pieces headlessly: theme TOML round-trip,
+all 18 bundled schemes parse, theme-override clamping, and `AtomicFile`.
 
 #### Tests must be quiet by default (MUST)
 
@@ -213,22 +222,30 @@ Vendored binding (`vendor/Ghostty.Vt/`):
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)
 - Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`, `NativeMethods.TrackedGridRef.cs`)
 - Native loader (KSA ALC): `src/Native/NativeLibraryResolver.cs` (ModuleInitializer + `SetDllImportResolver`)
-- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef` + `Terminal.HasSelection` — a cheap native no-value probe surfaced as `ITerminalSurface.HasSelection` for UI enable-state), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell.
+- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef` + `Terminal.HasSelection` — a cheap native no-value probe surfaced as `ITerminalSurface.HasSelection` for UI enable-state), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), `RenderState.ReadColors(...)` (allocation-free palette read for the per-frame path — the convenience `Colors` getter allocates), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell. The binding is **pruned to the called surface** (kitty graphics, OSC/SGR parsers, formatter, sys hooks etc. were removed — see the divergence section in `vendor/Ghostty.Vt/README.md` before re-vendoring anything from upstream).
 
 Backend (`purrTTY.Terminal/`):
 - Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`)
 - Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a **tracked** grid-ref anchor that survives viewport scroll *and* scrollback pruning — gotcha 17; bounded PTY inbox with chunked catch-up — gotcha 18; **dirty-aware frame production** — see gotcha 12 — with cell fg/bg resolved managed-side from style + palette in `FillCell`, a per-surface `GraphemeCache` interning cell strings so steady-state rebuilds allocate nothing, DEC 2026 synchronized-output gating — gotcha 13 — and `LastFrameStats` for the perf HUD)
-- OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream)
+- OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream;
+  decides interest in raw bytes before allocating, **discards** payloads that hit the 64 KiB cap
+  — a truncated OSC 52 cut on a base64 boundary would otherwise paste a silent prefix — and
+  treats CAN/SUB as abort-current-sequence, which the inbox-drop heal sequence relies on)
 - Neutral input types: `Input/` (`TerminalKey`, `TerminalKeyEvent`, `TerminalMouseEvent`, `GridPoint`, `KeyModifiers`)
 - Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam). `SessionManager.SessionConfigurator` runs against each new session *before* it is initialized/published — the safe place for theme push + surface event wiring (`TerminalWindow.WireSession` uses it); a `SessionCreated` subscriber runs post-publication, possibly on a pool thread, and must not touch the surface. Session close (`TerminalSession.CloseAsync`) completes synchronously on the calling thread — see gotcha 19.
 
 Frontend (`purrTTY.Display/`):
-- Multi-window controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs`;
-  manages a list of `TerminalWindow`s, routes game-menu actions to the focused window, persists
-  display defaults + first-window geometry through a single shared `ThemeConfiguration` instance)
+- Multi-window controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs`
+  — deliberately minimal: IsVisible/Update/Render/Dispose; everything else is reached through the
+  concrete type; manages a list of `TerminalWindow`s, routes game-menu actions to the focused
+  window, persists display defaults + first-window geometry through a single shared
+  `ThemeConfiguration` instance — including when the **last** window is closed via its "x")
 - Per-window terminal: `Ghostty/TerminalWindow.cs` (owns a `SessionManager` whose sessions are tabs —
   tab bar hidden with one tab; per-window theme/font/opacity **plus cursor style/blink, the
-  focus/hover border, and lock mode + focus hot zone (gotcha 22)** via `TerminalWindowSettings`; chrome hiding:
+  focus/hover border, and lock mode + focus hot zone (gotcha 22)** via `TerminalWindowSettings`
+  (own file; its `ApplyThemeOverrides` is the single clamp-and-apply implementation behind both
+  theme application and new-window defaults); AltGr text (Ctrl+Alt + queued chars on Windows
+  international layouts) is delivered as text, not a spurious Ctrl+Alt chord; chrome hiding:
   transparent WindowBg/MenuBarBg + zero border + `Alpha=0` menu/tab strips when the mouse is not over the
   window, even while focused; menu-bar strip is the drag handle (no title bar) and an `InvisibleButton`
   over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste; Ctrl/Alt
@@ -285,12 +302,14 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
   (`ThemeConfiguration`) — the only shell type valid on every platform.
 - Input queue: `Process/PtyInputQueue.cs` — bounded queue + dedicated writer thread used by both
   managers (gotcha 20).
-- Shell detection for menus: `ShellAvailabilityChecker.cs` (platform-aware; `IsShellAvailable`
-  cached per shell type), `WslDistributionDetector.cs` (Windows; `wsl --list --quiet` with a
-  bounded 15s wait + kill), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`, deduped by
-  executable name, default marked) — all cached for the **process lifetime** (no expiry; shell
-  installs do not change mid-game) and deliberately free of game-logging dependencies so they
-  work from the test host; caching contract pinned by `ShellDetectionCachingTests`
+- Shell detection for menus: `ShellAvailabilityChecker.cs` (`IsShellAvailable` cached per shell
+  type; availability is defined as **resolvability** — it delegates to `ShellCommandResolver`,
+  so the menus can never offer a shell the launch would reject), `WslDistributionDetector.cs`
+  (Windows; `wsl --list --quiet` with a bounded 15s wait + kill, output read bounded too),
+  `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`, deduped by executable name, default marked)
+  — all cached for the **process lifetime** (no expiry; shell installs do not change mid-game)
+  and deliberately free of game-logging dependencies so they work from the test host; caching
+  contract pinned by `ShellDetectionCachingTests`
 - Custom-shell adapter: `CustomShellPtyBridge.cs`; launch options: `ProcessLaunchOptions.cs`
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
 
@@ -303,7 +322,11 @@ Game/integration (`purrTTY.GameMod/`):
   New Tab / New Window (items read from `ShellMenuCache` — an immutable snapshot of shell entries +
   WSL distros + Unix shells built **once on a background thread at init**; the menu draw path must
   never run detection itself, because a slow probe — wsl.exe service spin-up, a dead network share
-  in PATH — hangs the render thread. WSL2 is offered only when ≥1 distribution was detected:
+  in PATH — hangs the render thread; a detection *failure* falls back to Default Shell (`Auto`,
+  valid everywhere, needs no detection) + Game Console, never Game Console alone. The menu draw
+  path is also allocation-free per frame: cached hotkey-shortcut string, static launch delegates
+  reading `MenuController`, static accessor lambdas for the sliders, indexed loops. WSL2 is
+  offered only when ≥1 distribution was detected:
   wsl.exe ships with stock Windows even when WSL was never set up, so executable presence is not
   evidence of a working WSL, and bare `wsl` with no distro yields a dead session. Per-shell items
   via `UnixShellDetector` on Linux/macOS replace the generic "Default Shell" entry; Game Console
@@ -312,7 +335,8 @@ Game/integration (`purrTTY.GameMod/`):
   Focus (cursor style/blink, focus+hover border + opacity, lock mode + hot zone
   placement/size/color/opacities — gotcha 22),
   Window (hide-chrome + performance-HUD checkboxes + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
-- Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
+- Bundled assets: `TerminalThemes/*.toml` (18 color schemes; parse-tested by
+  `purrTTY.Display.Tests`) + `TerminalFonts/*` (Nerd Fonts, `.iamttf` + one `.otf`), both copied
   to the build output and the deployed mod dir by the csproj.
 - Harmony patches: `Patcher.cs` applies each patch **independently** via
   `CreateClassProcessor(type).Patch()` with a per-class try/catch (gotcha 21) — required
@@ -327,8 +351,13 @@ Game/integration (`purrTTY.GameMod/`):
   while a text field has focus. `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
 
 Custom shells:
-- Contract: `purrTTY.CustomShellContract/` (`ICustomShell`, `CustomShellRegistry`, `BaseLineBufferedShell`)
-- Built-in game shell: `purrTTY.CustomShells/GameConsoleShell.cs` (emits VT bytes → `Surface.Write`)
+- Contract: `purrTTY.CustomShellContract/` (`ICustomShell`, `CustomShellRegistry`,
+  `BaseLineBufferedShell`, `WellKnownShellEnvironment` — well-known env-var names; shell
+  configuration like the Game Console prompt rides launch-option environment variables so
+  shells never reference display-layer config types)
+- Built-in game shell: `purrTTY.CustomShells/GameConsoleShell.cs` (emits VT bytes → `Surface.Write`;
+  prompt from `WellKnownShellEnvironment.GameShellPrompt`, stamped by
+  `ThemeConfiguration.CreateGameShellLaunchOptions` / the menu launch path)
 
 ## Key behaviors & gotchas
 
@@ -511,7 +540,9 @@ Custom shells:
    `ShellCommandResolver.ResolveShellCommandLine` with per-argument quoting
    (`AppendQuotedArgument`, CommandLineToArgvW rules) — never bare-space-join argv; it is the
    same join-then-split corruption the Unix side documents. Contracts pinned by
-   `PtyInputContractTests`.
+   `PtyInputContractTests`. The error channel terminates at `TerminalSession`, which subscribes
+   `ProcessError` and logs at Warning — without that subscription dropped input would be
+   silent, defeating the queue's whole reporting design.
 
 21. **Game integration is failure-isolated; the input gate must never get stuck.**
    `TerminalMod.OnAfterUi` calls `controller.Render()` **unconditionally** (not only while visible):
@@ -523,7 +554,9 @@ Custom shells:
    target can never abort the mod or block `InitializeTerminal()`; the menu fallback is a **postfix
    on `Program.DrawProgramMenusHook()`** (KSA's empty public menu-bar extension point — called once
    per frame for `MainViewport` right after the View menu) rather than an IL transpiler. The
-   `Harmony` instance is created lazily so a StarMap reload after `unload()` re-patches. `Patch01`
+   `Harmony` instance is created lazily so a StarMap reload after `unload()` re-patches, and
+   `unload()` also resets `Patch02`'s cached ModMenu-presence probe (statics survive a reload
+   without an ALC unload — any cached environment probe must be re-evaluated). `Patch01`
    forwards key *releases* even while gated (else held-key state sticks); `Patch03_HotkeyGuard`
    null-guards the `Program.ConsoleWindow` static; the toggle hotkey is `repeat:false` and skipped
    while any ImGui text field has focus.
@@ -544,7 +577,9 @@ Custom shells:
    - **Re-locking is just focus loss.** Clicking the game world or any other ImGui window
      unfocuses the terminal → next frame it is click-through again; the toggle hotkey / menus /
      hot zone refocus it. The key gate (gotcha 21) follows focus, so a locked unfocused terminal
-     never eats game keys.
+     never eats game keys. The open grid context menu counts as focus for click-through too
+     (the popup steals ImGui window focus — same reasoning as the controller's key gate);
+     without it, right-clicking a locked terminal turned it click-through under its own popup.
    - **While click-through, hover must not reveal chrome** (`showChrome` gates on `!clickThrough`)
      — chrome the mouse cannot interact with reads as a bug.
    - **Focus visuals never touch layout** (gotcha 8): the focus/hover border is an
@@ -555,7 +590,9 @@ Custom shells:
      default style/blink: it applies immediately while the app has not issued DECSCUSR, an app's
      explicit DECSCUSR still wins, and `CSI 0 q` returns to the configured default (pinned by
      `SetCursorStyle_AppliesAsDefaultAndYieldsToDecscusr`). Blink animation is the controller's
-     shared 0.53 s phase, reset to solid on every keystroke (`DataInput`).
+     shared 0.53 s phase, reset to solid on every keystroke (the window's payload-free
+     `InputSent` event — deliberately carries no bytes; copying them per keystroke for a
+     consumer that ignores them was avoidable garbage).
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`
@@ -589,7 +626,8 @@ Custom shells:
 
 ## Code Standards (from Directory.Build.props)
 - .NET 10 / C# 13; nullable enabled; warnings-as-errors (except CS1591).
-- The vendored `Ghostty.Vt` and the backend value types relax CS1591/warnings-as-errors in their csproj.
+- `purrTTY.Terminal` additionally NoWarns CS1591; the vendored `Ghostty.Vt` relaxes both
+  warnings-as-errors and XML-doc generation in its csproj (third-party-derived sources).
 
 ## Instruction Maintenance Mandate (MUST)
 

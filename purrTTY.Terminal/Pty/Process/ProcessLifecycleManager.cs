@@ -55,13 +55,25 @@ internal static class ProcessLifecycleManager
             return; // No process running
         }
 
-        // Cancel read operations
-        readCancellationSource?.Cancel();
-
-        // Try graceful shutdown first
-        if (!process.HasExited)
+        // Cancel read operations. The exit handler's cleanup can dispose this
+        // CTS concurrently (it races this stop on the threadpool), so a
+        // disposed source here just means cancellation already happened.
+        try
         {
-            try
+            readCancellationSource?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        // Try graceful shutdown first. Every process call can throw if the
+        // child exits (and the exit handler disposes the Process) mid-stop:
+        // HasExited/CloseMainWindow/WaitForExit throw InvalidOperationException
+        // on a disposed process, and Kill can throw Win32Exception when the
+        // process is already terminating.
+        try
+        {
+            if (!process.HasExited)
             {
                 // For ConPTY processes, we can try CloseMainWindow first, then Kill if needed
                 process.CloseMainWindow();
@@ -72,10 +84,10 @@ internal static class ProcessLifecycleManager
                     process.Kill(true);
                 }
             }
-            catch (InvalidOperationException)
-            {
-                // Process already exited
-            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.ComponentModel.Win32Exception)
+        {
+            // Process already exited / disposed by the concurrent exit handler.
         }
 
         // Wait briefly for the read task; full drain + handle cleanup happens in
@@ -83,14 +95,7 @@ internal static class ProcessLifecycleManager
         // there, so an unbounded await here could hang teardown).
         if (outputReadTask != null)
         {
-            try
-            {
-                await Task.WhenAny(outputReadTask, Task.Delay(2000));
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when cancellation is requested
-            }
+            await Task.WhenAny(outputReadTask, Task.Delay(2000));
         }
     }
 

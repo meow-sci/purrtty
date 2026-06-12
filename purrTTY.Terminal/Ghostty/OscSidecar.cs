@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace PurrTTY.Terminal.Ghostty;
@@ -18,6 +19,8 @@ internal sealed class OscSidecar
     private const int MaxPayload = 64 * 1024;
     private const byte Esc = 0x1B;
     private const byte Bel = 0x07;
+    private const byte Can = 0x18;
+    private const byte Sub = 0x1A;
 
     private enum State
     {
@@ -29,6 +32,12 @@ internal sealed class OscSidecar
 
     private State _state = State.Ground;
     private readonly List<byte> _payload = new(256);
+
+    // Set when payload bytes were dropped at MaxPayload. A truncated sequence
+    // is never dispatched: a clipped OSC 52 whose cut lands on a base64
+    // 4-char boundary would otherwise decode cleanly and silently replace the
+    // user's clipboard with a prefix of what the app sent.
+    private bool _overflowed;
 
     public event Action<string>? IconNameChanged;
     public event Action<ClipboardRequest>? ClipboardRequested;
@@ -60,12 +69,6 @@ internal sealed class OscSidecar
         }
     }
 
-    public void Reset()
-    {
-        _state = State.Ground;
-        _payload.Clear();
-    }
-
     private void FeedByte(byte b)
     {
         switch (_state)
@@ -82,6 +85,7 @@ internal sealed class OscSidecar
                 {
                     _state = State.Osc;
                     _payload.Clear();
+                    _overflowed = false;
                 }
                 else
                 {
@@ -99,9 +103,21 @@ internal sealed class OscSidecar
                 {
                     _state = State.OscEsc;
                 }
+                else if (b is Can or Sub)
+                {
+                    // CAN/SUB abort the control string (DEC/xterm behavior).
+                    // The inbox-overflow heal sequence (CAN + ST, gotcha 18)
+                    // relies on this: a partial OSC interrupted by a drop must
+                    // be abandoned, never dispatched with stray bytes inside.
+                    AbandonSequence();
+                }
                 else if (_payload.Count < MaxPayload)
                 {
                     _payload.Add(b);
+                }
+                else
+                {
+                    _overflowed = true;
                 }
                 break;
 
@@ -115,50 +131,61 @@ internal sealed class OscSidecar
                 else
                 {
                     // Not a string terminator; abandon this OSC.
-                    _payload.Clear();
+                    AbandonSequence();
                     _state = b == Esc ? State.Esc : State.Ground;
                 }
                 break;
         }
     }
 
+    private void AbandonSequence()
+    {
+        _payload.Clear();
+        _overflowed = false;
+        _state = State.Ground;
+    }
+
     private void Dispatch()
     {
-        if (_payload.Count == 0)
+        if (_overflowed)
         {
+            // Truncated payload — drop the whole sequence (see _overflowed).
+            _payload.Clear();
+            _overflowed = false;
             return;
         }
 
-        var text = Encoding.UTF8.GetString(_payload.ToArray());
+        var payload = CollectionsMarshal.AsSpan(_payload);
+
+        // Decide interest in raw bytes before materializing any string: shell
+        // prompts emit ignored OSCs (0/2 title, 7 pwd, 133 prompt marks)
+        // continuously, and this runs on the tick thread.
+        bool isIcon = payload.Length >= 2 && payload[0] == (byte)'1' && payload[1] == (byte)';';
+        bool isClipboard = payload.Length >= 3
+            && payload[0] == (byte)'5' && payload[1] == (byte)'2' && payload[2] == (byte)';';
+        if (!isIcon && !isClipboard)
+        {
+            _payload.Clear();
+            return;
+        }
+
+        var text = Encoding.UTF8.GetString(payload);
         _payload.Clear();
 
-        int firstSep = text.IndexOf(';');
-        var command = firstSep < 0 ? text : text[..firstSep];
-
-        switch (command)
+        if (isIcon)
         {
-            case "1":
-                // OSC 1 ; <icon name>
-                if (firstSep >= 0)
-                {
-                    IconNameChanged?.Invoke(text[(firstSep + 1)..]);
-                }
-                break;
-
-            case "52":
-                DispatchClipboard(text, firstSep);
-                break;
+            // OSC 1 ; <icon name>
+            IconNameChanged?.Invoke(text[2..]);
+        }
+        else
+        {
+            DispatchClipboard(text, firstSep: 2);
         }
     }
 
     private void DispatchClipboard(string text, int firstSep)
     {
         // OSC 52 ; <target(s)> ; <base64 | ?>
-        if (firstSep < 0)
-        {
-            return;
-        }
-
         int secondSep = text.IndexOf(';', firstSep + 1);
         if (secondSep < 0)
         {

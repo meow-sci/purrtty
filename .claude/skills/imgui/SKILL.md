@@ -288,9 +288,15 @@ ImGuiUtils.SetLastFocusOnAppearing();               // focus the last item when 
 
 # Blocking game hotkeys during text input (REQUIRED)
 
-When a mod has text inputs, typing in them would also fire game hotkeys (e.g. `\` opens the console, `Enter` submits commands). KSA mods solve this with a shared **`HotkeyGuard`** helper that **every top-level mod must apply** (this is a repo-wide rule).
+When a mod has text inputs, typing in them would also fire game hotkeys (e.g. `\` opens the console, `Enter` submits commands). Every mod with text input needs a guard for this.
 
-`HotkeyGuard` Harmony-patches `GameSettings.OnKeyAll` and, whenever `ImGui.GetIO().WantTextInput` is true *and the in-game console is not open*, consumes the key so it never reaches game hotkeys. Apply it from your `Patcher`:
+> **In the purrTTY repo** the guard is implemented directly as `Patch03_HotkeyGuard` in
+> `purrTTY.GameMod/Patcher.cs` (same mechanism, no shared library — it also null-guards the
+> `Program.ConsoleWindow` static, which can be unassigned very early in startup). The
+> `MeowSci.KsaAbstractions.HotkeyGuard` helper described below is the **meow-sci mods repo**
+> convention; use whichever your repo ships.
+
+The mechanism: Harmony-patch `GameSettings.OnKeyAll` and, whenever `ImGui.GetIO().WantTextInput` is true *and the in-game console is not open*, consume the key so it never reaches game hotkeys. With the shared helper, apply it from your `Patcher`:
 
 ```csharp
 using MeowSci.KsaAbstractions;

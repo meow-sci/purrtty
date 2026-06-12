@@ -40,6 +40,15 @@ The prebuilt libghostty-vt binaries statically link the following:
 - **Upstream:** https://github.com/dotnet/runtime
 - **License:** MIT — see `third-party-licenses/LICENSE.dotnet`.
 
+## ModMenu.Attributes
+
+- **Shipped as:** `ModMenu.Attributes.dll`
+- **Upstream:** https://github.com/MrJeranimo/ModMenu
+- **License:** MIT — see `third-party-licenses/LICENSE.modmenu`.
+- **Description:** Attribute contract for registering menus with the ModMenu
+  companion mod (used when ModMenu is installed; purrTTY falls back to its own
+  menu hook otherwise).
+
 ## Lib.Harmony
 
 - **Upstream:** https://github.com/pardeike/Harmony

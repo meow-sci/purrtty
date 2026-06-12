@@ -40,6 +40,7 @@ public sealed class TerminalSession : IDisposable
 
         ProcessManager.ProcessExited += OnProcessExited;
         ProcessManager.DataReceived += OnProcessDataReceived;
+        ProcessManager.ProcessError += OnProcessError;
         Surface.PtyReply += OnSurfacePtyReply;
         Surface.TitleChanged += OnSurfaceTitleChanged;
     }
@@ -194,6 +195,12 @@ public sealed class TerminalSession : IDisposable
         ProcessExited?.Invoke(this, new SessionProcessExitedEventArgs(e.ExitCode, e.ProcessId));
     }
 
+    // PTY write failures and input-queue overflow are reported here rather than
+    // thrown (gotcha 20) — without this subscription the error channel
+    // dead-ends and dropped input is silent.
+    private void OnProcessError(object? sender, ProcessErrorEventArgs e)
+        => _logger.LogWarning(e.Error, "PTY error for session {SessionId}: {Message}", Id, e.Message);
+
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     public void Dispose()
@@ -211,6 +218,7 @@ public sealed class TerminalSession : IDisposable
         // orphaned) process manager can raise events back into a disposed session.
         ProcessManager.ProcessExited -= OnProcessExited;
         ProcessManager.DataReceived -= OnProcessDataReceived;
+        ProcessManager.ProcessError -= OnProcessError;
         Surface.PtyReply -= OnSurfacePtyReply;
         Surface.TitleChanged -= OnSurfaceTitleChanged;
 

@@ -97,7 +97,7 @@ Universe.CurrentSystem?.All.UnsafeAsList().OfType<Celestial>().ToList();   // al
 Universe.CurrentSystem?.All.UnsafeAsList().OfType<IOrbiter>().ToList();    // celestials + vehicles
 StellarBody sun = Universe.CurrentSystem?.GetWorldSun();                   // root star
 
-// SOI tree (IParentBody.Children is IReadOnlyList<IOrbiter>):
+// SOI tree (IParentBody.Children is declared List<IOrbiter>):
 static void CollectAllCelestials(IParentBody parent, List<Celestial> result) {
     foreach (var child in parent.Children)
         if (child is Celestial c) { result.Add(c); CollectAllCelestials(c, result); }

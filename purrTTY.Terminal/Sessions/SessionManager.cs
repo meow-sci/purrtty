@@ -179,6 +179,7 @@ public sealed class SessionManager : IDisposable
 
         TerminalSession? previousActive = null;
         bool disposedDuringInit = false;
+        bool capExceededDuringInit = false;
         lock (_lock)
         {
             // Re-check disposal: shell spawn (WSL spin-up etc.) can take seconds
@@ -187,6 +188,13 @@ public sealed class SessionManager : IDisposable
             if (_disposed)
             {
                 disposedDuringInit = true;
+            }
+            else if (_sessions.Count >= _maxSessions)
+            {
+                // Two overlapping creates can both pass the entry cap check —
+                // the lock is released across the slow spawn await — so the cap
+                // must be re-validated at publication, like disposal above.
+                capExceededDuringInit = true;
             }
             else
             {
@@ -198,11 +206,13 @@ public sealed class SessionManager : IDisposable
             }
         }
 
-        if (disposedDuringInit)
+        if (disposedDuringInit || capExceededDuringInit)
         {
             // Never published, so nothing else can be touching the surface.
             session.Dispose();
-            throw new ObjectDisposedException(nameof(SessionManager));
+            throw disposedDuringInit
+                ? new ObjectDisposedException(nameof(SessionManager))
+                : new InvalidOperationException($"Maximum number of sessions ({_maxSessions}) reached.");
         }
 
         // State transitions raise StateChanged; keep them outside _lock.
@@ -234,34 +244,6 @@ public sealed class SessionManager : IDisposable
         previous?.Deactivate();
         next.Activate();
         ActiveSessionChanged?.Invoke(this, new ActiveSessionChangedEventArgs(previous, next));
-    }
-
-    public void SwitchToNextSession() => SwitchRelative(1);
-
-    public void SwitchToPreviousSession() => SwitchRelative(-1);
-
-    private void SwitchRelative(int direction)
-    {
-        ThrowIfDisposed();
-        Guid target;
-        lock (_lock)
-        {
-            if (_sessionOrder.Count <= 1 || _activeSessionId is not { } current)
-            {
-                return;
-            }
-
-            int index = _sessionOrder.IndexOf(current);
-            if (index < 0)
-            {
-                return;
-            }
-
-            int nextIndex = (index + direction + _sessionOrder.Count) % _sessionOrder.Count;
-            target = _sessionOrder[nextIndex];
-        }
-
-        SwitchToSession(target);
     }
 
     public async Task CloseSessionAsync(Guid sessionId, CancellationToken cancellationToken = default)
@@ -338,19 +320,6 @@ public sealed class SessionManager : IDisposable
         }
 
         await session.ProcessManager.StartAsync(effective, cancellationToken);
-    }
-
-    /// <summary>Kept for API compatibility; font config is applied at the display layer.</summary>
-    public void ApplyFontConfigToAllSessions(object fontConfig)
-    {
-        ArgumentNullException.ThrowIfNull(fontConfig);
-        ThrowIfDisposed();
-    }
-
-    /// <summary>Kept for API compatibility; resize is driven by the display layer.</summary>
-    public void TriggerTerminalResizeForAllSessions(float newCharacterWidth, float newLineHeight, (float width, float height) windowSize)
-    {
-        ThrowIfDisposed();
     }
 
     private TerminalSession? ActiveSessionNoLock()

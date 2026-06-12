@@ -104,7 +104,13 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // 0 when not paused. Frames are withheld while an app batches a redraw,
     // bounded by SyncOutputTimeout in case it never clears the mode.
     private long _syncOutputSince;
-    private static readonly TimeSpan SyncOutputTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How long a DEC 2026 pause may withhold frames before rendering goes
+    /// live anyway (a stuck app must not freeze the terminal). Internal-settable
+    /// so tests can exercise the timeout branch without a 1 s wait.
+    /// </summary>
+    internal TimeSpan SyncOutputTimeout { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>Diagnostics from the most recent <see cref="BuildFrame"/> (for the perf HUD).</summary>
     public SurfaceFrameStats LastFrameStats;
@@ -146,13 +152,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                 opts.MaxScrollback = mb;
             }
 
-            opts.OnWritePty = span =>
-            {
-                for (int i = 0; i < span.Length; i++)
-                {
-                    _replies.Add(span[i]);
-                }
-            };
+            opts.OnWritePty = span => _replies.AddRange(span);
             opts.OnBell = () => _bellPending = true;
             opts.OnTitleChanged = () => _titlePending = true;
         });
@@ -455,6 +455,22 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             return 0;
         }
 
+        // The whole encode (configure + event setters + encode) is guarded,
+        // mirroring EncodeKey: a native failure in any step degrades to "no
+        // bytes", never an exception on the input path.
+        try
+        {
+            return EncodeMouseOnce(mouseEvent, output);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Mouse encode failed");
+            return 0;
+        }
+    }
+
+    private int EncodeMouseOnce(in TerminalMouseEvent mouseEvent, Span<byte> output)
+    {
         _mouseEncoder.ConfigureFromTerminal(_terminal);
         if (_surfacePxW > 0 && _surfacePxH > 0 && _cellPxW > 0 && _cellPxH > 0)
         {
@@ -467,22 +483,15 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _mouseEvent.X = mouseEvent.X;
         _mouseEvent.Y = mouseEvent.Y;
 
-        try
-        {
-            var bytes = _mouseEncoder.Encode(_mouseEvent);
-            int n = Math.Min(bytes.Length, output.Length);
-            bytes[..n].CopyTo(output);
-            return n;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Mouse encode failed");
-            return 0;
-        }
+        var bytes = _mouseEncoder.Encode(_mouseEvent);
+        int n = Math.Min(bytes.Length, output.Length);
+        bytes[..n].CopyTo(output);
+        return n;
     }
 
     public void SetMouseGeometry(int surfacePixelWidth, int surfacePixelHeight, int cellPixelWidth, int cellPixelHeight)
     {
+        ThrowIfDisposed();
         _surfacePxW = surfacePixelWidth;
         _surfacePxH = surfacePixelHeight;
         if (cellPixelWidth > 0) _cellPxW = cellPixelWidth;
@@ -737,17 +746,22 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
     private void RefreshColors()
     {
-        var colors = _renderState.Colors;
-        for (int i = 0; i < 256 && i < colors.Palette.Length; i++)
+        // This runs on every full rebuild — every tick while output scrolls —
+        // so it reads through the allocation-free binding path (the convenience
+        // RenderState.Colors getter allocates a fresh palette array per call).
+        Span<GhosttyTypes.ColorRgb> palette = stackalloc GhosttyTypes.ColorRgb[256];
+        _renderState.ReadColors(palette, out var background, out var foreground, out var cursor, out bool cursorHasValue);
+
+        for (int i = 0; i < 256; i++)
         {
-            _frame.Colors.Palette[i] = ToRgba(colors.Palette[i]);
+            _frame.Colors.Palette[i] = ToRgba(palette[i]);
         }
 
-        var defFg = ToRgba(colors.Foreground);
-        var defBg = ToRgba(colors.Background);
+        var defFg = ToRgba(foreground);
+        var defBg = ToRgba(background);
         _frame.Colors.DefaultForeground = defFg;
         _frame.Colors.DefaultBackground = defBg;
-        _frame.Colors.Cursor = colors.CursorHasValue ? ToRgba(colors.Cursor) : defFg;
+        _frame.Colors.Cursor = cursorHasValue ? ToRgba(cursor) : defFg;
     }
 
     /// <summary>
@@ -852,10 +866,16 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
             underline = (UnderlineStyle)Math.Clamp(style.Underline, 0, 5);
 
-            // Only RGB underline colors are surfaced; palette/none fall back to fg at draw time.
-            underlineColor = style.UnderlineColor.Tag == StyleColorTag.Rgb
-                ? ToRgba(style.UnderlineColor.Rgb)
-                : null;
+            // RGB and palette underline colors resolve here; None falls back to
+            // fg at draw time. (Deliberately not ResolveStyleColor: its fg
+            // fallback is the pre-inverse-swap fg, which would change how
+            // inverse cells draw their underline.)
+            underlineColor = style.UnderlineColor.Tag switch
+            {
+                StyleColorTag.Rgb => ToRgba(style.UnderlineColor.Rgb),
+                StyleColorTag.Palette => _frame.Colors.Palette[style.UnderlineColor.PaletteIndex],
+                _ => null,
+            };
 
             // Reverse video: the engine reports logical fg/bg plus an inverse
             // flag; resolve it to final draw colors here (the frontend draws

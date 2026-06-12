@@ -26,8 +26,39 @@ bump** — it runs once at startup and as a test).
 | Vendored on | 2026-06-07 |
 
 The managed sources under `src/` were copied from the upstream `src/Ghostty.Vt/`, retargeted
-to `net10.0` (purrtty's TFM), with purrtty-specific additions clearly marked in-file as
-"purrtty addition".
+to `net10.0` (purrtty's TFM), with purrtty-specific additions marked in-file as
+"purrtty addition" and behavioral fixes to upstream code marked "purrtty fix".
+
+### Divergence from upstream (a fork in all but name)
+
+The vendored copy has diverged substantially and deliberately; treat upstream as a
+reference, **never** re-vendor wholesale (it would revert the fixes below). Grep for
+`purrtty addition` / `purrtty fix` to find every divergence in-file. The load-bearing fixes:
+
+- **Encoders return owned bytes** (`KeyEncoder`/`MouseEncoder.Encode`): upstream returned a
+  span into a dead stackalloc — a use-after-scope the caller read as clobbered stack.
+- **`KeyEvent.Text` keeps a persistent pin**: the native event stores the raw utf8 pointer
+  and reads it at encode time; upstream's pin ended at the setter's return (GC could move or
+  collect the array before the read). `Text = null` also clears the native pointer now.
+- **Enquiry/Xtversion reply pins** (`Terminal.PinReply`): same lifetime class — the native
+  side reads the returned buffer after the managed callback returns.
+- **`Paste.Encode` copies to a mutable scratch**: `ghostty_paste_encode` rewrites its input
+  in place, and the caller's span may point at read-only memory (u8 literals).
+- **`MouseEvent.Modifiers` marshals as u16**; double-free guards on `KeyEvent`/`MouseEvent`
+  re-dispose; `MaxScrollback` plumbed (upstream hardcoded 1000 **bytes** — effectively none).
+
+**Pruned surface:** binding modules purrtty never calls were removed rather than carried as
+freight (kitty graphics, OSC/SGR parsers, `Formatter`, `Focus`, `SizeReport`, `BuildInfo`,
+`Sys`, batch getters, terminal color/pwd/title getters & setters, and enums that had drifted
+from the pinned headers). Restore from upstream (then re-verify against the pinned headers)
+if a feature needs one of them — drifted enums especially must be regenerated from the pin,
+not copied back as-is. The deliberately-kept "fully populated" alternates
+(`RenderStateRowEnumerator`/`RenderStateCellEnumerator`, `GridRef.GetCell/GetStyle/...`)
+stay, per the navigation notes in the repo-root CLAUDE.md.
+
+> Note: `TerminalOptions.MaxScrollback` is in **bytes**. The upstream C header comment says
+> "number of lines" — the header is wrong (ghostty's `Screen.zig` documents bytes); don't
+> "fix" the binding doc to match the header on a pin bump.
 
 ## Native library
 

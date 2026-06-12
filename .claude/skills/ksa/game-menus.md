@@ -2,68 +2,46 @@
 
 ## How the Game Menu Bar Works
 
-The game draws its menu bar in `Program.DrawMenuBar(Viewport viewport, int windowWidth)`. It creates a borderless ImGui window with `ImGuiWindowFlags.MenuBar` and calls `ImGui.BeginMenuBar()` / `ImGui.EndMenuBar()` inside it. The built-in menus rendered inside that block are, in order:
+The game draws its menu bar in `Program.DrawMenuBar(Viewport viewport, int windowWidth)` (an
+instance method). It creates a borderless ImGui window with `ImGuiWindowFlags.MenuBar` and calls
+`ImGui.BeginMenuBar()` / `ImGui.EndMenuBar()` inside it. The built-in menus rendered inside that
+block are, in order:
 
 1. **File** — save/load, exit, settings
 2. **Editor** (when in editor mode) *or* **Universe** (in flight) — simulation controls
 3. **View** — cameras, overlays, orbit lines, debug tools
 
-To add a custom top-level menu entry, code must be injected **inside** the `BeginMenuBar()` / `EndMenuBar()` block, after the last built-in menu.
+Right after the last built-in menu — and still **inside** the `BeginMenuBar()` scope — the game
+calls an empty public extension point:
 
-## Harmony Transpiler Pattern
+```csharp
+public void DrawProgramMenusHook()
+{
+}
+```
 
-The only reliable injection point is a **Harmony Transpiler** on `Program.DrawMenuBar`. A prefix/postfix does not work because you need to execute `ImGui.BeginMenu` / `ImGui.EndMenu` inside the existing `BeginMenuBar()` scope.
+A plain Harmony **postfix on `Program.DrawProgramMenusHook`** is therefore the way to add a
+top-level menu. No IL rewriting needed; this is what purrTTY ships (`Patch02` in
+`purrTTY.GameMod/Patcher.cs`).
 
-### Strategy
-
-Walk the IL backwards and find the first (i.e. last-in-source) `ImGui.EndMenu()` call — this is the View menu's closing call. Inject your menu calls immediately after it, before the version string display code and `ImGui.EndMenuBar()`.
-
-### Complete Implementation
+## Recommended Pattern: Postfix on `DrawProgramMenusHook`
 
 ```csharp
 using Brutal.ImGuiApi;
 using HarmonyLib;
 using KSA;
-using System.Reflection;
-using System.Reflection.Emit;
 
-[HarmonyPatch(typeof(Program), "DrawMenuBar")]
-public static class MyMenuPatcher
+[HarmonyPatch(typeof(KSA.Program), nameof(KSA.Program.DrawProgramMenusHook))]
+static class MyMenuPatch
 {
-    [HarmonyTranspiler]
-    public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-    {
-        var codes = new List<CodeInstruction>(instructions);
-
-        MethodInfo endMenuMethod  = AccessTools.Method(typeof(ImGui), nameof(ImGui.EndMenu));
-        MethodInfo injectMethod   = AccessTools.Method(typeof(MyMenuPatcher), nameof(DrawMyMenu));
-
-        int endMenuCount = 0;
-        for (int i = codes.Count - 1; i >= 0; i--)
-        {
-            if ((codes[i].opcode == OpCodes.Call || codes[i].opcode == OpCodes.Callvirt)
-                && codes[i].operand is MethodInfo m && m == endMenuMethod)
-            {
-                endMenuCount++;
-                if (endMenuCount == 1)   // last EndMenu in source = View menu's EndMenu
-                {
-                    // Ldarg_1 pushes the Viewport parameter; call our injected method
-                    codes.Insert(i + 4, new CodeInstruction(OpCodes.Ldarg_1));
-                    codes.Insert(i + 5, new CodeInstruction(OpCodes.Call, injectMethod));
-                    Console.WriteLine("MyMod: menu injected successfully");
-                    break;
-                }
-            }
-        }
-
-        return codes;
-    }
-
-    private static void DrawMyMenu(Viewport viewport)
+    [HarmonyPostfix]
+    public static void Postfix()
     {
         if (ImGui.BeginMenu("My Mod"))
         {
-            viewport.MenuBarInUse = true;   // REQUIRED: blocks game hotkeys/camera while menu is open
+            // REQUIRED: keeps the (possibly auto-hidden) menu bar shown and
+            // suppresses game hotkeys/camera while the menu is open.
+            Program.MainViewport.MenuBarInUse = true;
 
             if (ImGui.MenuItem("Do Something", default, _enabled))
                 _enabled = !_enabled;
@@ -82,29 +60,15 @@ public static class MyMenuPatcher
 }
 ```
 
-Apply this in your `Patcher.cs` using `_harmony.PatchAll()` or `_harmony.Patch(...)` in the usual way.
+Notes:
 
-## Critical Details
-
-### `viewport.MenuBarInUse = true`
-
-Set this **inside** the `ImGui.BeginMenu(...)` block (i.e. only when the menu is open). It tells the game the menu bar is actively being used, which:
-- Prevents the menu bar from auto-hiding (when the auto-hide setting is on)
-- Suppresses camera movement and game hotkey processing while the menu is open
-
-Omitting this causes the game to steal keyboard/mouse input from your menu.
-
-### Injection offset (`i + 4`, `i + 5`)
-
-After the View menu's `ImGui.EndMenu()` call there are **3 IL instructions** for the version string display (`SetCursorPosY`, `SetCursorPosX`, `TextColored` on the main viewport). These must not be displaced, so insertion starts at `i + 4` to append after them and before `ImGui.EndMenuBar()`.
-
-### `DrawMenuBar` is called per-viewport
-
-In split-screen mode, `DrawMenuBar` is called once per visible viewport. Your `DrawMyMenu(Viewport viewport)` will be called multiple times per frame. If you have per-frame state, account for this. The `viewport` argument lets you scope behavior to a specific viewport if needed.
-
-### Harmony patch timing
-
-Apply the patch in `[StarMapAllModsLoaded]`, not in the `[StarMapMod]` constructor:
+- The hook is called once per frame for the **MainViewport** menu bar, right after the View menu
+  and before the right-aligned version string + `EndMenuBar()`.
+- Set `MenuBarInUse = true` **inside** the `BeginMenu` block (only while the menu is open).
+  Omitting it lets the game steal keyboard/mouse input from your menu.
+- Apply patches in `[StarMapAllModsLoaded]`, not the mod constructor, and apply each patch class
+  independently (`harmony.CreateClassProcessor(type).Patch()` with try/catch) so one drifted
+  target cannot take down the whole mod.
 
 ```csharp
 [StarMapMod]
@@ -117,6 +81,19 @@ public class Mod
     public void Unload() => Patcher.Unload();
 }
 ```
+
+## Legacy: Harmony Transpiler on `DrawMenuBar`
+
+Before `DrawProgramMenusHook` existed, the only injection point was an IL transpiler on
+`Program.DrawMenuBar` that located the View menu's `ImGui.EndMenu()` call and inserted
+instructions after it. **Do not use this anymore**: the IL layout around the insertion point has
+changed across game builds (the version-string instructions are now gated behind an
+`if (viewport == MainViewport)` block, so fixed instruction offsets are unreliable), and the
+opcode pattern-matching breaks silently on every reshuffle. purrTTY replaced its transpiler with
+the postfix above for exactly this reason.
+
+If you must inject elsewhere in `DrawMenuBar`, note it is an **instance** method, so `Ldarg_1`
+is the `Viewport` parameter.
 
 ## ImGui Calls Available Inside the Menu
 

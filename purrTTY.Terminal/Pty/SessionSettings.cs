@@ -40,60 +40,6 @@ public class SessionSettings
     public DateTime CreatedTime { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// Validates the session settings for consistency and reasonable values.
-    /// </summary>
-    /// <exception cref="ArgumentException">Thrown when settings contain invalid values</exception>
-    public void Validate()
-    {
-        if (string.IsNullOrWhiteSpace(Title))
-        {
-            throw new ArgumentException("Title cannot be null or empty");
-        }
-
-        if (Columns <= 0)
-        {
-            throw new ArgumentException("Columns must be greater than zero");
-        }
-
-        if (Rows <= 0)
-        {
-            throw new ArgumentException("Rows must be greater than zero");
-        }
-
-        if (string.IsNullOrWhiteSpace(WorkingDirectory))
-        {
-            WorkingDirectory = Environment.CurrentDirectory;
-        }
-
-        if (string.IsNullOrWhiteSpace(ShellCommand))
-        {
-            ShellCommand = "cmd.exe";
-        }
-    }
-
-    /// <summary>
-    /// Creates a copy of the current settings.
-    /// </summary>
-    /// <returns>A new SessionSettings instance with the same values</returns>
-    public SessionSettings Clone()
-    {
-        return new SessionSettings
-        {
-            Title = Title,
-            IsActive = IsActive,
-            WorkingDirectory = WorkingDirectory,
-            Columns = Columns,
-            Rows = Rows,
-            ProcessId = ProcessId,
-            ExitCode = ExitCode,
-            IsProcessRunning = IsProcessRunning,
-            ShellCommand = ShellCommand,
-            LastActiveTime = LastActiveTime,
-            CreatedTime = CreatedTime
-        };
-    }
-
-    /// <summary>
     /// Updates the session settings when the process state changes.
     /// </summary>
     /// <param name="processId">Process ID of the running process</param>

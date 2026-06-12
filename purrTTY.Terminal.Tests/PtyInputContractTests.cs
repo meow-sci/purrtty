@@ -69,6 +69,92 @@ public sealed class PtyInputContractTests
     }
 
     [Test]
+    public void ResolveShellCommandArgv_KeepsArgumentsDiscrete()
+    {
+        // The Unix half of "never join-then-split": arguments must reach exec
+        // as discrete argv entries, spaces intact, with no quoting applied.
+        string shellDir = Directory.CreateTempSubdirectory("purrtty argv test").FullName;
+        try
+        {
+            string shellPath = Path.Combine(shellDir, "fake-shell");
+            File.WriteAllText(shellPath, string.Empty);
+
+            var options = ProcessLaunchOptions.CreateCustom(shellPath, "-c", "echo 'a b'  c");
+            (string resolvedPath, string[] argv) = ShellCommandResolver.ResolveShellCommandArgv(options);
+
+            Assert.That(resolvedPath, Is.EqualTo(shellPath));
+            Assert.That(argv, Is.EqualTo(new[] { "-c", "echo 'a b'  c" }),
+                "each argument must survive verbatim as one argv entry");
+        }
+        finally
+        {
+            Directory.Delete(shellDir, recursive: true);
+        }
+    }
+
+    [Test]
+    public void ResolveShellCommandArgv_Auto_ResolvesToExistingShell()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Auto on Windows resolves via WSL detection / PowerShell probing,
+            // which is environment-dependent; the Unix policy is what this pins.
+            Assert.Ignore();
+        }
+
+        // Auto is the config default and unparsable-value fallback — it must
+        // always resolve to a launchable shell ($SHELL, then zsh/bash/sh).
+        (string shellPath, string[] argv) =
+            ShellCommandResolver.ResolveShellCommandArgv(new ProcessLaunchOptions { ShellType = ShellType.Auto });
+
+        Assert.That(File.Exists(shellPath), Is.True, $"Auto resolved to a missing shell: {shellPath}");
+        Assert.That(argv, Is.Empty);
+
+        string? configured = Environment.GetEnvironmentVariable("SHELL");
+        if (!string.IsNullOrEmpty(configured) && File.Exists(configured))
+        {
+            Assert.That(shellPath, Is.EqualTo(configured), "$SHELL must take precedence when set and present");
+        }
+    }
+
+    [Test]
+    public void InputQueue_Shutdown_ReportsStuckWriter_ThenJoinsWhenReleased()
+    {
+        // Pins the join-before-close decision point (gotcha 20): a stuck writer
+        // makes Shutdown return false — the caller must then LEAK the fd/handle,
+        // never close it under the blocked write.
+        var blockWriter = new ManualResetEventSlim();
+        var writerEntered = new ManualResetEventSlim();
+
+        var queue = new PtyInputQueue(
+            "test stuck writer queue",
+            _ =>
+            {
+                writerEntered.Set();
+                blockWriter.Wait();
+            },
+            (_, _) => { });
+
+        try
+        {
+            queue.Write(new byte[16]);
+            Assert.That(writerEntered.Wait(5000), Is.True);
+
+            Assert.That(queue.Shutdown(100), Is.False,
+                "a writer blocked in the write callback must report failure to stop");
+
+            blockWriter.Set();
+            Assert.That(queue.Shutdown(5000), Is.True,
+                "once the write unblocks, the writer thread must join");
+        }
+        finally
+        {
+            blockWriter.Set();
+            queue.Dispose();
+        }
+    }
+
+    [Test]
     public void InputQueue_WritesChunksInOrder_OnWriterThread()
     {
         var written = new List<byte[]>();

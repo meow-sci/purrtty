@@ -115,20 +115,34 @@ kittenEva.UpdatePerFrameData();
 
 ## Vehicle part painting — PerInstanceData padding hijack + shader swap
 
-Static parts have no native tint. `PartModel.PerInstanceData` is 80 bytes with 3 unused trailing ints (bytes 68–79). A Harmony **prefix on `PartModel.AddInstance(ref PerInstanceData)`** reinterprets the struct and writes RGB into those bytes; a runtime-patched shader reads them.
+Static parts have no native tint. `PartModel.PerInstanceData` is 80 bytes; a Harmony **prefix on
+`PartModel.AddInstance`** (actual signature:
+`AddInstance(PerInstanceData instanceData, Viewport viewport, int frameIndex)` — Harmony still
+injects the first parameter as `ref`) reinterprets the struct and writes paint data into the
+padding; a runtime-patched shader reads it.
+
+> ⚠️ **Layout drift**: the current build's struct is
+> `float4x4 ModelMatrix` (0), `int StateBitFlag` (64), `uint EmissiveColor` (68),
+> `packing1` (72), `packing2` (76) — offset **68 is now live engine data** (`EmissiveColor`),
+> so only **two** trailing ints (72/76) are free. A 3-float RGB hijack at 68/72/76 clobbers
+> part emissives. Re-verify `PartModel.PerInstanceData` in the decompiled source before
+> choosing offsets (e.g. pack RGB into one uint at 72). The dynamic variant
+> (`PartModelDynamic.PerInstanceData`) uses 68 = Temperature and 72 = TfiThickness.
 
 ```csharp
 [StructLayout(LayoutKind.Sequential)]
 private struct PaintablePerInstanceData {
     public float4x4 ModelMatrix;  // 0
     public int StateBitFlag;      // 64
-    public float PaintR, PaintG, PaintB;  // 68/72/76 — were packing ints
+    public uint EmissiveColor;    // 68 — LIVE engine field, do not clobber
+    public uint PackedPaint;      // 72 — free padding (packing1)
+    public uint Reserved;         // 76 — free padding (packing2)
 }
 
 static void AddInstancePrefix(PartModel __instance, ref PartModel.PerInstanceData instanceData) {
     if (!VehiclePaint.TryGetEffectiveColor(__instance, out var color)) return;
     ref var p = ref Unsafe.As<PartModel.PerInstanceData, PaintablePerInstanceData>(ref instanceData);
-    p.PaintR = color.X; p.PaintG = color.Y; p.PaintB = color.Z;
+    p.PackedPaint = PackRgb(color); // shader unpacks
 }
 ```
 

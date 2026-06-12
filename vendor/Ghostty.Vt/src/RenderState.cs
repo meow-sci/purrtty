@@ -41,35 +41,61 @@ public sealed partial class RenderState : IDisposable
     {
         get
         {
+            // Allocating convenience accessor (fresh ColorRgb[256] per call).
+            // Per-frame consumers must use the purrtty addition ReadColors
+            // below, which fills a caller-owned palette instead.
             ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            // GhosttyRenderStateColors: { size_t size(8), background(3), foreground(3), cursor(3), cursor_has_value(1), palette[256](768) } = 792 bytes
-            const int StructSize = 792;
-            byte* buf = stackalloc byte[StructSize];
-            new Span<byte>(buf, StructSize).Clear();
-            *(nuint*)(buf + 0) = StructSize; // size field
-
-            var result = NativeMethods.ghostty_render_state_colors_get(
-                _handle.DangerousGetHandle(), buf);
-            GhosttyException.ThrowIfFailure(result);
-
-            // Read fields at exact offsets per type JSON:
-            //   background@8(3), foreground@11(3), cursor@14(3), cursor_has_value@17(1), palette@18(768)
             var palette = new ColorRgb[256];
-            for (int i = 0; i < 256; i++)
-            {
-                int off = 18 + i * 3;
-                palette[i] = new ColorRgb { R = buf[off], G = buf[off + 1], B = buf[off + 2] };
-            }
-
+            ReadColors(palette, out var background, out var foreground, out var cursor, out bool cursorHasValue);
             return new RenderStateColors
             {
-                Background = new ColorRgb { R = buf[8], G = buf[9], B = buf[10] },
-                Foreground = new ColorRgb { R = buf[11], G = buf[12], B = buf[13] },
-                Cursor = new ColorRgb { R = buf[14], G = buf[15], B = buf[16] },
-                CursorHasValue = buf[17] != 0,
+                Background = background,
+                Foreground = foreground,
+                Cursor = cursor,
+                CursorHasValue = cursorHasValue,
                 Palette = palette,
             };
         }
+    }
+
+    /// <summary>
+    /// purrtty addition: allocation-free colors read for the per-frame render
+    /// path. Fills <paramref name="palette256"/> (must hold 256 entries) and
+    /// returns the scalar colors via out parameters. The allocating
+    /// <see cref="Colors"/> getter is a convenience wrapper over this.
+    /// </summary>
+    public unsafe void ReadColors(
+        Span<ColorRgb> palette256,
+        out ColorRgb background,
+        out ColorRgb foreground,
+        out ColorRgb cursor,
+        out bool cursorHasValue)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        ArgumentOutOfRangeException.ThrowIfLessThan(palette256.Length, 256, nameof(palette256));
+
+        // GhosttyRenderStateColors: { size_t size(8), background(3), foreground(3), cursor(3), cursor_has_value(1), palette[256](768) } = 792 bytes
+        const int StructSize = 792;
+        byte* buf = stackalloc byte[StructSize];
+        new Span<byte>(buf, StructSize).Clear();
+        *(nuint*)(buf + 0) = StructSize; // size field
+
+        var result = NativeMethods.ghostty_render_state_colors_get(
+            _handle.DangerousGetHandle(), buf);
+        GhosttyException.ThrowIfFailure(result);
+
+        // Read fields at exact offsets per type JSON:
+        //   background@8(3), foreground@11(3), cursor@14(3), cursor_has_value@17(1), palette@18(768)
+        for (int i = 0; i < 256; i++)
+        {
+            int off = 18 + i * 3;
+            palette256[i] = new ColorRgb { R = buf[off], G = buf[off + 1], B = buf[off + 2] };
+        }
+
+        background = new ColorRgb { R = buf[8], G = buf[9], B = buf[10] };
+        foreground = new ColorRgb { R = buf[11], G = buf[12], B = buf[13] };
+        cursor = new ColorRgb { R = buf[14], G = buf[15], B = buf[16] };
+        cursorHasValue = buf[17] != 0;
     }
 
     public unsafe CursorVisualStyle CursorStyle
@@ -137,7 +163,10 @@ public sealed partial class RenderState : IDisposable
         get
         {
             ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            int value;
+            // Native writes a u16 (render.zig: size.CellCountInt) — read into a
+            // matching local rather than relying on zeroed upper bytes of a
+            // wider one.
+            ushort value = 0;
             NativeMethods.ghostty_render_state_get(
                 _handle.DangerousGetHandle(), (int)RenderStateData.CursorViewportX, &value);
             return value;
@@ -149,7 +178,8 @@ public sealed partial class RenderState : IDisposable
         get
         {
             ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            int value;
+            // u16 on the native side; see CursorViewportX.
+            ushort value = 0;
             NativeMethods.ghostty_render_state_get(
                 _handle.DangerousGetHandle(), (int)RenderStateData.CursorViewportY, &value);
             return value;

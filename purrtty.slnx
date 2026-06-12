@@ -14,6 +14,7 @@
     <Project Path="purrTTY.GameMod/purrTTY.GameMod.csproj" />
     <Project Path="purrTTY.CustomShells/purrTTY.CustomShells.csproj" />
     <Project Path="purrTTY.Display/purrTTY.Display.csproj" />
+    <Project Path="purrTTY.Display.Tests/purrTTY.Display.Tests.csproj" />
     <Project Path="purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj" />
     <Project Path="purrTTY.Terminal/purrTTY.Terminal.csproj" />
 </Solution>
