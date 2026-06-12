@@ -5,7 +5,7 @@ namespace Ghostty.Vt;
 
 public sealed class KeyEvent : IDisposable
 {
-    private readonly nint _handle;
+    private nint _handle;
 
     public unsafe KeyEvent()
     {
@@ -63,6 +63,9 @@ public sealed class KeyEvent : IDisposable
     public void Dispose()
     {
         if (_handle != nint.Zero)
+        {
             NativeMethods.ghostty_key_event_free(_handle);
+            _handle = nint.Zero; // guard against a double-free on a second Dispose
+        }
     }
 }

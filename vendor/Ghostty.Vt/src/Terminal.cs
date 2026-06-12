@@ -11,6 +11,29 @@ public sealed unsafe partial class Terminal : IDisposable
     private readonly TerminalSafeHandle _handle;
     private readonly TerminalOptions? _options;
 
+    // Persistent pins for the Enquiry/Xtversion return-value callbacks. The
+    // native side reads the returned GhosttyString after the managed callback
+    // returns, so the backing array must outlive the callback (see RegisterCallbacks).
+    private GCHandle _enquiryReplyPin;
+    private GCHandle _xtversionReplyPin;
+
+    private static GhosttyStringNative PinReply(ref GCHandle pin, byte[]? bytes)
+    {
+        if (pin.IsAllocated)
+            pin.Free();
+        if (bytes is null || bytes.Length == 0)
+        {
+            pin = default;
+            return new GhosttyStringNative { Ptr = nint.Zero, Len = 0 };
+        }
+        pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+        return new GhosttyStringNative
+        {
+            Ptr = pin.AddrOfPinnedObject(),
+            Len = (nuint)bytes.Length,
+        };
+    }
+
     public Terminal(int cols, int rows, Action<TerminalOptions>? configure = null)
     {
         if (cols <= 0) throw new ArgumentOutOfRangeException(nameof(cols));
@@ -58,46 +81,27 @@ public sealed unsafe partial class Terminal : IDisposable
         }
 
         // Ord 3: Enquiry — GhosttyString (terminal, userdata)
-        // Managed code must RETURN the ENQ response bytes.
+        // Managed code must RETURN the ENQ response bytes. The native trampoline
+        // reads the returned (ptr,len) AFTER this callback returns, so the buffer
+        // must stay pinned past the return — freeing it inside the callback (the
+        // gotcha-3 use-after-scope class) would dangle the read. We keep a single
+        // persistent pin per reply slot, replaced on the next call and released in
+        // Dispose.
         if (options.OnEnquiry is not null)
         {
             var del = new GhosttyTerminalStringFn((_, _) =>
-            {
-                var bytes = options.OnEnquiry();
-                if (bytes == null || bytes.Length == 0)
-                    return new GhosttyStringNative { Ptr = nint.Zero, Len = 0 };
-                // Pin for the duration of the synchronous callback — native side copies before returning.
-                var gc = GCHandle.Alloc(bytes, GCHandleType.Pinned);
-                var result = new GhosttyStringNative
-                {
-                    Ptr = gc.AddrOfPinnedObject(),
-                    Len = (nuint)bytes.Length,
-                };
-                gc.Free();
-                return result;
-            });
+                PinReply(ref _enquiryReplyPin, options.OnEnquiry()));
             options.Pinner.Pin(del);
             NativeMethods.ghostty_terminal_set(handle, 3, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 4: Xtversion — GhosttyString (terminal, userdata)
-        // Managed code must RETURN the version string bytes.
+        // Managed code must RETURN the version string bytes. Same pin lifetime as
+        // Enquiry above.
         if (options.OnXtversion is not null)
         {
             var del = new GhosttyTerminalStringFn((_, _) =>
-            {
-                var bytes = options.OnXtversion();
-                if (bytes == null || bytes.Length == 0)
-                    return new GhosttyStringNative { Ptr = nint.Zero, Len = 0 };
-                var gc = GCHandle.Alloc(bytes, GCHandleType.Pinned);
-                var result = new GhosttyStringNative
-                {
-                    Ptr = gc.AddrOfPinnedObject(),
-                    Len = (nuint)bytes.Length,
-                };
-                gc.Free();
-                return result;
-            });
+                PinReply(ref _xtversionReplyPin, options.OnXtversion()));
             options.Pinner.Pin(del);
             NativeMethods.ghostty_terminal_set(handle, 4, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
@@ -395,10 +399,13 @@ public sealed unsafe partial class Terminal : IDisposable
     public void Resize(int cols, int rows, int cellWidthPx = 0, int cellHeightPx = 0)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        NativeMethods.ghostty_terminal_resize(
+        // A swallowed failure here silently desyncs the engine grid from the PTY
+        // winsize; surface it instead.
+        var result = NativeMethods.ghostty_terminal_resize(
             _handle.DangerousGetHandle(),
             (ushort)cols, (ushort)rows,
             (uint)cellWidthPx, (uint)cellHeightPx);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public void Reset()
@@ -587,6 +594,10 @@ public sealed unsafe partial class Terminal : IDisposable
     {
         _handle.Dispose();
         _options?.Pinner.Dispose();
+        if (_enquiryReplyPin.IsAllocated)
+            _enquiryReplyPin.Free();
+        if (_xtversionReplyPin.IsAllocated)
+            _xtversionReplyPin.Free();
     }
 
     // Nested SafeHandle

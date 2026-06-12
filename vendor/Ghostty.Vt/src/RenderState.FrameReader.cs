@@ -288,10 +288,14 @@ public static class RawCellLayout
         using var terminal = new Terminal(8, 1);
         using var state = new RenderState();
 
-        // Cell 0: styled wide text ('你' is wide, bold red on green palette bg).
-        // Cell 2: unstyled ASCII 'A'.
-        // Cells 3+: erased under an RGB background (content-tag bg cells).
-        terminal.VTWrite("\x1b[1;31;42m你\x1b[0mA\x1b[48;2;10;20;30m\x1b[K"u8);
+        // Cell 0/1: styled wide text ('你' is wide, bold red on green bg) → exercises
+        //           HAS_STYLING + a non-zero STYLE_ID.
+        // Cell 2:   unstyled ASCII 'A'.
+        // Cols 3-4: erased under an RGB background (content-tag bg_color_rgb cells).
+        // Cols 5-7: re-erased under a 256-color palette background (content-tag
+        //           bg_color_palette cells) — exercises the BgPaletteIndex path.
+        // The second EL overwrites cols 5-7 of the first, leaving both bg kinds.
+        terminal.VTWrite("\x1b[1;31;42m你\x1b[0mA\x1b[48;2;10;20;30m\x1b[K\x1b[6G\x1b[48;5;42m\x1b[K"u8);
         state.Update(terminal);
 
         using var reader = state.CreateFrameReader();
@@ -300,6 +304,10 @@ public static class RawCellLayout
             error = "no rows in render state";
             return false;
         }
+
+        bool sawBgRgb = false;
+        bool sawBgPalette = false;
+        bool sawStyled = false;
 
         reader.BindRowCells();
         int x = 0;
@@ -315,17 +323,24 @@ public static class RawCellLayout
             NativeMethods.ghostty_cell_get(cell.Bits, 5 /* HAS_STYLING */, &hasStyling);
             uint codepoint = 0;
             NativeMethods.ghostty_cell_get(cell.Bits, 1 /* CODEPOINT */, &codepoint);
+            ushort styleId = 0;
+            NativeMethods.ghostty_cell_get(cell.Bits, 6 /* STYLE_ID */, &styleId);
 
             if (cell.HasText != (hasText != 0)
                 || (int)cell.Wide != wide
                 || cell.HasStyling != (hasStyling != 0)
-                || cell.Codepoint != codepoint)
+                || cell.Codepoint != codepoint
+                || cell.StyleId != styleId)
             {
                 error = $"cell {x} decode mismatch (bits=0x{cell.Bits:X16}): "
                         + $"hasText {cell.HasText}/{hasText != 0}, wide {(int)cell.Wide}/{wide}, "
-                        + $"styled {cell.HasStyling}/{hasStyling != 0}, cp {cell.Codepoint}/{codepoint}";
+                        + $"styled {cell.HasStyling}/{hasStyling != 0}, cp {cell.Codepoint}/{codepoint}, "
+                        + $"styleId {cell.StyleId}/{styleId}";
                 return false;
             }
+
+            if (cell.HasStyling && cell.StyleId != 0)
+                sawStyled = true;
 
             // The erased cells must decode the RGB background written above.
             if (cell.ContentTag == RawCell.TagBgColorRgb)
@@ -337,13 +352,32 @@ public static class RawCellLayout
                             + $"got ({rgb.R},{rgb.G},{rgb.B}), expected (10,20,30)";
                     return false;
                 }
+                sawBgRgb = true;
+            }
+
+            // The palette-erased cells must decode the 256-color index, and the
+            // managed decode must agree with the native COLOR_PALETTE accessor.
+            if (cell.ContentTag == RawCell.TagBgColorPalette)
+            {
+                byte nativeIdx = 0;
+                NativeMethods.ghostty_cell_get(cell.Bits, 10 /* COLOR_PALETTE */, &nativeIdx);
+                if (cell.BgPaletteIndex != nativeIdx || cell.BgPaletteIndex != 42)
+                {
+                    error = $"cell {x} bg-palette decode mismatch (bits=0x{cell.Bits:X16}): "
+                            + $"managed {cell.BgPaletteIndex}, native {nativeIdx}, expected 42";
+                    return false;
+                }
+                sawBgPalette = true;
             }
 
             x++;
         }
 
-        // The EL under an RGB background must have produced at least one
-        // content-tag bg cell, otherwise the bg-rgb branch above never ran.
+        // Each branch above must actually have run, or a drifted content-tag bit
+        // layout would skip the check silently and the tripwire would pass blind.
+        if (!sawStyled) { error = "no styled cell produced — STYLE_ID path unexercised"; return false; }
+        if (!sawBgRgb) { error = "no bg_color_rgb cell produced — RGB-bg path unexercised"; return false; }
+        if (!sawBgPalette) { error = "no bg_color_palette cell produced — palette-bg path unexercised"; return false; }
         return true;
     }
 }

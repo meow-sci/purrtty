@@ -82,12 +82,22 @@ public sealed class Formatter : IDisposable
 
         if (written == 0) return string.Empty;
 
-        byte* buf = stackalloc byte[(int)written];
-        var result = NativeMethods.ghostty_formatter_format_buf(
-            _handle.DangerousGetHandle(), buf, written, &written);
-        GhosttyException.ThrowIfFailure(result);
+        // `written` can be the entire scrollback — never stackalloc it (an
+        // uncatchable StackOverflowException). Small results use the stack;
+        // anything larger goes on the heap.
+        const int StackLimit = 1024;
+        byte[]? rented = null;
+        Span<byte> buf = written <= StackLimit
+            ? stackalloc byte[(int)written]
+            : (rented = new byte[(int)written]);
 
-        return Marshal.PtrToStringUTF8((nint)buf, (int)written) ?? string.Empty;
+        fixed (byte* bufPtr = buf)
+        {
+            var result = NativeMethods.ghostty_formatter_format_buf(
+                _handle.DangerousGetHandle(), bufPtr, (nuint)buf.Length, &written);
+            GhosttyException.ThrowIfFailure(result);
+            return Marshal.PtrToStringUTF8((nint)bufPtr, (int)written) ?? string.Empty;
+        }
     }
 
     public unsafe ReadOnlySpan<byte> ToSpan()
@@ -101,7 +111,14 @@ public sealed class Formatter : IDisposable
         GhosttyException.ThrowIfFailure(result);
 
         if (outPtr == null || outLen == 0) return ReadOnlySpan<byte>.Empty;
-        return new ReadOnlySpan<byte>(outPtr, (int)outLen);
+
+        // The engine heap-allocates this buffer; it must be released with
+        // ghostty_free. Copy into a managed array and free the native buffer so
+        // the caller gets an owned span and nothing leaks.
+        var bytes = new byte[(int)outLen];
+        new ReadOnlySpan<byte>(outPtr, (int)outLen).CopyTo(bytes);
+        NativeMethods.ghostty_free(nint.Zero, outPtr, outLen);
+        return bytes;
     }
 
     public void Dispose() => _handle.Dispose();

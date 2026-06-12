@@ -4,7 +4,7 @@ namespace Ghostty.Vt;
 
 public sealed class MouseEvent : IDisposable
 {
-    private readonly nint _handle;
+    private nint _handle;
 
     public unsafe MouseEvent()
     {
@@ -39,7 +39,7 @@ public sealed class MouseEvent : IDisposable
     public int Modifiers
     {
         get => _modifiers;
-        set { _modifiers = value; NativeMethods.ghostty_mouse_event_set_mods(_handle, value); }
+        set { _modifiers = value; NativeMethods.ghostty_mouse_event_set_mods(_handle, (ushort)value); }
     }
 
     private float _x;
@@ -61,6 +61,9 @@ public sealed class MouseEvent : IDisposable
     public void Dispose()
     {
         if (_handle != nint.Zero)
+        {
             NativeMethods.ghostty_mouse_event_free(_handle);
+            _handle = nint.Zero; // guard against a double-free on a second Dispose
+        }
     }
 }

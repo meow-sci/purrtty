@@ -235,7 +235,7 @@ internal static unsafe partial class NativeMethods
     internal static partial void ghostty_mouse_event_clear_button(nint mouse_event);
 
     [LibraryImport(LibraryName)]
-    internal static partial void ghostty_mouse_event_set_mods(nint mouse_event, int mods);
+    internal static partial void ghostty_mouse_event_set_mods(nint mouse_event, ushort mods);
 
     [LibraryImport(LibraryName)]
     internal static partial void ghostty_mouse_event_set_position(nint mouse_event, GhosttyMousePositionNative position);

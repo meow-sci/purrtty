@@ -179,8 +179,13 @@ public ref struct KittyGraphicsPlacementIterator
 
             // Bind the iterator to the kitty graphics storage so it can iterate placements.
             // GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR = 1
+            // Free the just-allocated iterator if the bind fails, otherwise it leaks.
             result = NativeMethods.ghostty_kitty_graphics_get(kittyHandle, 1, &iter);
-            GhosttyException.ThrowIfFailure(result);
+            if (result != 0)
+            {
+                NativeMethods.ghostty_kitty_graphics_placement_iterator_free(iter);
+                GhosttyException.ThrowIfFailure(result);
+            }
 
             _iterator = iter;
         }
@@ -196,8 +201,10 @@ public ref struct KittyGraphicsPlacementIterator
     {
         ThrowIfDisposed();
         uint value = (uint)layer;
+        // GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER = 0 (kitty_graphics.h).
+        // Passing 1 made native return INVALID_VALUE and the layer filter never applied.
         NativeMethods.ghostty_kitty_graphics_placement_iterator_set(
-            _iterator, 1 /* ITERATOR_SET_LAYER */, &value);
+            _iterator, 0 /* ITERATOR_OPTION_LAYER */, &value);
     }
 
     public unsafe bool MoveNext()

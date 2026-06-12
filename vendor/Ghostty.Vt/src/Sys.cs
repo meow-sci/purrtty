@@ -27,9 +27,14 @@ public static unsafe class Sys
         public byte[] Data { get; init; }
     }
 
-    // Sys option constants. If tests fail, try adjusting these values.
-    private const int SYS_OPT_LOG = 0;
+    // Sys option constants — must match GhosttySysOption in include/ghostty/vt/sys.h:
+    //   USERDATA = 0, DECODE_PNG = 1, LOG = 2.
+    // (LOG was previously 0, which actually set the global userdata pointer to the
+    // log function pointer — no log sink was ever installed and engine logs were
+    // silently discarded.)
+    private const int SYS_OPT_USERDATA = 0;
     private const int SYS_OPT_DECODE_PNG = 1;
+    private const int SYS_OPT_LOG = 2;
 
     private static LogFn? _logFn;
     private static DecodePngFn? _decodePngFn;

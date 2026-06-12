@@ -261,6 +261,29 @@ Seam integrity (no `Ghostty.Vt` types in Display — grep-verified). Chrome hidi
 
 All verified against the pinned upstream commit (`7092b394` — the local ghostty checkout matches the pin).
 
+> **STATUS 2026-06-11: E1–E6 all FIXED** (branch `feature/fable-review`). E1: `Paste.Encode`
+> copies its input into a mutable scratch (`data.ToArray()`) before handing it to
+> `ghostty_paste_encode`, which mutates the buffer in place — a read-only span (e.g. a `u8`
+> literal) can no longer fault. E2: the Enquiry/Xtversion return-value callbacks keep a persistent
+> per-terminal `GCHandle` pin (`PinReply`), replaced on the next call and freed in `Dispose`, so
+> the native trampoline never reads a buffer that was unpinned before it returned. E3:
+> `Sys.SetLog` now uses the correct ordinal (`LOG = 2`; added `USERDATA = 0`) so engine logs reach
+> the sink instead of being silently dropped. E4: `RawCellLayout.Validate` now also writes a
+> 256-color palette background, cross-checks `StyleId` against `CELL_DATA_STYLE_ID` and
+> `BgPaletteIndex` against `CELL_DATA_COLOR_PALETTE`, and fails loudly if the styled / bg-rgb /
+> bg-palette branches did not each run (no more blind-pass on drifted content-tag bits). E5:
+> `Formatter.ToSpan` copies the engine-allocated buffer into a managed array and `ghostty_free`s
+> the native one (no leak); `Formatter.ToString` heap-allocates above a 1 KiB stack threshold (no
+> unbounded `stackalloc` → `StackOverflowException`). E6: kitty `SetLayer` uses option ordinal `0`
+> (was `1` → INVALID_VALUE); the placement-iterator ctor frees the iterator if the bind call
+> fails; `KeyEvent`/`MouseEvent` null their handle after free (double-Dispose no longer
+> double-frees); the dead-and-wrong `Enums/TerminalOption.cs` is deleted; `Terminal.Resize`
+> surfaces its `GhosttyResult` via `ThrowIfFailure` instead of swallowing it; and
+> `ghostty_mouse_event_set_mods` is declared `ushort` to match the native `uint16_t`. Section F
+> remains unapplied. Full suite after the changes: **295 passed, 2 skipped, 0 failed** (incl.
+> `RawCellLayout_MatchesNativeAccessors` exercising the strengthened E4 validation against the
+> real native lib).
+
 ### E1. MAJOR — `Paste.Encode` passes a `ReadOnlySpan` to a native API that mutates it in place
 - `src/Paste.cs:15-32`. `ghostty_paste_encode`'s first param is documented "modified in place" (`include/ghostty/vt/paste.h:77`) and `src/input/paste.zig` really writes into it (control bytes → spaces; `\n`→`\r`). The binding pins the caller's read-only span and hands it over mutable. Latent (purrtty always passes a fresh array today), but one `"…"u8` literal away from an AV on a read-only page.
 - **Fix:** copy into a mutable scratch inside `Encode`.
