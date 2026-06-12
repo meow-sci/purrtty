@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PtyInputQueue = purrTTY.Core.Terminal.Process.PtyInputQueue;
+using PtyTeardown = purrTTY.Core.Terminal.Process.PtyTeardown;
 using ShellCommandResolver = purrTTY.Core.Terminal.Process.ShellCommandResolver;
 using UnixPtyNative = purrTTY.Core.Terminal.Process.UnixPtyNative;
 using UnixPtyOutputPump = purrTTY.Core.Terminal.Process.UnixPtyOutputPump;
@@ -468,40 +469,14 @@ public class UnixProcessManager : IProcessManager
             _pid = 0;
         }
 
-        if (cts != null)
-        {
-            try
-            {
-                cts.Cancel();
-            }
-            finally
-            {
-                cts.Dispose();
-            }
-        }
+        // A CTS callback must never run while _stateLock is held.
+        PtyTeardown.CancelAndDispose(cts);
 
         // The reader blocks in poll(100ms), so cancellation is observed promptly;
         // the writer unblocks with EPIPE once the child is dead (Stop ensures that
         // before cleanup).
-        bool readerExited = true;
-        if (readerTask != null && !readerTask.IsCompleted)
-        {
-            try
-            {
-                readerExited = readerTask.Wait(1000);
-            }
-            catch
-            {
-                // reader errors are reported through ProcessError
-                readerExited = readerTask.IsCompleted;
-            }
-        }
-
-        bool writerExited = inputQueue?.Shutdown(1000) ?? true;
-        if (writerExited)
-        {
-            inputQueue?.Dispose();
-        }
+        bool readerExited = PtyTeardown.WaitForPump(readerTask, 1000);
+        bool writerExited = PtyTeardown.ShutdownWriter(inputQueue, 1000);
 
         if (masterFd >= 0)
         {

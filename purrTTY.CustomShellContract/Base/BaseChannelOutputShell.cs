@@ -69,9 +69,10 @@ public abstract class BaseChannelOutputShell : BaseCustomShell
 
         IsRunning = true;
 
-        // Shell is now ready to accept input with cursor at 0,0
-        // Initial output (banner/prompt) will be sent via SendInitialOutput()
-        // AFTER the session is fully initialized and wired up
+        // Shell is now ready to accept input with cursor at 0,0.
+        // Initial output (banner/prompt) is emitted by SendInitialOutput(),
+        // which the hosting CustomShellPtyBridge calls right after StartAsync
+        // returns — queued through the channel above, so ordering holds.
     }
 
     /// <inheritdoc />

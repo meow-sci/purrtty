@@ -104,7 +104,7 @@ static class Patch02
       // Keep the (possibly auto-hidden) menu bar shown while our menu is open.
       Program.MainViewport.MenuBarInUse = true;
 
-      TerminalMod.DrawMenuContent();
+      TerminalMenus.DrawMenuContent();
 
       ImGui.EndMenu();
     }

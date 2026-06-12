@@ -135,13 +135,54 @@ public sealed class CustomShellPtyBridgeTests
     public void TerminatedDuringStart_LeavesBridgeStopped()
     {
         // A shell that dies synchronously inside its own StartAsync must not be
-        // resurrected to "running" by the bridge's post-start bookkeeping.
+        // resurrected to "running" by the bridge's post-start bookkeeping —
+        // and must not be asked for startup output it can no longer deliver.
         using var shell = new StubShell { TerminateDuringStart = true };
         using var bridge = new CustomShellPtyBridge(shell);
 
         Assert.DoesNotThrowAsync(() => bridge.StartAsync(ProcessLaunchOptions.CreateCustomGame("StubShell")));
         Assert.That(bridge.IsRunning, Is.False);
         Assert.That(bridge.ExitCode, Is.EqualTo(1));
+        Assert.That(shell.InitialOutputSends, Is.Zero);
+    }
+
+    [Test]
+    public async Task StartAsync_TriggersShellInitialOutput()
+    {
+        // A real PTY shell banners as a consequence of spawning; the bridge
+        // must trigger the custom shell's equivalent so Game Console sessions
+        // show their banner/prompt without any extra host call.
+        using var shell = new StubShell();
+        using var bridge = new CustomShellPtyBridge(shell);
+
+        await bridge.StartAsync(ProcessLaunchOptions.CreateCustomGame("StubShell"));
+
+        Assert.That(shell.InitialOutputSends, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task Restart_AfterTerminatingStop_RunsCleanly()
+    {
+        // GameConsoleShell raises Terminated from its stop hook. The bridge's
+        // exit-code source must be per-run: reusing the completed one made a
+        // restarted session look already-terminated (IsRunning stuck false →
+        // input silently dropped, no banner, stale ExitCode).
+        using var shell = new StubShell { TerminateOnStop = true };
+        using var bridge = new CustomShellPtyBridge(shell);
+        var options = ProcessLaunchOptions.CreateCustomGame("StubShell");
+
+        await bridge.StartAsync(options);
+        await bridge.StopAsync();
+        Assert.That(bridge.IsRunning, Is.False);
+        Assert.That(bridge.ExitCode, Is.EqualTo(0));
+
+        await bridge.StartAsync(options);
+
+        Assert.That(bridge.IsRunning, Is.True);
+        Assert.That(bridge.ExitCode, Is.Null, "a fresh run has no exit code until it exits");
+        Assert.That(shell.InitialOutputSends, Is.EqualTo(2), "each successful start banners");
+        Assert.DoesNotThrow(() => bridge.Write("echo hi\r"u8));
+        Assert.That(Encoding.UTF8.GetString(shell.InputBytes.ToArray()), Is.EqualTo("echo hi\r"));
     }
 
     /// <summary>Minimal scripted <see cref="ICustomShell"/> for adapter tests.</summary>
@@ -152,6 +193,8 @@ public sealed class CustomShellPtyBridgeTests
         public List<(int Width, int Height)> Resizes { get; } = new();
         public Exception? FailStartWith { get; init; }
         public bool TerminateDuringStart { get; init; }
+        public bool TerminateOnStop { get; init; }
+        public int InitialOutputSends { get; private set; }
 
         public CustomShellMetadata Metadata { get; } = CustomShellMetadata.Create(
             name: "Stub Shell",
@@ -185,6 +228,12 @@ public sealed class CustomShellPtyBridgeTests
         public Task StopAsync(CancellationToken cancellationToken = default)
         {
             IsRunning = false;
+            if (TerminateOnStop)
+            {
+                // Mirrors GameConsoleShell, whose stop hook raises Terminated.
+                EmitTerminated(0, "stopped");
+            }
+
             return Task.CompletedTask;
         }
 
@@ -196,9 +245,7 @@ public sealed class CustomShellPtyBridgeTests
 
         public void NotifyTerminalResize(int width, int height) => Resizes.Add((width, height));
 
-        public void SendInitialOutput()
-        {
-        }
+        public void SendInitialOutput() => InitialOutputSends++;
 
         public void RequestCancellation()
         {

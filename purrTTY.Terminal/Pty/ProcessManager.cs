@@ -12,6 +12,7 @@ using ProcessEvents = purrTTY.Core.Terminal.Process.ProcessEvents;
 using ProcessLifecycleManager = purrTTY.Core.Terminal.Process.ProcessLifecycleManager;
 using ProcessStateManager = purrTTY.Core.Terminal.Process.ProcessStateManager;
 using PtyInputQueue = purrTTY.Core.Terminal.Process.PtyInputQueue;
+using PtyTeardown = purrTTY.Core.Terminal.Process.PtyTeardown;
 using ShellCommandResolver = purrTTY.Core.Terminal.Process.ShellCommandResolver;
 using StartupInfoBuilder = purrTTY.Core.Terminal.Process.StartupInfoBuilder;
 using SysProcess = System.Diagnostics.Process;
@@ -112,14 +113,21 @@ public class ProcessManager : IProcessManager
 
     /// <summary>
     ///     Starts a new shell process with the specified options using Windows ConPTY.
+    ///     Start failure means the shell could not be resolved, created, or attached;
+    ///     a shell that spawns and then dies promptly is NOT a start failure — it is
+    ///     reported once, via <see cref="ProcessExited"/> with its real exit code,
+    ///     exactly like <c>UnixProcessManager</c>. (The former post-spawn 100 ms
+    ///     validation delay raced the Exited callback: a fast-dying shell
+    ///     nondeterministically produced either ProcessStartException, ProcessExited,
+    ///     or both — and every successful start paid the delay.)
     /// </summary>
     /// <param name="options">Launch options for the shell process</param>
-    /// <param name="cancellationToken">Cancellation token for the operation</param>
+    /// <param name="cancellationToken">Unused; process creation is synchronous</param>
     /// <returns>A task that completes when the process has started</returns>
     /// <exception cref="InvalidOperationException">Thrown if a process is already running</exception>
     /// <exception cref="ProcessStartException">Thrown if the process fails to start</exception>
     /// <exception cref="PlatformNotSupportedException">Thrown on non-Windows platforms</exception>
-    public async Task StartAsync(ProcessLaunchOptions options, CancellationToken cancellationToken = default)
+    public Task StartAsync(ProcessLaunchOptions options, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -178,7 +186,7 @@ public class ProcessManager : IProcessManager
 
                 // Resolve shell command (quoted per Windows argv rules — paths and
                 // arguments containing spaces survive the child's re-tokenization)
-                (string shellPath, string commandLine) = ShellCommandResolver.ResolveShellCommandLine(options);
+                (_, string commandLine) = ShellCommandResolver.ResolveShellCommandLine(options);
 
                 processInfo = ProcessLifecycleManager.CreateProcess(
                     commandLine,
@@ -211,8 +219,6 @@ public class ProcessManager : IProcessManager
                         (exception, message) => OnProcessError(new ProcessErrorEventArgs(exception, message, childPid)));
                 }
 
-                // Validate that the process started successfully
-                await ProcessLifecycleManager.ValidateProcessStartAsync(process, shellPath, cancellationToken);
             }
             finally
             {
@@ -223,6 +229,8 @@ public class ProcessManager : IProcessManager
 
                 AttributeListBuilder.FreeAttributeList(startupInfo.lpAttributeList);
             }
+
+            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
@@ -517,17 +525,7 @@ public class ProcessManager : IProcessManager
 
         // Cancel + dispose outside the lock, exactly like the Unix manager: a
         // CTS callback must never run while _processLock is held.
-        if (cts != null)
-        {
-            try
-            {
-                cts.Cancel();
-            }
-            finally
-            {
-                cts.Dispose();
-            }
-        }
+        PtyTeardown.CancelAndDispose(cts);
 
         if (pseudoConsole != IntPtr.Zero)
         {
@@ -536,24 +534,8 @@ public class ProcessManager : IProcessManager
 
         // Drain: let the pump deliver the tail output (final prompt, a short
         // command's entire result) before its handle goes away.
-        bool readerExited = true;
-        if (readTask != null)
-        {
-            try
-            {
-                readerExited = readTask.Wait(2000);
-            }
-            catch
-            {
-                readerExited = readTask.IsCompleted;
-            }
-        }
-
-        bool writerExited = inputQueue?.Shutdown(2000) ?? true;
-        if (writerExited)
-        {
-            inputQueue?.Dispose();
-        }
+        bool readerExited = PtyTeardown.WaitForPump(readTask, 2000);
+        bool writerExited = PtyTeardown.ShutdownWriter(inputQueue, 2000);
 
         // Close a handle only when its pump thread is provably out of it; otherwise
         // leak it — closing a handle another thread is blocked on races Win32 handle

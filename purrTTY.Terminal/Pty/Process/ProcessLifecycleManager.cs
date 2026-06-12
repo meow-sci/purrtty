@@ -5,39 +5,9 @@ namespace purrTTY.Core.Terminal.Process;
 
 /// <summary>
 ///     Manages process lifecycle operations including graceful shutdown.
-///     Handles process creation validation and shutdown orchestration.
 /// </summary>
 internal static class ProcessLifecycleManager
 {
-    /// <summary>
-    ///     Validates that a process started successfully after a brief delay.
-    /// </summary>
-    /// <param name="process">The process to validate</param>
-    /// <param name="shellPath">The shell path (for error reporting)</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>A task that completes when validation is done</returns>
-    /// <exception cref="ProcessStartException">Thrown if the process exited immediately</exception>
-    internal static async Task ValidateProcessStartAsync(SysProcess process, string shellPath, CancellationToken cancellationToken)
-    {
-        // Wait a short time to ensure the process started successfully
-        await Task.Delay(100, cancellationToken);
-
-        // Check if process exited immediately
-        try
-        {
-            if (process.HasExited)
-            {
-                int exitCode = process.ExitCode;
-                throw new ProcessStartException(
-                    $"Shell process exited immediately with code {exitCode}: {shellPath}", shellPath);
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            // Process has already exited and been disposed - let the exit handler deal with cleanup
-        }
-    }
-
     /// <summary>
     ///     Performs graceful shutdown of a process with fallback to forced termination.
     /// </summary>

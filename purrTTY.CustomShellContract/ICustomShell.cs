@@ -65,9 +65,11 @@ public interface ICustomShell : IDisposable
     void RequestCancellation();
 
     /// <summary>
-    ///     Sends initial output (banner, prompt, etc.) to the shell.
-    ///     This is called AFTER the shell is fully initialized and wired up to the terminal,
-    ///     ensuring the terminal is ready to process output before any data is sent.
+    ///     Emits the shell's startup output (banner, prompt, etc.) — the custom-shell
+    ///     equivalent of a real shell printing its prompt after spawn. The host
+    ///     (<c>CustomShellPtyBridge</c>) calls this once per successful
+    ///     <see cref="StartAsync"/>, after output events are wired, so implementations
+    ///     should not call it themselves.
     /// </summary>
     void SendInitialOutput();
 }

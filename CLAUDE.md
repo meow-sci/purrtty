@@ -124,7 +124,10 @@ shell), the `CustomShellPtyBridge` adapter contract, and the PTY input contracts
 host OS). `UnixProcessManagerTests` exercises the POSIX pty backend against real `/bin/sh`
 children (output, exit codes, pty echo, initial winsize, working directory, shell detection);
 it runs on macOS (dev) and linux-x64 (CI) and self-skips on Windows — this is the pre-player
-coverage for Linux shell launching. `purrTTY.CustomShellContract.Tests` +
+coverage for Linux shell launching. `ConPtyProcessManagerTests` is its Windows twin (real
+cmd.exe under ConPTY; pins the unified fast-exit contract — spawn-then-die reports once via
+`ProcessExited` with the real code, never as a start failure — and the dying shell's tail
+output being flushed); it runs on the windows-latest CI leg and self-skips elsewhere. `purrTTY.CustomShellContract.Tests` +
 `purrTTY.CustomShells.Tests` cover the custom-shell layer (incl. the Brutal-version-sensitive
 `OnConsolePrint` capture, exercised against the real `ImColor8`/`ConsoleWindow` color fields).
 `purrTTY.Display.Tests` covers the pure-logic display pieces headlessly: theme TOML round-trip,
@@ -240,7 +243,11 @@ Frontend (`purrTTY.Display/`):
   concrete type; manages a list of `TerminalWindow`s, routes game-menu actions to the focused
   window, persists display defaults + first-window geometry through a single shared
   `ThemeConfiguration` instance — including when the **last** window is closed via its "x")
-- Per-window terminal: `Ghostty/TerminalWindow.cs` (owns a `SessionManager` whose sessions are tabs —
+- Per-window terminal: `Ghostty/TerminalWindow.cs` — a partial class: core
+  (lifecycle/render/chrome/tabs/geometry) in `TerminalWindow.cs`, input encoding in
+  `TerminalWindow.Input.cs`, font/metric resolution in `TerminalWindow.Fonts.cs`, the perf HUD
+  in `TerminalWindow.PerfHud.cs`, the lock-mode hot zone in `TerminalWindow.HotZone.cs`
+  (owns a `SessionManager` whose sessions are tabs —
   tab bar hidden with one tab; per-window theme/font/opacity **plus cursor style/blink, the
   focus/hover border, and lock mode + focus hot zone (gotcha 22)** via `TerminalWindowSettings`
   (own file; its `ApplyThemeOverrides` is the single clamp-and-apply implementation behind both
@@ -292,7 +299,12 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
 - Two real-PTY backends behind `IProcessManager.cs`, selected per-OS by `TerminalSessionFactory`:
   ConPTY on Windows (`ProcessManager.cs` + `Process/ConPty*` etc.) and POSIX pty on Linux/macOS
   (`UnixProcessManager.cs` + `Process/UnixPtyNative.cs` / `UnixPtySpawner.cs` /
-  `UnixPtyOutputPump.cs`) — see gotcha 16
+  `UnixPtyOutputPump.cs`) — see gotcha 16. Both share one start semantic: start failure =
+  resolve/spawn/attach failure; a shell that spawns and dies promptly reports **once**, via
+  `ProcessExited` with its real exit code (ConPTY's former 100 ms post-spawn validation raced
+  the Exited callback and double-reported — removed). The shared teardown disciplines
+  (cancel-outside-lock CTS handling, bounded never-throwing pump waits, join-before-dispose
+  writer shutdown) live in `Process/PtyTeardown.cs`; the resource-close policies stay per-OS.
 - Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommandLine` (quoted
   CreateProcess command line, ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec);
   never join-then-split — Windows args are quoted per CommandLineToArgvW rules
@@ -310,13 +322,20 @@ PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`):
   — all cached for the **process lifetime** (no expiry; shell installs do not change mid-game)
   and deliberately free of game-logging dependencies so they work from the test host; caching
   contract pinned by `ShellDetectionCachingTests`
-- Custom-shell adapter: `CustomShellPtyBridge.cs`; launch options: `ProcessLaunchOptions.cs`
+- Custom-shell adapter: `CustomShellPtyBridge.cs` (its `StartAsync` triggers the shell's
+  `SendInitialOutput` — banner/prompt parity with a real shell's spawn output — and swaps in a
+  fresh per-run exit-code source, since `GameConsoleShell` raises `Terminated` from its stop
+  hook and a reused completed source made a stop→restart cycle look already-terminated);
+  launch options: `ProcessLaunchOptions.cs`
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
 
 Game/integration (`purrTTY.GameMod/`):
-- Lifecycle + toggle + game menus: `TerminalMod.cs`. The full menu content lives in
-  `TerminalMod.DrawMenuContent()` and is registered two ways with identical content: via the
-  `[ModMenuEntry("purrTTY")]` attribute when the ModMenu companion mod is present, and via a
+- Lifecycle + toggle + hotkey/theme modals: `TerminalMod.cs`. The full menu content lives in
+  `TerminalMenus.cs` (`TerminalMenus.DrawMenuContent()` plus the static hook fields —
+  `Toggle`/`MenuController`/`Open*Dialog` — that the mod instance wires at init and clears on
+  dispose) and is registered two ways with identical content: via the
+  `[ModMenuEntry("purrTTY")]` attribute on `TerminalMod.DrawMenu` when the ModMenu companion
+  mod is present, and via a
   `Patcher.cs` postfix on KSA's empty public `Program.DrawProgramMenusHook()` menu-bar extension
   point otherwise (replaced the former fragile `DrawMenuBar` IL transpiler — gotcha 21). Menus: Toggle Terminal / Toggle Hotkey,
   New Tab / New Window (items read from `ShellMenuCache` — an immutable snapshot of shell entries +
@@ -615,7 +634,8 @@ Custom shells:
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`
 - Drawing: `purrTTY.Display/Ghostty/FrameGridRenderer.cs`
-- Window/tab/chrome/input behavior: `purrTTY.Display/Ghostty/TerminalWindow.cs`
+- Window/tab/chrome behavior: `purrTTY.Display/Ghostty/TerminalWindow.cs`; keyboard/mouse/
+  clipboard input: `TerminalWindow.Input.cs` (same class — partials)
 - Add a backend integration test in `purrTTY.Terminal.Tests` and run it.
 
 ### Adding or changing themes
