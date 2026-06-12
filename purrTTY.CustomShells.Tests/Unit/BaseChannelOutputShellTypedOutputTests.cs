@@ -22,6 +22,21 @@ public class BaseChannelOutputShellTypedOutputTests
         _shell = new TestTypedOutputShell(_capturedOutput);
     }
 
+    /// <summary>
+    ///     Waits (bounded) until the output pump has delivered at least
+    ///     <paramref name="expectedCount"/> events instead of sleeping a fixed time.
+    ///     On timeout it simply returns - the test's own count assertion then fails
+    ///     with the real captured state.
+    /// </summary>
+    private async Task WaitForCapturedCountAsync(int expectedCount, int timeoutMs = 2000)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (_capturedOutput.Count < expectedCount && stopwatch.ElapsedMilliseconds < timeoutMs)
+        {
+            await Task.Delay(1);
+        }
+    }
+
     [TearDown]
     public async Task TearDown()
     {
@@ -45,7 +60,7 @@ public class BaseChannelOutputShellTypedOutputTests
 
         // Act
         _shell.QueueOutputPublic(testData);
-        await Task.Delay(100); // Give output pump time to process
+        await WaitForCapturedCountAsync(1);
 
         // Assert
         Assert.That(_capturedOutput, Has.Count.EqualTo(1));
@@ -63,7 +78,7 @@ public class BaseChannelOutputShellTypedOutputTests
 
         // Act
         _shell.QueueOutputPublic(testText);
-        await Task.Delay(100);
+        await WaitForCapturedCountAsync(1);
 
         // Assert
         Assert.That(_capturedOutput, Has.Count.EqualTo(1));
@@ -86,7 +101,7 @@ public class BaseChannelOutputShellTypedOutputTests
 
         // Act
         _shell.QueueOutputPublic(testData, ShellOutputType.Stderr);
-        await Task.Delay(100);
+        await WaitForCapturedCountAsync(1);
 
         // Assert
         Assert.That(_capturedOutput, Has.Count.EqualTo(1));
@@ -104,7 +119,7 @@ public class BaseChannelOutputShellTypedOutputTests
 
         // Act
         _shell.QueueOutputPublic(testText, ShellOutputType.Stderr);
-        await Task.Delay(100);
+        await WaitForCapturedCountAsync(1);
 
         // Assert
         Assert.That(_capturedOutput, Has.Count.EqualTo(1));
@@ -129,7 +144,7 @@ public class BaseChannelOutputShellTypedOutputTests
         _shell.QueueOutputPublic("stderr1", ShellOutputType.Stderr);
         _shell.QueueOutputPublic("stdout2");
         _shell.QueueOutputPublic("stderr2", ShellOutputType.Stderr);
-        await Task.Delay(100);
+        await WaitForCapturedCountAsync(4);
 
         // Assert - Order should be preserved
         Assert.That(_capturedOutput, Has.Count.EqualTo(4));
@@ -158,7 +173,7 @@ public class BaseChannelOutputShellTypedOutputTests
         _shell.QueueOutputPublic("error1", ShellOutputType.Stderr);
         _shell.QueueOutputPublic("error2", ShellOutputType.Stderr);
         _shell.QueueOutputPublic("error3", ShellOutputType.Stderr);
-        await Task.Delay(100);
+        await WaitForCapturedCountAsync(3);
 
         // Assert - All should be stderr
         Assert.That(_capturedOutput, Has.Count.EqualTo(3));
@@ -178,7 +193,7 @@ public class BaseChannelOutputShellTypedOutputTests
 
         // Act
         _shell.QueueOutputPublic("", ShellOutputType.Stderr);
-        await Task.Delay(100);
+        await WaitForCapturedCountAsync(1);
 
         // Assert
         Assert.That(_capturedOutput, Has.Count.EqualTo(1));

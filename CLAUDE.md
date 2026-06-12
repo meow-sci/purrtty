@@ -119,7 +119,59 @@ ordering/overflow/failure semantics — pure logic, runs on every host OS).
 (output, exit codes, pty echo, initial winsize, working directory, shell detection); it runs on
 macOS (dev) and linux-x64 (CI) and self-skips on Windows — this is the pre-player coverage for
 Linux shell launching. `purrTTY.CustomShellContract.Tests` + `purrTTY.CustomShells.Tests` cover
-the custom-shell layer. Keep test output minimal so it does not flood the CLI.
+the custom-shell layer.
+
+#### Tests must be quiet by default (MUST)
+
+A test that passes or skips must produce **zero output** — no stdout/stderr, no recorded test
+messages. Test-run output is read by CLIs, CI logs, and AI assistants; per-test chatter bloats
+that context on every run while carrying no information (a 2026-06 pass removed all of it).
+Concretely:
+
+- **Never `Assert.Pass("message")`.** It records the message as test output on every run. For
+  "does not crash" smoke tests, assert the real postcondition (state unchanged, all tasks
+  completed) or wrap the act in `Assert.DoesNotThrow(...)` — a test that runs to completion
+  passes without any `Assert.Pass`.
+- **Skip silently: `Assert.Ignore()` with no message,** with the reason as a code comment at the
+  ignore site (the recorded message prints on every skipped run — e.g. the Windows CI runner
+  printed the POSIX-skip reason on all of `UnixProcessManagerTests`). The skipped test's *name*
+  still appears in results; that plus the comment is enough to diagnose.
+- **No `Console.Write*`/`TestContext.WriteLine`/`TestContext.Progress` on success paths.**
+  Diagnostic detail belongs in the assertion *failure message* (the optional last argument of
+  `Assert.That`), which is printed only when the assertion fails — that is the one place to be
+  generous with context (include the observed state, like `WaitForOutput`'s "Output so far").
+
+#### No fixed sleeps in tests (MUST)
+
+Never use a bare `Task.Delay`/`Thread.Sleep` to "give async work time to finish" before
+asserting. A 2026-06 cleanup removed ~400 such sleeps (≈26 s of pure dead time per run — the
+custom-shell suites went from ~31 s to <0.5 s) with zero assertion changes; do not reintroduce
+the pattern. It is both slow (the sleep always runs in full) and flaky (a loaded CI runner can
+need longer than the guess). Synchronize on the actual completion signal instead:
+
+- **Know what is already synchronous.** `BaseLineBufferedShell.WriteInputAsync` processes input
+  fully before returning — line buffer, cursor, history, and command execution are assertable
+  immediately, no wait at all. Only **output delivery** is async (queued to a channel, pumped to
+  `OutputReceived` on a background task). `BaseChannelOutputShell.StopAsync` drains that pump
+  before returning, so post-stop output/`Terminated` assertions also need no wait.
+- **Channel-output shells: flush with a sentinel.** The test-shell subclasses in
+  `BaseLineBufferedShellTests` and `GameConsoleShellTests` have `FlushOutputAsync()`: queue a
+  unique zero-length sentinel via `QueueOutput` and await its `OutputReceived` event — the pump
+  is single-reader FIFO, so the sentinel arriving proves every earlier output was delivered.
+  Reuse/copy it for new channel-shell fixtures. Two rules: collectors must skip zero-length
+  events (so the sentinel can't pollute captured output/`LastOutputType`), and never flush after
+  `StopAsync` (channel completed — the sentinel would never arrive; no wait is needed there anyway).
+- **Waiting for an event or a count:** block on the signal with a generous timeout —
+  `ManualResetEventSlim`/`CountdownEvent`/`TaskCompletionSource` + `Wait(timeout)`/`WaitAsync`
+  (see `BaseChannelOutputShellTests`), or a bounded poll-until-condition loop
+  (`WaitForCapturedCountAsync` in `BaseChannelOutputShellTypedOutputTests`). The timeout is a
+  failure bound, not a wait: tests pass as fast as the code runs and only burn time when broken.
+- **Legitimate fixed delays** are only the polling *interval inside* a deadline-bounded
+  condition loop — required when no completion signal exists, e.g. waiting on a real external
+  process (`UnixProcessManagerTests.Harness.WaitForOutput` polls every 25 ms against live
+  `/bin/sh` output, 10 s deadline) — or a test whose *subject* is timeout behavior itself
+  (`StopAsync_WithTimeout_CancelsPumpIfNotDrained`). If you believe a new fixed sleep is
+  justified, document the reason in a comment at the sleep site.
 
 > The legacy emulator test/app projects (`purrTTY.Core.Tests`, `purrTTY.Display.Tests`,
 > `purrTTY.Display.Playground`, `purrTTY.TestApp`) were deleted with the emulator.

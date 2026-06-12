@@ -29,7 +29,8 @@ public sealed class ShellDetectionCachingTests
     {
         if (OperatingSystem.IsWindows())
         {
-            Assert.Ignore("Unix shell detection is Linux/macOS only");
+            // Unix shell detection is Linux/macOS only - skip silently
+            Assert.Ignore();
         }
 
         UnixShellDetector.ClearCache();
@@ -57,7 +58,8 @@ public sealed class ShellDetectionCachingTests
     {
         if (OperatingSystem.IsWindows())
         {
-            Assert.Ignore("asserts the non-Windows degenerate case");
+            // Asserts the non-Windows degenerate case - skip silently on Windows
+            Assert.Ignore();
         }
 
         WslDistributionDetector.ClearCache();

@@ -436,6 +436,7 @@ public class BaseChannelOutputShellTests
         var shell = new TestChannelOutputShell();
         var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
         var exceptionThrown = false;
+        using var secondEventDelivered = new ManualResetEventSlim(false);
 
         shell.OutputReceived += (sender, args) =>
         {
@@ -445,26 +446,25 @@ public class BaseChannelOutputShellTests
                 exceptionThrown = true;
                 throw new InvalidOperationException("Test exception");
             }
+
+            secondEventDelivered.Set();
         };
 
         var startTask = shell.StartAsync(options);
         shell.CompleteStart();
         await startTask;
 
-        // Act - Queue output that will cause exception
+        // Act - Queue output that will cause exception, then a second output.
+        // The channel is FIFO, so the second event arriving proves the pump
+        // survived the handler exception on the first.
         shell.TestQueueOutputString("first output");
-
-        // Wait a bit for exception to be thrown
-        await Task.Delay(100);
-
-        // Queue another output - pump should still be running
         shell.TestQueueOutputString("second output");
 
-        await Task.Delay(100);
+        var pumpStillRunning = secondEventDelivered.Wait(TimeSpan.FromSeconds(2));
 
         // Assert - Pump should continue working despite exception
         Assert.That(exceptionThrown, Is.True, "Exception should have been thrown");
-        // Note: The pump should continue running and not crash despite the exception
+        Assert.That(pumpStillRunning, Is.True, "Pump should keep delivering events after a handler exception");
     }
 
     [Test]
@@ -479,14 +479,15 @@ public class BaseChannelOutputShellTests
         shell.CompleteStart();
         await startTask;
 
-        // Queue many outputs quickly - unbounded channel should handle this
-        for (int i = 0; i < 1000; i++)
+        // Assert - Queue many outputs quickly; the unbounded channel must accept
+        // all of them without throwing
+        Assert.DoesNotThrow(() =>
         {
-            shell.TestQueueOutputString($"output {i}\n");
-        }
-
-        // Assert - No exception should be thrown for excessive queuing
-        Assert.Pass("Unbounded channel handles rapid queuing");
+            for (int i = 0; i < 1000; i++)
+            {
+                shell.TestQueueOutputString($"output {i}\n");
+            }
+        }, "Unbounded channel should accept rapid queuing");
     }
 
     [Test]

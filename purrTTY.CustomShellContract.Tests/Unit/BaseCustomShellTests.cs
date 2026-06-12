@@ -120,8 +120,9 @@ public class BaseCustomShellTests
 
         Task.WaitAll(tasks.ToArray());
 
-        // Assert - No exception thrown means thread-safety is working
-        Assert.Pass("Concurrent access did not cause corruption");
+        // Assert - No task faulted means thread-safety is working
+        Assert.That(tasks, Is.All.Matches<Task>(t => t.IsCompletedSuccessfully),
+            "Concurrent IsRunning access should not throw");
     }
 
     [Test]

@@ -73,6 +73,40 @@ public class BaseLineBufferedShellTests
         public IReadOnlyList<string> TestGetCommandHistory() => CommandHistory;
         public string TestGetCurrentLine() => CurrentLine;
         public int TestGetCursorPosition() => CursorPosition;
+
+        /// <summary>
+        ///     Deterministically waits until all output queued so far has been raised via
+        ///     OutputReceived. Input processing in BaseLineBufferedShell is synchronous; only
+        ///     output delivery is async (channel + single-reader pump, FIFO). Queueing an
+        ///     empty sentinel and waiting for it to come out the event side therefore
+        ///     guarantees every earlier output event has been delivered. The sentinel is a
+        ///     unique zero-length array, so it adds nothing to collected output text.
+        /// </summary>
+        public async Task FlushOutputAsync()
+        {
+            var sentinel = new byte[0];
+            ReadOnlyMemory<byte> sentinelMemory = sentinel;
+            var delivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void Handler(object? sender, ShellOutputEventArgs args)
+            {
+                if (args.Data.Equals(sentinelMemory))
+                {
+                    delivered.TrySetResult();
+                }
+            }
+
+            OutputReceived += Handler;
+            try
+            {
+                QueueOutput(sentinel, ShellOutputType.Stdout);
+                await delivered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                OutputReceived -= Handler;
+            }
+        }
     }
 
     private TestLineBufferedShell? _shell;
@@ -110,7 +144,7 @@ public class BaseLineBufferedShellTests
         await _shell.WriteInputAsync(input);
 
         // Wait for all output to be processed
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(outputReceived.Count, Is.GreaterThan(0), "Should receive echoed output");
@@ -130,9 +164,9 @@ public class BaseLineBufferedShellTests
 
         // Act - Type "hello" then backspace twice
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50); // Allow output to process
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x7F }); // Backspace
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x7F }); // Backspace
 
         // Assert - Current line should be "hel"
@@ -151,7 +185,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Send backspace on empty line
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should not crash or send anything unexpected
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line buffer should remain empty");
@@ -162,11 +196,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - 0x08 (Ctrl+H) is now Ctrl+Backspace, which deletes words
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Use Ctrl+H (0x08)
         await _shell.WriteInputAsync(new byte[] { 0x08 });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should delete the whole word "world", not just the last character
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello "), "Ctrl+H should delete word, not character");
@@ -177,11 +211,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test command"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act
         await _shell.WriteInputAsync(new byte[] { 0x0D }); // Carriage return
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ExecutedCommands.Count, Is.EqualTo(1), "Should execute one command");
@@ -194,11 +228,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Use line feed instead of carriage return
         await _shell.WriteInputAsync(new byte[] { 0x0A });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ExecutedCommands.Count, Is.EqualTo(1), "Line feed should also execute command");
@@ -209,7 +243,7 @@ public class BaseLineBufferedShellTests
     {
         // Act
         await _shell!.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ExecutedCommands.Count, Is.EqualTo(0), "Empty line should not execute");
@@ -220,11 +254,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("   "));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ExecutedCommands.Count, Is.EqualTo(0), "Whitespace-only line should not execute");
@@ -235,7 +269,7 @@ public class BaseLineBufferedShellTests
     {
         // Act
         await _shell!.WriteInputAsync(new byte[] { 0x0C }); // Ctrl+L
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ClearScreenCallCount, Is.EqualTo(1), "Clear screen should be called");
@@ -251,14 +285,14 @@ public class BaseLineBufferedShellTests
         // Arrange - Execute two commands to build history
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("first command"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("second command"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press up arrow once
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // ESC [ A
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("second command"), "Should recall last command");
@@ -270,16 +304,16 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("first"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("second"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press up arrow twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("first"), "Should recall first command");
@@ -291,20 +325,20 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("first"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("second"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Navigate down once
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // ESC [ B (down)
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("second"), "Should navigate down to second command");
@@ -316,17 +350,17 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Start typing a new command
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("new command"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up then down past end
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("new command"), "Should restore the line being typed");
@@ -337,7 +371,7 @@ public class BaseLineBufferedShellTests
     {
         // Act
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up arrow
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Should remain empty with no history");
@@ -348,11 +382,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press down without pressing up first
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("test"), "Should not change line");
@@ -363,10 +397,10 @@ public class BaseLineBufferedShellTests
     {
         // Act - Send ESC followed by something other than '['
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x4F }); // ESC O (unknown)
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
-        // Assert - Should not crash
-        Assert.Pass("Unknown escape sequence handled gracefully");
+        // Assert - Sequence is consumed without crashing or touching the line buffer
+        Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Unknown escape sequence should be ignored");
     }
 
     [Test]
@@ -374,16 +408,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Initial cursor position");
 
         // Act - Press left arrow three times
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // ESC [ D (left)
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // ESC [ D (left)
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // ESC [ D (left)
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2");
@@ -395,20 +429,20 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left three times
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor at position 2 before right arrow");
 
         // Act - Press right arrow once
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // ESC [ C (right)
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "Cursor should be at position 3");
@@ -420,19 +454,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
 
         // Act - Press left arrow at start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should remain at position 0");
@@ -443,12 +477,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should be at end");
 
         // Act - Press right arrow at end
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should remain at position 4");
@@ -459,20 +493,20 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Move left 5 times, then right 2 times
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         for (int i = 0; i < 2; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(8), "Cursor should be at position 8");
@@ -484,7 +518,7 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         var outputReceived = new List<string>();
         _shell!.OutputReceived += (sender, args) =>
@@ -494,9 +528,9 @@ public class BaseLineBufferedShellTests
 
         // Act - Move left then right
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -509,7 +543,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Press left arrow on empty line
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should stay at position 0");
@@ -520,7 +554,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Press right arrow on empty line
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should stay at position 0");
@@ -531,12 +565,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Initial cursor position");
 
         // Act - Press Home key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // ESC [ H
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
@@ -548,17 +582,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello" and move to start
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at start");
 
         // Act - Press End key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // ESC [ F
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Cursor should be at position 5");
@@ -570,19 +604,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
 
         // Act - Press Home key at start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should remain at position 0");
@@ -593,12 +627,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should be at end");
 
         // Act - Press End key at end
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // End
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should remain at position 4");
@@ -609,7 +643,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Press Home key on empty line
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should stay at position 0");
@@ -620,7 +654,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Press End key on empty line
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // End
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should stay at position 0");
@@ -631,17 +665,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world" and move to middle
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Cursor should be at position 6");
 
         // Act - Press Home key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
@@ -653,17 +687,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world" and move to middle
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Cursor should be at position 6");
 
         // Act - Press End key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // End
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(11), "Cursor should be at position 11");
@@ -675,15 +709,15 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press Home, then End
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at start");
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // End
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should be back at end");
@@ -695,7 +729,7 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         var outputReceived = new List<string>();
         _shell!.OutputReceived += (sender, args) =>
@@ -705,7 +739,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Press Home key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -717,11 +751,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello" and move to start
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
 
         var outputReceived = new List<string>();
@@ -732,7 +766,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Press End key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // End
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -744,17 +778,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press Home, type 'X', press End, type 'Y'
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("X"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x46 }); // End
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("Y"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("XhelloY"), "Line should be 'XhelloY'");
@@ -771,10 +805,10 @@ public class BaseLineBufferedShellTests
         // Act
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("cmd2"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var history = _shell.TestGetCommandHistory();
@@ -789,10 +823,10 @@ public class BaseLineBufferedShellTests
         // Act - Execute same command twice
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("same"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("same"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var history = _shell.TestGetCommandHistory();
@@ -806,13 +840,13 @@ public class BaseLineBufferedShellTests
         // Act
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("cmd2"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1")); // Repeat cmd1
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var history = _shell.TestGetCommandHistory();
@@ -826,19 +860,19 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Type a new command
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("typing this"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Navigate up (should save "typing this")
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate back down
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("typing this"), "Should restore saved line");
@@ -850,19 +884,19 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Execute the recalled command
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Try to navigate down (should do nothing, history reset)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should remain at empty line
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty);
@@ -875,11 +909,8 @@ public class BaseLineBufferedShellTests
     [Test]
     public void NotifyTerminalResize_UpdatesDimensions()
     {
-        // Act
-        _shell!.NotifyTerminalResize(100, 40);
-
-        // Assert - No exception, dimensions stored (internal state)
-        Assert.Pass("Terminal resize notification handled");
+        // Act & Assert - No exception, dimensions stored (internal state)
+        Assert.DoesNotThrow(() => _shell!.NotifyTerminalResize(100, 40));
     }
 
     #endregion
@@ -892,13 +923,13 @@ public class BaseLineBufferedShellTests
         // Act
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("first"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("second"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("third"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ExecutedCommands.Count, Is.EqualTo(3));
@@ -916,7 +947,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Send various control characters (except handled ones)
         await _shell!.WriteInputAsync(new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05 });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should not crash, line should be empty
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Control characters should be ignored");
@@ -927,7 +958,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Send non-ASCII bytes
         await _shell!.WriteInputAsync(new byte[] { 0x80, 0x90, 0xA0, 0xFF });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should not crash, line should be empty
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Non-ASCII bytes should be ignored");
@@ -939,7 +970,7 @@ public class BaseLineBufferedShellTests
         // Act
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("  trimmed  "));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ExecutedCommands[0], Is.EqualTo("trimmed"), "Command should be trimmed");
@@ -969,10 +1000,12 @@ public class BaseLineBufferedShellTests
         }
 
         await Task.WhenAll(tasks);
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
-        // Assert - Should not crash (verifies thread safety via lock)
-        Assert.Pass("Thread-safe access to line buffer");
+        // Assert - All 10 single-character writes land in the buffer (order is
+        // nondeterministic, but the lock guarantees none are lost or corrupted)
+        Assert.That(_shell!.TestGetCurrentLine(), Has.Length.EqualTo(10),
+            "Concurrent writes should all be appended under the lock");
     }
 
     #endregion
@@ -986,7 +1019,7 @@ public class BaseLineBufferedShellTests
         _shell!.SetPrompt("custom> ");
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         var outputReceived = new List<string>();
         _shell.OutputReceived += (sender, args) =>
@@ -996,7 +1029,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Navigate up (triggers line replacement with prompt)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -1019,7 +1052,7 @@ public class BaseLineBufferedShellTests
 
         // Act
         await _shell.WriteInputAsync(new byte[] { 0x0C }); // Ctrl+L
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.ClearScreenCallCount, Is.EqualTo(1), "HandleClearScreen should be called");
@@ -1033,16 +1066,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("some text"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act
         await _shell.WriteInputAsync(new byte[] { 0x0C }); // Ctrl+L
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
-        // Note: Current implementation does NOT clear the line buffer on Ctrl+L
-        // It only clears the screen and shows a new prompt
-        // The line buffer should remain intact (this is typical shell behavior)
-        Assert.Pass("Ctrl+L clear screen behavior verified");
+        // Assert - Ctrl+L does NOT clear the line buffer: it only clears the screen
+        // and shows a new prompt; the line stays intact (typical shell behavior)
+        Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("some text"),
+            "Ctrl+L should keep the line buffer intact");
     }
 
     #endregion
@@ -1058,7 +1091,7 @@ public class BaseLineBufferedShellTests
 
         // Act
         _shell.SendErrorForTest("error\r\n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(outputTypes, Does.Contain(ShellOutputType.Stderr));
@@ -1081,7 +1114,7 @@ public class BaseLineBufferedShellTests
     {
         // Act
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Cursor should be at position 5 after typing 'hello'");
@@ -1092,15 +1125,15 @@ public class BaseLineBufferedShellTests
     {
         // Act & Assert
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("h"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(1), "Cursor should be at position 1");
 
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("e"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2");
 
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("l"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "Cursor should be at position 3");
     }
 
@@ -1109,12 +1142,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Initial cursor position");
 
         // Act - Backspace once
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should move back to position 4");
@@ -1125,13 +1158,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Backspace twice
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2 after two backspaces");
@@ -1142,7 +1175,7 @@ public class BaseLineBufferedShellTests
     {
         // Act
         await _shell!.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should stay at position 0");
@@ -1153,12 +1186,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("command"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(7), "Cursor at position 7 before enter");
 
         // Act
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should reset to position 0 after enter");
@@ -1169,11 +1202,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act
         await _shell.WriteInputAsync(new byte[] { 0x0A });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should reset to position 0 after line feed");
@@ -1185,11 +1218,11 @@ public class BaseLineBufferedShellTests
         // Arrange - Execute a command to build history
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("first command"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Act - Navigate up
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up arrow
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(13), "Cursor should be at end of recalled command");
@@ -1202,20 +1235,20 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("cmd2"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Navigate down
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should be at end of 'cmd2'");
@@ -1228,20 +1261,20 @@ public class BaseLineBufferedShellTests
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Start typing a new command
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("typing new"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(10), "Initial cursor position");
 
         // Navigate up
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Navigate down past end to restore saved line
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(10), "Cursor should restore to position 10");
@@ -1253,15 +1286,15 @@ public class BaseLineBufferedShellTests
     {
         // Act - Type, backspace, type more
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "After typing 'hello'");
 
         await _shell.WriteInputAsync(new byte[] { 0x7F, 0x7F }); // Two backspaces
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "After two backspaces");
 
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("p"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "After typing 'p'");
 
         // Assert final state
@@ -1273,11 +1306,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - 0x08 (Ctrl+H) is now Ctrl+Backspace, which deletes words
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Use Ctrl+H (0x08)
         await _shell.WriteInputAsync(new byte[] { 0x08 });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Cursor should be at position 6 after deleting "world"
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Ctrl+H should delete word and move cursor to word start");
@@ -1292,19 +1325,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"));
 
         // Move left 2 positions (cursor between 'l' and 'o')
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "Cursor should be at position 3");
 
         // Act - Backspace (should delete second 'l')
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("helo"), "Line should be 'helo'");
@@ -1316,19 +1349,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
 
         // Act - Backspace at start
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("test"), "Line should remain 'test'");
@@ -1340,12 +1373,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Cursor should be at end");
 
         // Act - Backspace at end
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hell"), "Line should be 'hell'");
@@ -1357,19 +1390,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 3 positions (cursor at position 1)
         for (int i = 0; i < 3; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(1), "Cursor should be at position 1");
 
         // Act - Backspace (should delete 't')
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("est"), "Line should be 'est'");
@@ -1381,21 +1414,21 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 6 positions (cursor between 'o' and ' ')
         for (int i = 0; i < 6; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Cursor should be at position 5");
 
         // Act - Backspace twice
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hel world"), "Line should be 'hel world'");
@@ -1407,13 +1440,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         var outputReceived = new List<string>();
         _shell!.OutputReceived += (sender, args) =>
@@ -1423,7 +1456,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Backspace at position 2
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -1439,17 +1472,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test" and move to middle of "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions (cursor in middle of "test")
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Use Ctrl+H (0x08) - should delete back to word boundary
         await _shell.WriteInputAsync(new byte[] { 0x08 });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should delete "te" from "test", leaving "hello world st"
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello world st"), "Ctrl+H should delete word fragment");
@@ -1461,24 +1494,24 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "helo"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("helo"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions (cursor at position 2, between 'e' and 'l')
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2));
 
         // Act - Backspace (deletes 'e', leaving "hlo" with cursor at position 1)
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hlo"), "After backspace should be 'hlo'");
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(1), "Cursor should be at position 1");
 
         // Insert 'll' (gives "hlllo" with cursor at position 3)
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("ll"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hlllo"), "Line should be 'hlllo'");
@@ -1490,30 +1523,30 @@ public class BaseLineBufferedShellTests
     {
         // Start with "abc"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("abc"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to middle
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2));
 
         // Backspace (delete 'b')
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("ac"));
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(1));
 
         // Insert 'X'
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("X"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("aXc"));
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2));
 
         // Move to end and append 'Y'
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("Y"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert final state
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("aXcY"));
@@ -1525,24 +1558,24 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "abc"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("abc"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to position 1
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(1));
 
         // Act - Backspace until we can't anymore
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("bc"));
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0));
 
         // Try to backspace at position 0 (should do nothing)
         await _shell.WriteInputAsync(new byte[] { 0x7F });
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("bc"), "Line should remain 'bc'");
@@ -1558,18 +1591,18 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions (cursor at position 3, between second 'l' and 'o')
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "Cursor should be at position 3");
 
         // Act - Press Delete key (CSI 3 ~)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("helo"), "Line should be 'helo'");
@@ -1581,12 +1614,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should be at end");
 
         // Act - Press Delete key at end
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("test"), "Line should remain 'test'");
@@ -1598,7 +1631,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Press Delete key on empty line
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line should remain empty");
@@ -1610,19 +1643,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
 
         // Act - Press Delete key
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("est"), "Line should be 'est'");
@@ -1634,23 +1667,23 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to position 5 (between 'o' and ' ')
         for (int i = 0; i < 6; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(5), "Cursor should be at position 5");
 
         // Act - Delete 3 times to remove " wo"
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // Delete
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // Delete
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // Delete
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hellorld"), "Line should be 'hellorld'");
@@ -1662,13 +1695,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions (cursor at position 2, which is 's' in "test")
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2");
 
         var outputReceived = new List<string>();
@@ -1679,7 +1712,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Press Delete key (deletes 's', leaving "tet")
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -1694,24 +1727,24 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions (cursor at position 3)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "Cursor should be at position 3");
 
         // Act - Delete key (deletes 'l' at position 3, leaving "helo" with cursor at 3)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("helo"), "After delete should be 'helo'");
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3), "Cursor should still be at position 3");
 
         // Backspace (deletes 'l' at position 2, leaving "heo" with cursor at 2)
         await _shell.WriteInputAsync(new byte[] { 0x7F }); // Backspace
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("heo"), "Line should be 'heo'");
@@ -1723,23 +1756,23 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "helo"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("helo"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions (cursor at position 2)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2");
 
         // Act - Delete key (deletes 'l', leaving "heo" with cursor at 2)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // ESC [ 3 ~
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("heo"), "After delete should be 'heo'");
 
         // Insert "ll" (gives "hello" with cursor at 4)
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("ll"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"), "Line should be 'hello'");
@@ -1751,13 +1784,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "abcd"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("abcd"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
 
@@ -1765,9 +1798,9 @@ public class BaseLineBufferedShellTests
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x33, 0x7E }); // Delete
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line should be empty");
@@ -1783,7 +1816,7 @@ public class BaseLineBufferedShellTests
     {
         // Arrange
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"), "Line buffer should have content");
 
         var outputReceived = new List<string>();
@@ -1794,7 +1827,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Send Ctrl+C
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line buffer should be cleared");
@@ -1817,7 +1850,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Send Ctrl+C on empty line
         await _shell!.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line buffer should remain empty");
@@ -1834,14 +1867,14 @@ public class BaseLineBufferedShellTests
         // Arrange - Build history
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("first command"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("second command"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up in history
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("second command"), "Should be in history");
 
         var outputReceived = new List<string>();
@@ -1852,7 +1885,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Send Ctrl+C
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line buffer should be cleared");
@@ -1868,13 +1901,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move cursor to middle
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Cursor should be in middle");
 
@@ -1886,7 +1919,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Send Ctrl+C
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line buffer should be cleared");
@@ -1909,11 +1942,11 @@ public class BaseLineBufferedShellTests
 
         // Act - Send Ctrl+C three times
         await _shell!.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -1927,16 +1960,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type some text
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Send Ctrl+C
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Line should be cleared");
 
         // Act - Type new text
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("world"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("world"), "Should have new text");
@@ -1949,28 +1982,28 @@ public class BaseLineBufferedShellTests
         // Arrange - Execute a command to build history
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("cmd1"));
         await _shell.WriteInputAsync(new byte[] { 0x0D });
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Start typing a new command
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("new text"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up (saves "new text")
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("cmd1"), "Should show history");
 
         // Send Ctrl+C
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate up again
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x41 }); // Up
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Navigate down (should not restore "new text")
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x42 }); // Down
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should be empty, not "new text"
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Saved line should have been cleared by Ctrl+C");
@@ -1985,11 +2018,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello world "), "Should delete 'test'");
@@ -2001,13 +2034,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W twice
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello "), "Should delete 'world test'");
@@ -2019,7 +2052,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Send Ctrl+W on empty buffer
         await _shell!.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Should remain empty");
@@ -2031,13 +2064,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello", move to start
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"), "Should not delete anything");
@@ -2049,11 +2082,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello   world" (three spaces)
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello   world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello   "), "Should delete 'world' and preserve spaces");
@@ -2065,15 +2098,15 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world", move left 2 positions (mid-word in "world")
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(25);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W (cursor is between 'r' and 'l' in "world")
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello ld"), "Should delete 'wor' from 'world'");
@@ -2085,11 +2118,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Should delete entire word");
@@ -2101,11 +2134,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "   " (three spaces)
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("   "));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Should delete all spaces");
@@ -2117,13 +2150,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Ctrl+W, then type "foo"
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("foo"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello world foo"), "Should have 'foo' replacing 'test'");
@@ -2142,12 +2175,12 @@ public class BaseLineBufferedShellTests
 
         // Type "hello world"
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         outputReceived.Clear();
 
         // Act - Send Ctrl+W (should delete "world")
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should have escape sequences for cursor movement and clearing
         var allOutput = string.Concat(outputReceived.Select(b => Encoding.UTF8.GetString(b)));
@@ -2159,17 +2192,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test", move left 5 positions (to middle of "test")
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(25);
+            await _shell!.FlushOutputAsync();
         }
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+W
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello  test"), "Should delete 'world' and preserve tail");
@@ -2181,13 +2214,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "one two three four"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("one two three four"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Ctrl+W four times
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
 
         // Assert
@@ -2200,11 +2233,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+H (Ctrl+Backspace)
         await _shell.WriteInputAsync(new byte[] { 0x08 }); // Ctrl+H
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello world "), "Should delete 'test'");
@@ -2216,13 +2249,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+H twice
         await _shell.WriteInputAsync(new byte[] { 0x08 }); // Ctrl+H
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x08 }); // Ctrl+H
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello "), "Should delete 'world test'");
@@ -2234,15 +2267,15 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world", move left 2 positions (mid-word in "world")
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(25);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+H (cursor is between 'r' and 'l' in "world")
         await _shell.WriteInputAsync(new byte[] { 0x08 }); // Ctrl+H
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello ld"), "Should delete 'wor' from 'world'");
@@ -2256,19 +2289,19 @@ public class BaseLineBufferedShellTests
 
         // Test with Ctrl+W
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x17 }); // Ctrl+W
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         var lineAfterCtrlW = _shell.TestGetCurrentLine();
         var cursorAfterCtrlW = _shell.TestGetCursorPosition();
 
         // Clear and test with Ctrl+H
         await _shell.WriteInputAsync(new byte[] { 0x03 }); // Ctrl+C (clear line)
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x08 }); // Ctrl+H
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         var lineAfterCtrlH = _shell.TestGetCurrentLine();
         var cursorAfterCtrlH = _shell.TestGetCursorPosition();
 
@@ -2287,16 +2320,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at start");
 
         // Act - Send Ctrl+Right
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 6 (after "hello ")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Cursor should be at position 6");
@@ -2307,19 +2340,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+Right twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "First jump should be at position 6");
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 12 (after "world ")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(12), "Second jump should be at position 12");
@@ -2330,12 +2363,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(11), "Cursor should be at end");
 
         // Act - Send Ctrl+Right
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Cursor should remain at end
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(11), "Cursor should remain at end");
@@ -2346,15 +2379,15 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello   world" (three spaces)
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello   world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+Right
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should skip all spaces and land at position 8 (start of "world")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(8), "Cursor should skip all spaces");
@@ -2365,12 +2398,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(16), "Cursor should be at end");
 
         // Act - Send Ctrl+Left
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 12 (start of "test")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(12), "Cursor should be at position 12");
@@ -2381,15 +2414,15 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+Left twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(12), "First jump should be at position 12");
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 6 (start of "world")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Second jump should be at position 6");
@@ -2400,16 +2433,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at start");
 
         // Act - Send Ctrl+Left
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Cursor should remain at start
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should remain at start");
@@ -2420,11 +2453,11 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello   world" (three spaces), cursor at end
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello   world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send Ctrl+Left
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to start of "world" at position 8
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(8), "Cursor should be at start of 'world'");
@@ -2435,19 +2468,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Ctrl+Right, then Ctrl+Left
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         int positionAfterRight = _shell.TestGetCursorPosition();
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should be back at start
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Should return to start");
@@ -2459,17 +2492,17 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "one two three four"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("one two three four"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Ctrl+Right four times
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
 
         // Assert - Should be at end
@@ -2481,13 +2514,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "one two three four"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("one two three four"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Ctrl+Left four times
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
 
         // Assert - Should be at start
@@ -2499,16 +2532,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world", move left 2 (mid-word in "world")
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(25);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(9), "Cursor should be at position 9");
 
         // Act - Ctrl+Right
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to end (no next word)
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(11), "Should jump to end");
@@ -2519,16 +2552,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world", move left 2 (mid-word in "world")
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(25);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(9), "Cursor should be at position 9");
 
         // Act - Ctrl+Left
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to start of "world" at position 6
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Should jump to start of current word");
@@ -2539,19 +2572,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Ctrl+Right, type "BIG ", Ctrl+Right
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("BIG "));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello BIG world test"), "Should have inserted 'BIG '");
@@ -2565,7 +2598,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Send Ctrl+Right on empty buffer
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43 }); // CSI 1;5C
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Should remain empty");
@@ -2577,7 +2610,7 @@ public class BaseLineBufferedShellTests
     {
         // Act - Send Ctrl+Left on empty buffer
         await _shell!.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44 }); // CSI 1;5D
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.Empty, "Should remain empty");
@@ -2589,16 +2622,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at start");
 
         // Act - Send ESC f (Ctrl+Right in Ghostty/Emacs mode)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x66 }); // ESC f
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 6 (after "hello ")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Cursor should be at position 6");
@@ -2609,12 +2642,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(16), "Cursor should be at end");
 
         // Act - Send ESC b (Ctrl+Left in Ghostty/Emacs mode)
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x62 }); // ESC b
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 12 (start of "test")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(12), "Cursor should be at position 12");
@@ -2625,19 +2658,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Act - Send ESC f twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x66 }); // ESC f
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "First jump should be at position 6");
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x66 }); // ESC f
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 12 (after "world ")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(12), "Second jump should be at position 12");
@@ -2648,16 +2681,16 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(16), "Cursor should be at end");
 
         // Act - Send ESC b twice
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x62 }); // ESC b
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(12), "First jump should be at position 12");
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x62 }); // ESC b
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should jump to position 6 (start of "world")
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "Second jump should be at position 6");
@@ -2668,20 +2701,20 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hello world test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hello world test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x48 }); // Home
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at start");
 
         // Act - Jump forward then back
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x66 }); // ESC f
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(6), "After ESC f should be at position 6");
 
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x62 }); // ESC b
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should be back at start
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "After ESC b should be back at position 0");
@@ -2696,19 +2729,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "helo"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("helo"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("helo"));
 
         // Move left 2 positions (cursor should be between 'e' and 'l')
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2");
 
         // Act - Type 'l' to make "hello"
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("l"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"), "Line should be 'hello'");
@@ -2720,19 +2753,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "ello"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("ello"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(0), "Cursor should be at position 0");
 
         // Act - Type 'h' to make "hello"
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("h"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"), "Line should be 'hello'");
@@ -2744,12 +2777,12 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "hell"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("hell"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4), "Cursor should be at end");
 
         // Act - Type 'o' (should append, not insert)
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("o"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello"), "Line should be 'hello'");
@@ -2761,19 +2794,19 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "heworld"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("heworld"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 5 positions (cursor should be between 'e' and 'w')
         for (int i = 0; i < 5; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2), "Cursor should be at position 2");
 
         // Act - Type "llo " to make "hello world"
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("llo "));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("hello world"), "Line should be 'hello world'");
@@ -2785,13 +2818,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 2 positions
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         var outputReceived = new List<string>();
         _shell!.OutputReceived += (sender, args) =>
@@ -2801,7 +2834,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Type 'X' to insert at position 2
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("X"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -2816,13 +2849,13 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "test"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("test"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left 3 positions
         for (int i = 0; i < 3; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
 
         var outputReceived = new List<string>();
@@ -2833,7 +2866,7 @@ public class BaseLineBufferedShellTests
 
         // Act - Type 'X' to insert at position 1
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("X"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var allOutput = string.Join("", outputReceived);
@@ -2848,27 +2881,27 @@ public class BaseLineBufferedShellTests
     {
         // Arrange - Type "abc"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("abc"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move left to middle
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(2));
 
         // Insert 'X'
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("X"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("abXc"));
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3));
 
         // Move right to end
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(4));
 
         // Append 'Y'
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("Y"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert final state
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("abXcY"));
@@ -2880,26 +2913,26 @@ public class BaseLineBufferedShellTests
     {
         // Start with "1234"
         await _shell!.WriteInputAsync(Encoding.UTF8.GetBytes("1234"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Move to start
         for (int i = 0; i < 4; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x44 }); // Left
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
 
         // Insert 'A' at position 0
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("A"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("A1234"));
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(1));
 
         // Move right 1, insert 'B' at position 2
         await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("B"));
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("A1B234"));
         Assert.That(_shell.TestGetCursorPosition(), Is.EqualTo(3));
 
@@ -2907,10 +2940,10 @@ public class BaseLineBufferedShellTests
         for (int i = 0; i < 3; i++)
         {
             await _shell.WriteInputAsync(new byte[] { 0x1B, 0x5B, 0x43 }); // Right
-            await Task.Delay(50);
+            await _shell!.FlushOutputAsync();
         }
         await _shell.WriteInputAsync(Encoding.UTF8.GetBytes("C"));
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert final state
         Assert.That(_shell.TestGetCurrentLine(), Is.EqualTo("A1B234C"));

@@ -19,7 +19,8 @@ public sealed class UnixProcessManagerTests
     {
         if (OperatingSystem.IsWindows())
         {
-            Assert.Ignore("POSIX pty backend is Linux/macOS only");
+            // POSIX pty backend is Linux/macOS only - skip silently
+            Assert.Ignore();
         }
     }
 

@@ -108,7 +108,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SendInitialOutput();
-        await Task.Delay(100); // Give output pump time to process
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -138,7 +138,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SendInitialOutput();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -160,7 +160,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SendInitialOutput();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -181,7 +181,7 @@ public class GameConsoleShellTests
         var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
         await _shell!.StartAsync(options);
         _shell.SendInitialOutput();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -200,7 +200,7 @@ public class GameConsoleShellTests
         // Act
         await _shell!.StartAsync(options);
         _shell.SendInitialOutput();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should fall back to default "ksa> "
         var output = _outputBuffer.ToString();
@@ -221,7 +221,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SimulateCommandInput("clear\n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - ESC[3J = Clear screen and scrollback
         var output = _outputBuffer.ToString();
@@ -244,7 +244,7 @@ public class GameConsoleShellTests
 
             // Act
             _shell.SimulateCommandInput(cmd + "\n");
-            await Task.Delay(100);
+            await _shell!.FlushOutputAsync();
 
             // Assert
             var output = _outputBuffer.ToString();
@@ -262,7 +262,7 @@ public class GameConsoleShellTests
 
         // Act - Test with leading/trailing whitespace
         _shell.SimulateCommandInput("  clear  \n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -276,12 +276,12 @@ public class GameConsoleShellTests
         var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
         await _shell!.StartAsync(options);
         _shell.SendInitialOutput();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
         _outputBuffer.Clear();
 
         // Act - Send just Enter
         _shell.SimulateCommandInput("\n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should only see the prompt, no execution
         var output = _outputBuffer.ToString();
@@ -297,12 +297,12 @@ public class GameConsoleShellTests
         var options = CustomShellStartOptions.CreateWithDimensions(80, 24);
         await _shell!.StartAsync(options);
         _shell.SendInitialOutput();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
         _outputBuffer.Clear();
 
         // Act - Send whitespace followed by Enter
         _shell.SimulateCommandInput("   \n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -323,7 +323,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SimulateCommandInput("test-command\n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.GetCommandHistory(), Does.Contain("test-command"));
@@ -337,11 +337,11 @@ public class GameConsoleShellTests
         await _shell!.StartAsync(options);
         _shell.SimulateCommandInput("first-command\n");
         _shell.SimulateCommandInput("second-command\n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press Up arrow (ESC[A)
         _shell.SimulateInput("\x1b[A");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Current line should be "second-command"
         Assert.That(_shell.GetCurrentLine(), Is.EqualTo("second-command"));
@@ -355,15 +355,15 @@ public class GameConsoleShellTests
         await _shell!.StartAsync(options);
         _shell.SimulateCommandInput("first-command\n");
         _shell.SimulateCommandInput("second-command\n");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Act - Press Up twice, then Down once
         _shell.SimulateInput("\x1b[A"); // Navigate to second-command
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         _shell.SimulateInput("\x1b[A"); // Navigate to first-command
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         _shell.SimulateInput("\x1b[B"); // Navigate forward to second-command
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.GetCurrentLine(), Is.EqualTo("second-command"));
@@ -378,9 +378,9 @@ public class GameConsoleShellTests
 
         // Act - Execute same command twice
         _shell.SimulateCommandInput("duplicate\n");
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         _shell.SimulateCommandInput("duplicate\n");
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - History should only have one entry
         var history = _shell.GetCommandHistory();
@@ -402,7 +402,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SimulateInput("test");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Characters should be echoed
         var output = _outputBuffer.ToString();
@@ -418,9 +418,9 @@ public class GameConsoleShellTests
 
         // Act - Type "test" then backspace twice
         _shell.SimulateInput("test");
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         _shell.SimulateInput("\x7F\x7F"); // DEL backspace
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Current line should be "te"
         Assert.That(_shell.GetCurrentLine(), Is.EqualTo("te"));
@@ -435,9 +435,9 @@ public class GameConsoleShellTests
 
         // Act - Type "test" then Ctrl+H (0x08) deletes previous word
         _shell.SimulateInput("test");
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         _shell.SimulateInput("\x08\x08"); // Ctrl+H delete word
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.GetCurrentLine(), Is.Empty);
@@ -452,9 +452,9 @@ public class GameConsoleShellTests
 
         // Act
         _shell.SimulateInput("test-cmd");
-        await Task.Delay(50);
+        await _shell!.FlushOutputAsync();
         _shell.SimulateInput("\r"); // Enter
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.LastExecutedCommand, Is.EqualTo("test-cmd"));
@@ -470,7 +470,7 @@ public class GameConsoleShellTests
 
         // Act - Send Ctrl+L
         _shell.SimulateInput("\x0C");
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert - Should send clear sequence (ESC[2J ESC[H)
         var output = _outputBuffer.ToString();
@@ -495,19 +495,22 @@ public class GameConsoleShellTests
         var consoleWindowType = typeof(GameConsoleShell).Assembly.GetType("KSA.ConsoleWindow");
         if (consoleWindowType == null)
         {
-            Assert.Ignore("KSA ConsoleWindow type not available for unit tests.");
+            // KSA ConsoleWindow type not available outside the game runtime - skip silently
+            Assert.Ignore();
         }
 
         var field = consoleWindowType!.GetField(fieldName, BindingFlags.Public | BindingFlags.Static);
         if (field == null)
         {
-            Assert.Ignore($"ConsoleWindow.{fieldName} not available for unit tests.");
+            // ConsoleWindow color field not available in this KSA build - skip silently
+            Assert.Ignore();
         }
 
         var value = field!.GetValue(null);
         if (value == null)
         {
-            Assert.Ignore($"ConsoleWindow.{fieldName} value unavailable for unit tests.");
+            // ConsoleWindow color value unavailable in this KSA build - skip silently
+            Assert.Ignore();
         }
 
         return (uint)value!;
@@ -518,13 +521,15 @@ public class GameConsoleShellTests
         var consoleLineType = typeof(GameConsoleShell).Assembly.GetType("Brutal.ImGuiApi.Abstractions.ConsoleLineType");
         if (consoleLineType == null)
         {
-            Assert.Ignore("ConsoleLineType enum not available for unit tests.");
+            // Brutal ConsoleLineType enum not available outside the game runtime - skip silently
+            Assert.Ignore();
         }
 
         var value = Enum.GetValues(consoleLineType!).GetValue(0);
         if (value == null)
         {
-            Assert.Ignore("ConsoleLineType enum value not available for unit tests.");
+            // ConsoleLineType enum has no values in this Brutal build - skip silently
+            Assert.Ignore();
         }
 
         return value!;
@@ -544,7 +549,7 @@ public class GameConsoleShellTests
 
         // Act
         InvokeOnConsolePrint("boom", errorColor, lineTypeValue);
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.LastOutputType, Is.EqualTo(ShellOutputType.Stderr));
@@ -564,7 +569,7 @@ public class GameConsoleShellTests
 
         // Act
         InvokeOnConsolePrint("ok", infoColor, lineTypeValue);
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         Assert.That(_shell.LastOutputType, Is.EqualTo(ShellOutputType.Stdout));
@@ -580,7 +585,7 @@ public class GameConsoleShellTests
 
         // Act
         _shell.RequestCancellation();
-        await Task.Delay(100);
+        await _shell!.FlushOutputAsync();
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -601,9 +606,9 @@ public class GameConsoleShellTests
         await _shell!.StartAsync(options);
         _outputBuffer.Clear();
 
-        // Act
+        // Act - StopAsync drains the output pump before returning, so the goodbye
+        // message is fully delivered when it completes (no wait needed)
         await _shell.StopAsync();
-        await Task.Delay(100);
 
         // Assert
         var output = _outputBuffer.ToString();
@@ -629,9 +634,9 @@ public class GameConsoleShellTests
             reason = args.Reason;
         };
 
-        // Act
+        // Act - Terminated is raised synchronously inside StopAsync (OnStoppingAsync),
+        // so it has fired by the time StopAsync returns
         await _shell.StopAsync();
-        await Task.Delay(100);
 
         // Assert
         Assert.That(terminatedEventRaised, Is.True);
@@ -653,13 +658,53 @@ public class GameConsoleShellTests
         {
             _testOutputBuffer = outputBuffer;
 
-            // Subscribe to output events to capture output for assertions
+            // Subscribe to output events to capture output for assertions.
+            // Zero-length events are FlushOutputAsync sentinels and carry no shell output;
+            // skipping them keeps LastOutputType reflecting real output only.
             OutputReceived += (sender, args) =>
             {
+                if (args.Data.Length == 0)
+                {
+                    return;
+                }
+
                 var text = Encoding.UTF8.GetString(args.Data.ToArray());
                 _testOutputBuffer.Append(text);
                 LastOutputType = args.OutputType;
             };
+        }
+
+        /// <summary>
+        ///     Deterministically waits until all output queued so far has been raised via
+        ///     OutputReceived (input processing is synchronous; only output delivery is async).
+        ///     Queues an empty sentinel through the same FIFO output channel and waits for it
+        ///     to come out the event side. Must not be called after StopAsync (the channel is
+        ///     completed then — StopAsync already drains the pump before returning).
+        /// </summary>
+        public async Task FlushOutputAsync()
+        {
+            var sentinel = new byte[0];
+            ReadOnlyMemory<byte> sentinelMemory = sentinel;
+            var delivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void Handler(object? sender, ShellOutputEventArgs args)
+            {
+                if (args.Data.Equals(sentinelMemory))
+                {
+                    delivered.TrySetResult();
+                }
+            }
+
+            OutputReceived += Handler;
+            try
+            {
+                QueueOutput(sentinel, ShellOutputType.Stdout);
+                await delivered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                OutputReceived -= Handler;
+            }
         }
 
         public ShellOutputType LastOutputType { get; set; } = ShellOutputType.Stdout;
