@@ -13,26 +13,33 @@
         <ModNamespace>purrTTY.GameMod</ModNamespace>
         <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
         <DistDir>$(SelectedDistModDir)purrTTY\</DistDir>
     </PropertyGroup>
 
     <!-- Copies files for mod deployment -->
     <Target Name="CopyCustomContent" AfterTargets="AfterBuild">
-      
+
+        <!-- Wipe the destination first so a redeploy never leaves stale DLLs from a
+             previous version in the game's mod ALC (deleted projects, renamed deps). -->
+        <RemoveDir Directories="$(DistDir)"/>
         <MakeDir Directories="$(DistDir)"/>
 
         <Copy SourceFiles="$(TargetDir)mod.toml" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetDir)mod.toml')"/>
         <Copy SourceFiles="$(ProjectDepsFilePath)" DestinationFolder="$(DistDir)" Condition="Exists('$(ProjectDepsFilePath)')"/>
-        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DistDir)" Condition="Exists('$(TargetPath)')"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.Logging.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)purrTTY.Display.dll" DestinationFolder="$(DistDir)"/>
-        <!-- libghostty-vt backend + binding -->
-        <Copy SourceFiles="$(TargetDir)purrTTY.Terminal.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)Ghostty.Vt.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)ModMenu.Attributes.dll" DestinationFolder="$(DistDir)"/>
-        <Copy SourceFiles="$(TargetDir)Tomlyn.dll" DestinationFolder="$(DistDir)"/>
+
+        <!-- Managed payload: every purrTTY assembly by glob (a hand-maintained list is how
+             omissions happen) plus the explicit non-purrTTY dependencies we ship. NOT shipped
+             on purpose: 0Harmony.dll + StarMap.API.dll (supplied by the StarMap loader) and
+             the KSA reference assemblies (Private=false, never in the output anyway). -->
+        <ItemGroup>
+            <ModManagedDll Include="$(TargetDir)purrTTY.*.dll"/>
+            <ModManagedDll Include="$(TargetDir)Ghostty.Vt.dll"/>
+            <ModManagedDll Include="$(TargetDir)ModMenu.Attributes.dll"/>
+            <ModManagedDll Include="$(TargetDir)Tomlyn.dll"/>
+            <ModManagedDll Include="$(TargetDir)Microsoft.Extensions.Logging.Abstractions.dll"/>
+        </ItemGroup>
+        <Copy SourceFiles="@(ModManagedDll)" DestinationFolder="$(DistDir)"/>
 
         <!-- Native libghostty-vt: copy whichever platform binaries the build produced,
              so the NativeLibraryResolver finds the library beside the mod DLL. -->
@@ -42,15 +49,10 @@
             <GhosttyNative Include="$(TargetDir)ghostty-vt.dll" Condition="Exists('$(TargetDir)ghostty-vt.dll')" />
         </ItemGroup>
         <Copy SourceFiles="@(GhosttyNative)" DestinationFolder="$(DistDir)" Condition="'@(GhosttyNative)' != ''" />
-        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.GameMod.pdb" DestinationFolder="$(DistDir)"/> -->
-        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Logging.pdb" DestinationFolder="$(DistDir)"/> -->
-        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Core.pdb" DestinationFolder="$(DistDir)"/> -->
-        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.CustomShellContract.pdb" DestinationFolder="$(DistDir)"/> -->
-        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.CustomShells.pdb" DestinationFolder="$(DistDir)"/> -->
-        <!-- <Copy SourceFiles="$(TargetDir)purrTTY.Display.pdb" DestinationFolder="$(DistDir)"/> -->
 
         <!-- licenses -->
         <Copy SourceFiles="$(MSBuildThisFileDirectory)..\LICENSE" DestinationFolder="$(DistDir)"/>
+        <Copy SourceFiles="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.md" DestinationFolder="$(DistDir)"/>
         <ItemGroup>
             <ThirdPartyLicenses Include="$(MSBuildThisFileDirectory)..\third-party-licenses\*" />
         </ItemGroup>

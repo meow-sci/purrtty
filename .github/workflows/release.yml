@@ -1,13 +1,16 @@
 name: Build mod dist
 
-# One Linux job builds the platform-agnostic mod dist (the vendored native
-# libghostty-vt binaries for win-x64 / linux-x64 / osx-arm64 are checked in and
-# bundled into every build), runs the test suite — which exercises the linux-x64
-# native lib on the runner — and publishes a GitHub release:
+# Tests run on all three supported OSes (the vendored native libghostty-vt
+# binaries for win-x64 / linux-x64 / osx-arm64 are checked in, so each runner
+# exercises its own native lib — RawCellLayout.Validate() and the PTY backends
+# get real coverage per platform). One Linux job then builds the
+# platform-agnostic mod dist (every build bundles all three native libs) and
+# publishes a GitHub release:
 #
 #   push to main        → prerelease  "purrTTY tip <UTC timestamp>"  (tag tip-<stamp>)
 #   push to release/<v> → release     "purrTTY <v>"                  (tag v<v>)
-#   push to feature/*   → build + tests only (compile check; no release, no artifacts)
+#   any other ref (feature/fix/chore branches, PRs into main)
+#                       → build + tests only (no release, no version stamp)
 #
 # The KSA reference assemblies are licensed game files and live in the private
 # repo meow-sci/ksa-game-assemblies (expected layout: the DLLs — KSA.dll,
@@ -21,22 +24,84 @@ on:
       - main
       - 'release/**'
       - 'feature/**'
+      - 'fix/**'
+      - 'chore/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
   checks: write    # test-reporter publishes results as a check run
 
-# One in-flight build per ref; a newer push supersedes an older run.
+# One in-flight build per ref; a newer push supersedes an older run — except on
+# release/* refs: cancelling a publish between `gh release delete` and
+# `gh release create` would leave the release missing until the next push.
 concurrency:
   group: dist-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  # Release config so the bits we test are the bits we ship; each OS loads its
+  # own vendored native libghostty-vt (the Unix PTY tests self-skip on Windows).
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       # Directory.Build.props resolves these before any per-OS defaults.
+      KSA_DLL_DIR: ${{ github.workspace }}/.tmp/ksa-game-assemblies/current/dll
+    steps:
+      - name: Checkout purrtty
+        uses: actions/checkout@v6
+
+      - name: Checkout private KSA assemblies
+        uses: actions/checkout@v6
+        with:
+          repository: meow-sci/ksa-game-assemblies
+          path: .tmp/ksa-game-assemblies
+          token: ${{ secrets.KSA_GAME_ASSEMBLIES_PAT }}
+          persist-credentials: false
+          ref: main
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        id: test
+        run: dotnet test purrtty.slnx -c Release --nologo -v quiet --logger trx --results-directory .tmp/test-results
+
+      # GitHub's equivalent of GitLab's JUnit report ingestion: parses the TRX
+      # files and publishes a check run on the commit with the per-test listing
+      # and failure annotations. Runs on test failure too (that's when the
+      # report matters most); skipped only if the Test step never ran.
+      # Pinned to the v3 commit SHA (the action holds checks:write).
+      - name: Report test results
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        if: ${{ !cancelled() && steps.test.outcome != 'skipped' }}
+        with:
+          name: test results (${{ matrix.os }})
+          path: .tmp/test-results/*.trx
+          reporter: dotnet-trx
+
+      - name: Upload test results artifact
+        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.test.outcome != 'skipped' }}
+        with:
+          name: test-results-${{ matrix.os }}
+          path: .tmp/test-results
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
       KSA_DLL_DIR: ${{ github.workspace }}/.tmp/ksa-game-assemblies/current/dll
       PURRTTY_DIST_DIR: ${{ github.workspace }}/.tmp/dist
     steps:
@@ -57,12 +122,23 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Branch-derived values are validated here and consumed by later steps
+      # via env:, never interpolated raw into run scripts (a ref name can
+      # contain shell/sed metacharacters; this job has contents: write).
       - name: Compute release metadata
         id: meta
         run: |
           BASE="$(sed -nE 's/^version = "(.*)"/\1/p' purrTTY.GameMod/mod.toml)"
+          if [[ ! "$BASE" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "::error::could not parse a usable base version from purrTTY.GameMod/mod.toml (got: '$BASE')"
+            exit 1
+          fi
           if [[ "$GITHUB_REF_NAME" == release/* ]]; then
             NAME="${GITHUB_REF_NAME#release/}"
+            if [[ ! "$NAME" =~ ^[0-9A-Za-z._-]+$ ]]; then
+              echo "::error::release branch suffix '$NAME' must match ^[0-9A-Za-z._-]+\$ (no slashes or shell metacharacters)"
+              exit 1
+            fi
             echo "publish=true"             >> "$GITHUB_OUTPUT"
             echo "version=$NAME"            >> "$GITHUB_OUTPUT"
             echo "modversion=$NAME"         >> "$GITHUB_OUTPUT"
@@ -78,40 +154,20 @@ jobs:
             echo "title=purrTTY tip $STAMP (UTC)" >> "$GITHUB_OUTPUT"
             echo "prerelease=true"          >> "$GITHUB_OUTPUT"
           else
-            # feature/* (and any other ref): compile + test only.
+            # feature/fix/chore branches, PRs, and any other ref: compile only.
             echo "publish=false"            >> "$GITHUB_OUTPUT"
           fi
 
       # The version users see in-game / in mod.toml matches the release.
+      # MODVERSION is validated above to [0-9A-Za-z._-]+, so it cannot contain
+      # the sed delimiter or replacement metacharacters.
       - name: Stamp mod version
         if: steps.meta.outputs.publish == 'true'
+        env:
+          MODVERSION: ${{ steps.meta.outputs.modversion }}
         run: |
-          sed -i -E 's/^version = ".*"/version = "${{ steps.meta.outputs.modversion }}"/' purrTTY.GameMod/mod.toml
+          sed -i -E "s/^version = \".*\"/version = \"$MODVERSION\"/" purrTTY.GameMod/mod.toml
           grep '^version' purrTTY.GameMod/mod.toml
-
-      # All three test projects; loads the vendored linux-x64 libghostty-vt.so.
-      - name: Test
-        id: test
-        run: dotnet test purrtty.slnx --nologo -v quiet --logger trx --results-directory .tmp/test-results
-
-      # GitHub's equivalent of GitLab's JUnit report ingestion: parses the TRX
-      # files and publishes a check run on the commit with the per-test listing
-      # and failure annotations. Runs on test failure too (that's when the
-      # report matters most); skipped only if the Test step never ran.
-      - name: Report test results
-        uses: dorny/test-reporter@v3
-        if: ${{ !cancelled() && steps.test.outcome != 'skipped' }}
-        with:
-          name: test results
-          path: .tmp/test-results/*.trx
-          reporter: dotnet-trx
-
-      - name: Upload test results artifact
-        uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() && steps.test.outcome != 'skipped' }}
-        with:
-          name: test-results
-          path: .tmp/test-results
 
       # The GameMod build's CopyCustomContent target assembles the full mod
       # folder (DLLs, all native libs, themes, fonts, licenses) at
@@ -121,10 +177,12 @@ jobs:
 
       - name: Package
         if: steps.meta.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           cd "$PURRTTY_DIST_DIR"
-          zip -r "purrTTY-${{ steps.meta.outputs.version }}.zip" purrTTY
-          unzip -l "purrTTY-${{ steps.meta.outputs.version }}.zip"
+          zip -r "purrTTY-$VERSION.zip" purrTTY
+          unzip -l "purrTTY-$VERSION.zip"
 
       - name: Publish release
         if: steps.meta.outputs.publish == 'true'
@@ -133,8 +191,9 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
           TITLE: ${{ steps.meta.outputs.title }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
-          ZIP: ${{ env.PURRTTY_DIST_DIR }}/purrTTY-${{ steps.meta.outputs.version }}.zip
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
+          ZIP="$PURRTTY_DIST_DIR/purrTTY-$VERSION.zip"
           # Re-pushing a release/<v> branch rebuilds that release: drop the old
           # release + tag so the tag moves to the new commit. (Tip tags are
           # timestamped and never collide.)
@@ -147,6 +206,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$TITLE" \
+            --notes "**Installing over an existing install:** delete the old \`purrTTY/\` folder from your mods directory before unzipping — files removed from the mod are not removed by unzipping over it." \
             --generate-notes \
             "${EXTRA[@]}"
 

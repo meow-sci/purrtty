@@ -55,4 +55,12 @@
         <!-- <SelectedDistModDir Condition="'$(SelectedDistModDir)' == ''">$(KSAProgramFilesModDir)</SelectedDistModDir> -->
         <SelectedDistModDir Condition="'$(SelectedDistModDir)' == ''">$(KSAUserModDir)</SelectedDistModDir>
     </PropertyGroup>
+
+    <!-- Projects that compile against the KSA reference assemblies set
+         RequiresKSAAssemblies=true so a missing/misresolved KSAFolder produces one
+         actionable error here instead of a CS0246 avalanche from the compiler. -->
+    <Target Name="ValidateKSAAssemblies" BeforeTargets="ResolveAssemblyReferences"
+            Condition="'$(RequiresKSAAssemblies)' == 'true' AND !Exists('$(KSAFolder)KSA.dll')">
+        <Error Text="KSA reference assemblies not found: '$(KSAFolder)KSA.dll' does not exist. Set the KSA_DLL_DIR environment variable (or pass -p:KSA_DLL_DIR=...), or clone meow-sci/ksa-game-assemblies next to this repo (DLLs under current/dll/). Resolution order is documented in Directory.Build.props."/>
+    </Target>
 </Project>

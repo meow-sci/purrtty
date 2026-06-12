@@ -10,6 +10,7 @@
     <PackageId>purrTTY.CustomShells</PackageId>
     <OutputType>Library</OutputType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,10 +36,6 @@
       <HintPath>$(KSAFolder)/KSA.dll</HintPath>
       <Private>false</Private>
     </Reference>
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
   </ItemGroup>
 
   <ItemGroup>

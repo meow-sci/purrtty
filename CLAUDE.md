@@ -76,18 +76,30 @@ per-OS KSA mods dir.
 
 ### CI / releases (`.github/workflows/release.yml`)
 
-One ubuntu job builds everything: checks out `meow-sci/ksa-game-assemblies` (private repo
-holding the KSA DLLs under `current/dll/`; access via the `KSA_GAME_ASSEMBLIES_PAT` secret — a
-read-only fine-grained PAT, same pattern as flexo), stamps the `mod.toml` version, runs
-`dotnet test purrtty.slnx` (which loads the vendored linux-x64 native lib on the runner) with TRX
-logging — results are published as a check run on the commit (`dorny/test-reporter`, with failure
-annotations) and uploaded as a `test-results` artifact — builds the Release dist via
-`PURRTTY_DIST_DIR`, zips `purrTTY/`, and publishes a GitHub release:
+Two jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,
+windows-latest, and macos-14 — each runner loads **its own** vendored native libghostty-vt
+(linux-x64 / win-x64 / osx-arm64), so `RawCellLayout.Validate()` and the per-OS PTY backends get
+real coverage on every platform after a pin bump. Both jobs check out
+`meow-sci/ksa-game-assemblies` (private repo holding the KSA DLLs under `current/dll/`; access
+via the `KSA_GAME_ASSEMBLIES_PAT` secret — a read-only fine-grained PAT, same pattern as flexo).
+TRX results are published as per-OS check runs (`dorny/test-reporter`, pinned to the v3 commit
+SHA because it holds `checks: write`) and uploaded as `test-results-<os>` artifacts.
+
+A **build job** (ubuntu, `needs: test`) stamps the `mod.toml` version, builds the Release dist
+via `PURRTTY_DIST_DIR`, zips `purrTTY/`, and publishes a GitHub release. Branch-derived values
+(release name, base version) are validated against `^[0-9A-Za-z._-]+$` and reach run scripts via
+`env:`, never raw `${{ }}` interpolation (injection hardening — the job has `contents: write`):
 - push to `main` → prerelease tagged `tip-<UTC stamp>`, asset `purrTTY-tip-<stamp>.zip`;
   mod.toml version becomes `<base>-tip.<stamp>`; older tip releases are pruned (keep-count set in the workflow)
 - push to `release/<v>` → release tagged `v<v>`, asset `purrTTY-<v>.zip`, mod.toml version `<v>`;
-  re-pushing the branch deletes and recreates the release + tag
-- push to `feature/*` → build + tests only (compile check; no version stamp, no release, no artifacts)
+  re-pushing the branch deletes and recreates the release + tag (`cancel-in-progress` is disabled
+  on `release/*` refs so a superseding push cannot cancel between release delete and re-create)
+- push to `feature/*`, `fix/*`, `chore/*`, or a PR into `main` → build + tests only (no version
+  stamp, no release)
+
+A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild error
+(`ValidateKSAAssemblies` in `Directory.Build.props`; projects with KSA refs set
+`RequiresKSAAssemblies=true`) instead of a CS0246 avalanche.
 
 ### Testing
 
@@ -480,6 +492,12 @@ Custom shells:
 
 ### Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.
+   `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed
+   projects must never linger in the game's mod ALC) and copies the managed payload by glob
+   (`purrTTY.*.dll`) plus the explicit deps (`Ghostty.Vt`, `Tomlyn`, `ModMenu.Attributes`,
+   `Microsoft.Extensions.Logging.Abstractions`). `0Harmony.dll`/`StarMap.API.dll` are deliberately
+   **not** shipped — the StarMap loader supplies them. `THIRD-PARTY-NOTICES.md` +
+   `third-party-licenses/` ship in the mod folder; keep both in sync with what actually ships.
 2. Launch KSA; toggle the terminal with the configured hotkey (default F12).
 
 ## Code Standards (from Directory.Build.props)

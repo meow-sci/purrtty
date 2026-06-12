@@ -4,12 +4,13 @@
         <OutputType>Library</OutputType>
         <AssemblyName>purrTTY.Logging</AssemblyName>
         <RootNamespace>purrTTY.Logging</RootNamespace>
-        <Description>Headless terminal emulation core library</Description>
+        <Description>Logging abstractions and adapters for purrTTY</Description>
         <PackageId>purrTTY.Logging</PackageId>
         <Product>purrTTY Terminal Emulator</Product>
         <Company>purrTTY Project</Company>
         <Copyright>Copyright © purrTTY Project</Copyright>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
 
     </PropertyGroup>
 

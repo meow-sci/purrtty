@@ -23,7 +23,7 @@ Test suite was run during the review: **287 tests, 0 failures, 2 skipped.**
 | 6 | ~~Drag-selection anchor is an untracked native `GridRef` — dangles if scrollback prunes mid-drag~~ **FIXED** (A4) **[2x]** | MAJOR | medium |
 | 7 | ~~Linux/macOS first run: default shell is PowerShell → dead empty window~~ **FIXED** (C1) | MAJOR | tiny |
 | 8 | ~~All-or-nothing Harmony `PatchAll`: one drifted target kills the whole mod~~ **FIXED** (D2) | MAJOR | small |
-| 9 | Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`; deploy never cleans stale DLLs | MAJOR | tiny |
+| 9 | ~~Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`; deploy never cleans stale DLLs~~ **FIXED** (F1/F2) | MAJOR | tiny |
 | 10 | ~~ConPTY: handle-close races, exit-path output loss, blocking writes on render thread, unquoted command line~~ **FIXED** (B3–B7) | MAJOR | medium |
 
 ---
@@ -227,8 +227,7 @@ Seam integrity (no `Ghostty.Vt` types in Display — grep-verified). Chrome hidi
 > *releases* even while gated (held-key state no longer sticks); `Patch03_HotkeyGuard` null-guards
 > the `Program.ConsoleWindow` static; the toggle hotkey uses `IsKeyPressed(repeat:false)` and is
 > suppressed while a text field has focus; the inherent game-console `\r\n`/capture-extent limits
-> are documented on `GameConsoleShell.OnConsolePrint`. See CLAUDE.md gotcha 21. Sections E–F remain
-> unapplied.
+> are documented on `GameConsoleShell.OnConsolePrint`. See CLAUDE.md gotcha 21.
 
 ### D1. CRITICAL — `IsAnyTerminalActive` gets stuck `true` when the terminal is hidden while focused → game keyboard black hole
 - `GhosttyTerminalController.cs:293-338` (flag written only inside `Render()`), `TerminalMod.cs:436-440` (`Render()` called only while visible), `Patcher.cs:113-121` (consumer).
@@ -279,8 +278,8 @@ All verified against the pinned upstream commit (`7092b394` — the local ghostt
 > fails; `KeyEvent`/`MouseEvent` null their handle after free (double-Dispose no longer
 > double-frees); the dead-and-wrong `Enums/TerminalOption.cs` is deleted; `Terminal.Resize`
 > surfaces its `GhosttyResult` via `ThrowIfFailure` instead of swallowing it; and
-> `ghostty_mouse_event_set_mods` is declared `ushort` to match the native `uint16_t`. Section F
-> remains unapplied. Full suite after the changes: **295 passed, 2 skipped, 0 failed** (incl.
+> `ghostty_mouse_event_set_mods` is declared `ushort` to match the native `uint16_t`.
+> Full suite after the changes: **295 passed, 2 skipped, 0 failed** (incl.
 > `RawCellLayout_MatchesNativeAccessors` exercising the strengthened E4 validation against the
 > real native lib).
 
@@ -317,6 +316,30 @@ RawCell bit decode is exactly right vs `page.zig`'s `packed struct(u64)` (conten
 ---
 
 ## F. Build / CI / tests / docs
+
+> **STATUS 2026-06-11: F1–F6 all FIXED** (branch `feature/fable-review`); **F7 (test coverage
+> gaps) deliberately left open.** F1+F2: `CopyCustomContent` now wipes the destination `purrTTY/`
+> folder before copying and copies the managed payload by glob (`purrTTY.*.dll` + explicit deps
+> incl. `Microsoft.Extensions.Logging.Abstractions.dll`); release notes tell players to delete
+> the old folder before unzipping. F3: branch-derived values are validated against
+> `^[0-9A-Za-z._-]+$` (with a non-empty BASE guard) and passed to run scripts via `env:` — no raw
+> `${{ }}` interpolation remains in any run script. F4: tests now run as a matrix on
+> ubuntu-latest / windows-latest / macos-14 in **Release** config (each runner loads its own
+> vendored native lib — win-x64 and osx-arm64 are no longer ship-blind), and the publish job
+> `needs` the matrix. F5: `THIRD-PARTY-NOTICES.md` now indexes everything that ships (binding,
+> native engine + statically-linked highway/simdutf, Tomlyn, M.E.L.A, Harmony note, 7 font
+> families, iTerm2-Color-Schemes) and `third-party-licenses/` gained `LICENSE.highway`,
+> `LICENSE.highway-BSD3`, `LICENSE.simdutf`, `LICENSE.iterm2-color-schemes`; the notices file
+> ships in the mod folder. F6: the unused `Lib.Harmony` ref was **removed** from CustomShells
+> (GameMod's 2.4.2 is now the only reference — usage was comments only); `dorny/test-reporter`
+> pinned to the v3 commit SHA; CI triggers added for `fix/**`, `chore/**`, and `pull_request`
+> into main; `cancel-in-progress` disabled on `release/*` refs; `timeout-minutes: 30` on both
+> jobs; KSA DLL misresolution now fails with one actionable error (`ValidateKSAAssemblies` target
+> + `RequiresKSAAssemblies` in the four KSA-referencing csprojs); stale `InternalsVisibleTo`
+> (Display.Tests) and the copy-pasted Logging csproj description fixed; `REPO_INDEX.md` deleted;
+> `LIBGHOSTTY_ANALYSIS.md` status updated to implemented; `README.md` rewritten for the
+> libghostty-vt reality; local bin/obj husks of deleted projects and the stale local `dist/`
+> removed. Full suite after the changes: 295 passed, 2 skipped, 0 failed.
 
 ### F1. MAJOR — Deployed mod omits `Microsoft.Extensions.Logging.Abstractions.dll`
 - `purrTTY.Logging.csproj:17` references M.E.L.A 10.0.0; `ILogger` is used in shipped hot code. The hard-coded copy list in `purrTTY.GameMod.csproj:24-35` doesn't copy it — confirmed absent from the real deployed mod folder while `deps.json` declares it. Works only because the game/host happens to supply a compatible copy; a KSA update that drops/bumps it breaks the mod with `FileNotFoundException`. **Fix:** add it to `CopyCustomContent` (and prefer a glob over the hand-maintained list — this omission is exactly what the hand list produces).

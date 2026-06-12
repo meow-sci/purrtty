@@ -19,7 +19,7 @@ later we'll work on multi-os support patterns for that but for now just the defa
 
 # purrtty → libghostty-vt: Migration Analysis & Plan
 
-> Status: proposal / implementation-ready spec · Date: 2026-06-07
+> Status: **IMPLEMENTED — migration complete** (see CLAUDE.md for the authoritative current architecture) · Plan date: 2026-06-07
 > Direction: **no compromises.** Delete purrtty's custom VT emulator; **vendor `libghostty-vt-dotnet` into our solution** as our own csproj(s); fix/extend every gap at the source; and refactor purrtty into a **clean 3-layer separation** — headless libghostty backend ⟷ renderer-neutral seam ⟷ ImGui frontend — so a Vulkan or hybrid frontend can be dropped in later with no backend changes.
 > Companion docs (frontend options): [`LIBGHOSTTY_VULKAN_FEASIBILITY.md`](./LIBGHOSTTY_VULKAN_FEASIBILITY.md) · [`LIBGHOSTTY_VULKAN_PLAN.md`](./LIBGHOSTTY_VULKAN_PLAN.md)
 
