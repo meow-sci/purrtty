@@ -27,6 +27,41 @@ public sealed class TerminalWindowSettings
     public float BackgroundOpacity { get; set; } = 1f;
     public float ForegroundOpacity { get; set; } = 1f;
     public float CellBackgroundOpacity { get; set; } = 1f;
+
+    /// <summary>Default cursor shape (Block/Bar/Underline); apps may still override via DECSCUSR.</summary>
+    public CursorShape CursorStyle { get; set; } = CursorShape.Block;
+
+    /// <summary>Whether the default cursor blinks (animated by the controller's shared phase).</summary>
+    public bool CursorBlink { get; set; } = true;
+
+    /// <summary>Draw a border around the window while it holds ImGui focus.</summary>
+    public bool BorderOnFocus { get; set; }
+
+    /// <summary>Draw a border around the window while the mouse is over it.</summary>
+    public bool BorderOnHover { get; set; }
+
+    /// <summary>Opacity of the focus/hover border (0..1).</summary>
+    public float BorderOpacity { get; set; } = 0.5f;
+
+    /// <summary>
+    /// Lock mode: while the window is not focused, mouse input passes through
+    /// the terminal to the game. Refocus via the hot zone, menu, or hotkey.
+    /// </summary>
+    public bool LockMode { get; set; }
+
+    /// <summary>Show the click-to-focus hot zone while lock mode has the window click-through.</summary>
+    public bool HotZoneEnabled { get; set; } = true;
+
+    public HotZonePlacement HotZonePlacement { get; set; } = HotZonePlacement.TopRight;
+    public float HotZoneWidth { get; set; } = 28f;
+    public float HotZoneHeight { get; set; } = 28f;
+    public RgbaColor HotZoneColor { get; set; } = new(0x4E, 0x9A, 0xE9);
+
+    /// <summary>Hot zone fill opacity while idle (0 = invisible until hovered).</summary>
+    public float HotZoneOpacity { get; set; } = 0.25f;
+
+    /// <summary>Hot zone fill opacity while hovered.</summary>
+    public float HotZoneHoverOpacity { get; set; } = 0.6f;
 }
 
 /// <summary>
@@ -98,10 +133,18 @@ public sealed class TerminalWindow : IDisposable
     /// <summary>Pixels around the window rect that still count as "hovering" (covers resize grips).</summary>
     private const float HoverMargin = 8f;
 
+    /// <summary>Lock-mode focus hot zone size limits (pixels).</summary>
+    public const float MinHotZoneSize = 8f;
+    public const float MaxHotZoneSize = 512f;
+
+    /// <summary>Thickness of the focus/hover border overlay.</summary>
+    private const float BorderThickness = 2f;
+
     /// <summary>ImGui popup id for the grid's right-click copy/paste context menu.</summary>
     private const string GridContextMenuId = "##grid_context";
 
     private readonly string _imguiName;
+    private readonly string _hotZoneImguiName;
 
     private TerminalTheme _engineTheme;
     private RgbaColor _selectionColor;
@@ -191,6 +234,7 @@ public sealed class TerminalWindow : IDisposable
         Sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _imguiName = $"purrTTY##purrtty_window_{id}";
+        _hotZoneImguiName = $"##purrtty_hotzone_{id}";
 
         if (initialPosition is { } pos && initialSize is { } size)
         {
@@ -276,7 +320,73 @@ public sealed class TerminalWindow : IDisposable
             Settings.CellBackgroundOpacity = Math.Clamp(cell, 0f, 1f);
         }
 
+        if (theme.CursorStyle is { } cursorStyle)
+        {
+            Settings.CursorStyle = cursorStyle;
+        }
+
+        if (theme.CursorBlink is { } cursorBlink)
+        {
+            Settings.CursorBlink = cursorBlink;
+        }
+
+        if (theme.BorderOnFocus is { } borderOnFocus)
+        {
+            Settings.BorderOnFocus = borderOnFocus;
+        }
+
+        if (theme.BorderOnHover is { } borderOnHover)
+        {
+            Settings.BorderOnHover = borderOnHover;
+        }
+
+        if (theme.BorderOpacity is { } borderOpacity)
+        {
+            Settings.BorderOpacity = Math.Clamp(borderOpacity, 0f, 1f);
+        }
+
+        if (theme.LockMode is { } lockMode)
+        {
+            Settings.LockMode = lockMode;
+        }
+
+        if (theme.HotZoneEnabled is { } hotZoneEnabled)
+        {
+            Settings.HotZoneEnabled = hotZoneEnabled;
+        }
+
+        if (theme.HotZonePlacement is { } hotZonePlacement)
+        {
+            Settings.HotZonePlacement = hotZonePlacement;
+        }
+
+        if (theme.HotZoneWidth is { } hotZoneWidth)
+        {
+            Settings.HotZoneWidth = Math.Clamp(hotZoneWidth, MinHotZoneSize, MaxHotZoneSize);
+        }
+
+        if (theme.HotZoneHeight is { } hotZoneHeight)
+        {
+            Settings.HotZoneHeight = Math.Clamp(hotZoneHeight, MinHotZoneSize, MaxHotZoneSize);
+        }
+
+        if (theme.HotZoneColor is { } hotZoneColor)
+        {
+            Settings.HotZoneColor = hotZoneColor;
+        }
+
+        if (theme.HotZoneOpacity is { } hotZoneOpacity)
+        {
+            Settings.HotZoneOpacity = Math.Clamp(hotZoneOpacity, 0f, 1f);
+        }
+
+        if (theme.HotZoneHoverOpacity is { } hotZoneHoverOpacity)
+        {
+            Settings.HotZoneHoverOpacity = Math.Clamp(hotZoneHoverOpacity, 0f, 1f);
+        }
+
         PushThemeToSessions();
+        ApplyCursorStyleToSessions();
     }
 
     /// <summary>Snapshots the window's current settings as a named theme definition.</summary>
@@ -290,7 +400,39 @@ public sealed class TerminalWindow : IDisposable
         BackgroundOpacity = Settings.BackgroundOpacity,
         ForegroundOpacity = Settings.ForegroundOpacity,
         CellBackgroundOpacity = Settings.CellBackgroundOpacity,
+        CursorStyle = Settings.CursorStyle,
+        CursorBlink = Settings.CursorBlink,
+        BorderOnFocus = Settings.BorderOnFocus,
+        BorderOnHover = Settings.BorderOnHover,
+        BorderOpacity = Settings.BorderOpacity,
+        LockMode = Settings.LockMode,
+        HotZoneEnabled = Settings.HotZoneEnabled,
+        HotZonePlacement = Settings.HotZonePlacement,
+        HotZoneWidth = Settings.HotZoneWidth,
+        HotZoneHeight = Settings.HotZoneHeight,
+        HotZoneColor = Settings.HotZoneColor,
+        HotZoneOpacity = Settings.HotZoneOpacity,
+        HotZoneHoverOpacity = Settings.HotZoneHoverOpacity,
     };
+
+    /// <summary>
+    /// Applies a cursor style/blink change to this window and pushes it to every
+    /// session as the engine default (apps keep their DECSCUSR overrides).
+    /// </summary>
+    public void SetCursorStyle(CursorShape style, bool blink)
+    {
+        Settings.CursorStyle = style;
+        Settings.CursorBlink = blink;
+        ApplyCursorStyleToSessions();
+    }
+
+    private void ApplyCursorStyleToSessions()
+    {
+        foreach (var session in Sessions.Sessions)
+        {
+            session.Surface.SetCursorStyle(Settings.CursorStyle, Settings.CursorBlink);
+        }
+    }
 
     private void PushThemeToSessions()
     {
@@ -305,6 +447,7 @@ public sealed class TerminalWindow : IDisposable
     private void WireSession(TerminalSession session)
     {
         session.Surface.SetTheme(_engineTheme);
+        session.Surface.SetCursorStyle(Settings.CursorStyle, Settings.CursorBlink);
         // OSC 52: an app asked to set the system clipboard. (A clipboard *query*
         // — Text == null — would need an OSC 52 reply written back to the PTY;
         // that round-trip is deferred.)
@@ -331,7 +474,18 @@ public sealed class TerminalWindow : IDisposable
 
         float fontSize = Settings.FontSize;
         var fonts = ResolveFontsCached(fontSize);
-        bool showChrome = !hideChromeWhenNotHovered || _wasHoveredLastFrame;
+
+        // Lock mode: while unfocused the window takes no mouse input at all, so
+        // clicks (and hover) fall through to whatever is beneath — game world or
+        // game UI. A pending focus request (hot zone click, menu action, toggle
+        // hotkey) restores input on the same frame the focus is applied, so
+        // there is never a frame where a freshly focused window ignores input.
+        bool clickThrough = Settings.LockMode && !_hasFocus && !_wantFocus;
+
+        // While click-through, hovering must not reveal chrome the mouse cannot
+        // interact with — the hot zone (and optional hover border) are the only
+        // affordances of a locked window.
+        bool showChrome = !hideChromeWhenNotHovered || (_wasHoveredLastFrame && !clickThrough);
 
         var bg = Settings.Colors.Background;
         var windowBg = showChrome
@@ -384,6 +538,13 @@ public sealed class TerminalWindow : IDisposable
 
         var flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
                     | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.MenuBar;
+        if (clickThrough)
+        {
+            // NoMouseInputs removes the window from ImGui's hover resolution
+            // entirely: no widget interaction, no drag-move, no resize — and no
+            // WantCaptureMouse, so the click reaches the game.
+            flags |= ImGuiWindowFlags.NoMouseInputs;
+        }
 
         ImGui.Begin(_imguiName, flags);
         ImGui.PopStyleVar(2);
@@ -444,12 +605,16 @@ public sealed class TerminalWindow : IDisposable
             long buildStart = Stopwatch.GetTimestamp();
             var frame = session.Surface.BuildFrame();
             long submitStart = Stopwatch.GetTimestamp();
-            bool cursorOn = !frame.Cursor.Blinking || cursorBlinkOn;
+
+            // An unfocused window draws a steady hollow cursor (classic terminal
+            // behavior; the renderer forces the hollow shape) — it also signals
+            // that input currently goes elsewhere, which matters in lock mode.
+            bool cursorOn = !_hasFocus || !frame.Cursor.Blinking || cursorBlinkOn;
 
             var renderStats = FrameGridRenderer.Render(
                 frame, ImGui.GetWindowDrawList(), canvasPos,
                 _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn,
-                Settings.ForegroundOpacity, Settings.CellBackgroundOpacity);
+                Settings.ForegroundOpacity, Settings.CellBackgroundOpacity, _hasFocus);
 
             if (ShowPerfHud)
             {
@@ -522,8 +687,98 @@ public sealed class TerminalWindow : IDisposable
             mouse.Y >= windowPos.Y - HoverMargin && mouse.Y <= windowPos.Y + windowSize.Y + HoverMargin;
         _wasHoveredLastFrame = mouseInBounds || _selecting;
 
+        // Focus/hover border. Drawn on the foreground list as a pure overlay:
+        // it never participates in layout, so chrome hiding (which requires a
+        // stable grid size) is unaffected. Hover uses the same rect test as
+        // chrome visibility, so it also works while click-through — a locked
+        // window lights up under the mouse without capturing it.
+        if (Settings.BorderOpacity > 0f
+            && ((Settings.BorderOnFocus && _hasFocus) || (Settings.BorderOnHover && mouseInBounds)))
+        {
+            var border = Settings.Colors.Foreground.WithAlpha((byte)Math.Clamp(Settings.BorderOpacity * 255f, 0f, 255f));
+            ImGui.GetForegroundDrawList().AddRect(
+                windowPos, windowPos + windowSize, FrameGridRenderer.ToU32(border), thickness: BorderThickness);
+        }
+
         ImGui.End();
         ImGui.PopStyleColor(colorPushes);
+
+        // The hot zone is its own tiny window submitted after the terminal: with
+        // the terminal click-through it is the one mouse-interactive spot that
+        // refocuses the window (and absorbs that click so the game never sees it).
+        if (clickThrough && Settings.HotZoneEnabled && HasObservedGeometry)
+        {
+            RenderHotZone(windowPos, windowSize);
+        }
+    }
+
+    private void RenderHotZone(float2 windowPos, float2 windowSize)
+    {
+        float w = Math.Clamp(Settings.HotZoneWidth, MinHotZoneSize, Math.Max(MinHotZoneSize, windowSize.X));
+        float h = Math.Clamp(Settings.HotZoneHeight, MinHotZoneSize, Math.Max(MinHotZoneSize, windowSize.Y));
+        var size = new float2(w, h);
+        var pos = HotZonePosition(windowPos, windowSize, w, h);
+
+        ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        // WindowMinSize would otherwise inflate a small zone to 32x32, leaving
+        // dead window area that eats game clicks the user expects to pass through.
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, new float2(1f, 1f));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0f, 0f));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.Begin(_hotZoneImguiName,
+            ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings
+            | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav
+            | ImGuiWindowFlags.NoScrollWithMouse);
+        ImGui.PopStyleVar(3);
+
+        ImGui.SetCursorScreenPos(pos);
+        ImGui.InvisibleButton("##hotzone", size);
+        bool hovered = ImGui.IsItemHovered();
+        if (ImGui.IsItemActivated())
+        {
+            // Focus on press (not click-release) so the terminal feels instant;
+            // the next frame drops click-through and input works normally.
+            RequestFocus();
+        }
+
+        if (hovered)
+        {
+            ImGui.SetTooltip("Focus terminal"u8);
+        }
+
+        float opacity = hovered ? Settings.HotZoneHoverOpacity : Settings.HotZoneOpacity;
+        if (opacity > 0f)
+        {
+            // Foreground list: the fill must stay visible above the terminal
+            // window's background regardless of ImGui window z-order.
+            var fill = Settings.HotZoneColor.WithAlpha((byte)Math.Clamp(opacity * 255f, 0f, 255f));
+            ImGui.GetForegroundDrawList().AddRectFilled(pos, pos + size, FrameGridRenderer.ToU32(fill), 3f);
+        }
+
+        ImGui.End();
+    }
+
+    private float2 HotZonePosition(float2 windowPos, float2 windowSize, float w, float h)
+    {
+        float left = windowPos.X;
+        float centerX = windowPos.X + (windowSize.X - w) * 0.5f;
+        float right = windowPos.X + windowSize.X - w;
+        float top = windowPos.Y;
+        float middleY = windowPos.Y + (windowSize.Y - h) * 0.5f;
+        float bottom = windowPos.Y + windowSize.Y - h;
+
+        return Settings.HotZonePlacement switch
+        {
+            HotZonePlacement.TopLeft => new float2(left, top),
+            HotZonePlacement.TopCenter => new float2(centerX, top),
+            HotZonePlacement.MiddleLeft => new float2(left, middleY),
+            HotZonePlacement.MiddleRight => new float2(right, middleY),
+            HotZonePlacement.BottomLeft => new float2(left, bottom),
+            HotZonePlacement.BottomCenter => new float2(centerX, bottom),
+            HotZonePlacement.BottomRight => new float2(right, bottom),
+            _ => new float2(right, top),
+        };
     }
 
     private void RenderTitleStrip(bool showChrome)

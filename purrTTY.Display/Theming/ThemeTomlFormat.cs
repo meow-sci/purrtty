@@ -25,7 +25,15 @@ namespace purrTTY.Display.Theming;
 /// [meta]   name = "My Theme!"
 /// [font]   family = "Hack"  size = 32.0
 /// [window] background_opacity / foreground_opacity / cell_background_opacity
+/// [cursor] style = "block"|"bar"|"underline"  blink = true
+/// [focus]  border_on_focus / border_on_hover / border_opacity
+/// [lock]   enabled / hot_zone / hot_zone_placement ("top-left".."bottom-right") /
+///          hot_zone_width / hot_zone_height / hot_zone_color / hot_zone_opacity /
+///          hot_zone_hover_opacity
 /// </code>
+///
+/// All non-color sections are optional; a missing value means "keep the
+/// window's current setting" when the theme is applied.
 /// </summary>
 internal static class ThemeTomlFormat
 {
@@ -72,6 +80,9 @@ internal static class ThemeTomlFormat
 
             var font = GetTable(root, "font");
             var window = GetTable(root, "window");
+            var cursorTable = GetTable(root, "cursor");
+            var focus = GetTable(root, "focus");
+            var lockTable = GetTable(root, "lock");
 
             // User-saved themes carry their display name in [meta]: the filename
             // is sanitized on save, so deriving the name from it would not
@@ -90,6 +101,20 @@ internal static class ThemeTomlFormat
                 BackgroundOpacity = window is null ? null : GetFloat(window, "background_opacity"),
                 ForegroundOpacity = window is null ? null : GetFloat(window, "foreground_opacity"),
                 CellBackgroundOpacity = window is null ? null : GetFloat(window, "cell_background_opacity"),
+                CursorStyle = cursorTable is null ? null : ParseCursorStyle(GetString(cursorTable, "style")),
+                CursorBlink = cursorTable is null ? null : GetBool(cursorTable, "blink"),
+                BorderOnFocus = focus is null ? null : GetBool(focus, "border_on_focus"),
+                BorderOnHover = focus is null ? null : GetBool(focus, "border_on_hover"),
+                BorderOpacity = focus is null ? null : GetFloat(focus, "border_opacity"),
+                LockMode = lockTable is null ? null : GetBool(lockTable, "enabled"),
+                HotZoneEnabled = lockTable is null ? null : GetBool(lockTable, "hot_zone"),
+                HotZonePlacement = lockTable is null ? null : ParsePlacement(GetString(lockTable, "hot_zone_placement")),
+                HotZoneWidth = lockTable is null ? null : GetFloat(lockTable, "hot_zone_width"),
+                HotZoneHeight = lockTable is null ? null : GetFloat(lockTable, "hot_zone_height"),
+                HotZoneColor = lockTable is null ? null
+                    : TryParseHexColor(GetString(lockTable, "hot_zone_color"), out var zoneColor) ? zoneColor : (RgbaColor?)null,
+                HotZoneOpacity = lockTable is null ? null : GetFloat(lockTable, "hot_zone_opacity"),
+                HotZoneHoverOpacity = lockTable is null ? null : GetFloat(lockTable, "hot_zone_hover_opacity"),
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TomlException
@@ -165,6 +190,91 @@ internal static class ThemeTomlFormat
             root["window"] = window;
         }
 
+        if (theme.CursorStyle is not null || theme.CursorBlink is not null)
+        {
+            var cursorTable = new TomlTable();
+            if (theme.CursorStyle is { } style)
+            {
+                cursorTable["style"] = CursorStyleToString(style);
+            }
+
+            if (theme.CursorBlink is { } blink)
+            {
+                cursorTable["blink"] = blink;
+            }
+
+            root["cursor"] = cursorTable;
+        }
+
+        if (theme.BorderOnFocus is not null || theme.BorderOnHover is not null || theme.BorderOpacity is not null)
+        {
+            var focus = new TomlTable();
+            if (theme.BorderOnFocus is { } onFocus)
+            {
+                focus["border_on_focus"] = onFocus;
+            }
+
+            if (theme.BorderOnHover is { } onHover)
+            {
+                focus["border_on_hover"] = onHover;
+            }
+
+            if (theme.BorderOpacity is { } borderOpacity)
+            {
+                focus["border_opacity"] = (double)borderOpacity;
+            }
+
+            root["focus"] = focus;
+        }
+
+        if (theme.LockMode is not null || theme.HotZoneEnabled is not null || theme.HotZonePlacement is not null
+            || theme.HotZoneWidth is not null || theme.HotZoneHeight is not null || theme.HotZoneColor is not null
+            || theme.HotZoneOpacity is not null || theme.HotZoneHoverOpacity is not null)
+        {
+            var lockTable = new TomlTable();
+            if (theme.LockMode is { } lockMode)
+            {
+                lockTable["enabled"] = lockMode;
+            }
+
+            if (theme.HotZoneEnabled is { } hotZone)
+            {
+                lockTable["hot_zone"] = hotZone;
+            }
+
+            if (theme.HotZonePlacement is { } placement)
+            {
+                lockTable["hot_zone_placement"] = PlacementToString(placement);
+            }
+
+            if (theme.HotZoneWidth is { } zoneWidth)
+            {
+                lockTable["hot_zone_width"] = (double)zoneWidth;
+            }
+
+            if (theme.HotZoneHeight is { } zoneHeight)
+            {
+                lockTable["hot_zone_height"] = (double)zoneHeight;
+            }
+
+            if (theme.HotZoneColor is { } zoneColor)
+            {
+                lockTable["hot_zone_color"] = ToHex(zoneColor);
+            }
+
+            if (theme.HotZoneOpacity is { } zoneOpacity)
+            {
+                lockTable["hot_zone_opacity"] = (double)zoneOpacity;
+            }
+
+            if (theme.HotZoneHoverOpacity is { } zoneHoverOpacity)
+            {
+                lockTable["hot_zone_hover_opacity"] = (double)zoneHoverOpacity;
+            }
+
+            root["lock"] = lockTable;
+        }
+
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
         purrTTY.Display.Configuration.AtomicFile.WriteAllText(filePath, TomlSerializer.Serialize(root, TomlOptions));
     }
@@ -184,11 +294,72 @@ internal static class ThemeTomlFormat
 
     public static string ToHex(RgbaColor c) => $"#{c.R:x2}{c.G:x2}{c.B:x2}";
 
+    /// <summary>Non-throwing <see cref="ParseHexColor"/> for optional color fields.</summary>
+    public static bool TryParseHexColor(string? hex, out RgbaColor color)
+    {
+        if (hex is { Length: 7 } && hex[0] == '#'
+            && byte.TryParse(hex.AsSpan(1, 2), NumberStyles.HexNumber, null, out byte r)
+            && byte.TryParse(hex.AsSpan(3, 2), NumberStyles.HexNumber, null, out byte g)
+            && byte.TryParse(hex.AsSpan(5, 2), NumberStyles.HexNumber, null, out byte b))
+        {
+            color = new RgbaColor(r, g, b);
+            return true;
+        }
+
+        color = default;
+        return false;
+    }
+
+    /// <summary>Maps a theme cursor style string to a shape; null for unknown values.</summary>
+    public static CursorShape? ParseCursorStyle(string? value) => value?.ToLowerInvariant() switch
+    {
+        "block" => CursorShape.Block,
+        "bar" => CursorShape.Bar,
+        "underline" => CursorShape.Underline,
+        _ => null,
+    };
+
+    public static string CursorStyleToString(CursorShape shape) => shape switch
+    {
+        CursorShape.Bar => "bar",
+        CursorShape.Underline => "underline",
+        _ => "block",
+    };
+
+    /// <summary>Maps a hot-zone placement string to the enum; null for unknown values.</summary>
+    public static HotZonePlacement? ParsePlacement(string? value) => value?.ToLowerInvariant() switch
+    {
+        "top-left" => HotZonePlacement.TopLeft,
+        "top-center" => HotZonePlacement.TopCenter,
+        "top-right" => HotZonePlacement.TopRight,
+        "middle-left" => HotZonePlacement.MiddleLeft,
+        "middle-right" => HotZonePlacement.MiddleRight,
+        "bottom-left" => HotZonePlacement.BottomLeft,
+        "bottom-center" => HotZonePlacement.BottomCenter,
+        "bottom-right" => HotZonePlacement.BottomRight,
+        _ => null,
+    };
+
+    public static string PlacementToString(HotZonePlacement placement) => placement switch
+    {
+        HotZonePlacement.TopLeft => "top-left",
+        HotZonePlacement.TopCenter => "top-center",
+        HotZonePlacement.MiddleLeft => "middle-left",
+        HotZonePlacement.MiddleRight => "middle-right",
+        HotZonePlacement.BottomLeft => "bottom-left",
+        HotZonePlacement.BottomCenter => "bottom-center",
+        HotZonePlacement.BottomRight => "bottom-right",
+        _ => "top-right",
+    };
+
     private static TomlTable? GetTable(TomlTable parent, string key)
         => parent.TryGetValue(key, out var value) && value is TomlTable table ? table : null;
 
     private static string? GetString(TomlTable table, string key)
         => table.TryGetValue(key, out var value) && value is string s ? s : null;
+
+    private static bool? GetBool(TomlTable table, string key)
+        => table.TryGetValue(key, out var value) && value is bool b ? b : null;
 
     private static float? GetFloat(TomlTable table, string key)
         => table.TryGetValue(key, out var value)

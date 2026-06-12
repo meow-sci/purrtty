@@ -54,7 +54,8 @@ internal static class FrameGridRenderer
         RgbaColor selectionColor,
         bool cursorOn,
         float foregroundOpacity = 1f,
-        float cellBackgroundOpacity = 1f)
+        float cellBackgroundOpacity = 1f,
+        bool windowFocused = true)
     {
         var stats = default(GridRenderStats);
         int cols = frame.Cols;
@@ -379,7 +380,7 @@ internal static class FrameGridRenderer
             && frame.Cursor.X >= 0 && frame.Cursor.X < frame.Cols
             && frame.Cursor.Y >= 0 && frame.Cursor.Y < frame.Rows)
         {
-            DrawCursor(frame, drawList, origin, cellWidth, cellHeight, fonts, fontSize, foregroundOpacity);
+            DrawCursor(frame, drawList, origin, cellWidth, cellHeight, fonts, fontSize, foregroundOpacity, windowFocused);
         }
 
         return stats;
@@ -591,7 +592,8 @@ internal static class FrameGridRenderer
         float cellHeight,
         FrameFonts fonts,
         float fontSize,
-        float foregroundOpacity)
+        float foregroundOpacity,
+        bool windowFocused)
     {
         float x = origin.X + frame.Cursor.X * cellWidth;
         float y = origin.Y + frame.Cursor.Y * cellHeight;
@@ -599,7 +601,12 @@ internal static class FrameGridRenderer
         var min = new float2(x, y);
         var max = new float2(x + cellWidth, y + cellHeight);
 
-        switch (frame.Cursor.Shape)
+        // Unfocused windows always show a steady hollow box (xterm/ghostty
+        // behavior): keyboard input is going elsewhere, so a filled or blinking
+        // cursor would misrepresent where typing lands.
+        var shape = windowFocused ? frame.Cursor.Shape : CursorShape.BlockHollow;
+
+        switch (shape)
         {
             case CursorShape.Block:
                 drawList.AddRectFilled(min, max, cursorColor);

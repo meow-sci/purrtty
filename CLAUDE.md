@@ -227,7 +227,8 @@ Frontend (`purrTTY.Display/`):
   manages a list of `TerminalWindow`s, routes game-menu actions to the focused window, persists
   display defaults + first-window geometry through a single shared `ThemeConfiguration` instance)
 - Per-window terminal: `Ghostty/TerminalWindow.cs` (owns a `SessionManager` whose sessions are tabs —
-  tab bar hidden with one tab; per-window theme/font/opacity via `TerminalWindowSettings`; chrome hiding:
+  tab bar hidden with one tab; per-window theme/font/opacity **plus cursor style/blink, the
+  focus/hover border, and lock mode + focus hot zone (gotcha 22)** via `TerminalWindowSettings`; chrome hiding:
   transparent WindowBg/MenuBarBg + zero border + `Alpha=0` menu/tab strips when the mouse is not over the
   window, even while focused; menu-bar strip is the drag handle (no title bar) and an `InvisibleButton`
   over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste; Ctrl/Alt
@@ -243,7 +244,10 @@ Frontend (`purrTTY.Display/`):
 - Theming: `Theming/` (`ThemeDefinition`/`ThemeColors` + `ToEngineTheme()`, `ThemeTomlFormat` (Tomlyn DOM
   read/write), `ThemeCatalog` — code-built "Default" + bundled `TerminalThemes/*.toml` beside the
   assemblies + user themes in `<config>/.purrTTY/themes/`). Theme TOML = alacritty-style `[colors.*]`
-  sections; user-saved themes also carry `[font]` (family/size), `[window]` (3 opacities), and
+  sections; user-saved themes also carry `[font]` (family/size), `[window]` (3 opacities),
+  `[cursor]` (style `block|bar|underline` + blink), `[focus]` (border_on_focus / border_on_hover /
+  border_opacity), `[lock]` (enabled + hot_zone / hot_zone_placement `top-left`..`bottom-right` /
+  hot_zone_width/height/color/opacity/hover_opacity), and
   `[meta] name` (the display name — filenames are sanitized on save, so the name cannot be derived
   from the filename) — those fields are optional and "keep current"/fall back when absent (bundled
   themes are colors-only). Config and theme writes go through `Configuration/AtomicFile`
@@ -305,6 +309,8 @@ Game/integration (`purrTTY.GameMod/`):
   via `UnixShellDetector` on Linux/macOS replace the generic "Default Shell" entry; Game Console
   always offered), Theme (built-in +
   saved lists, Save Current As... modal with name input, Refresh), Font (size slider + family list),
+  Focus (cursor style/blink, focus+hover border + opacity, lock mode + hot zone
+  placement/size/color/opacities — gotcha 22),
   Window (hide-chrome + performance-HUD checkboxes + 3 opacity sliders). Menu actions target `controller.FocusTarget`.
 - Bundled assets: `TerminalThemes/*.toml` (18 color schemes) + `TerminalFonts/*.iamttf`, both copied
   to the build output and the deployed mod dir by the csproj.
@@ -521,6 +527,35 @@ Custom shells:
    forwards key *releases* even while gated (else held-key state sticks); `Patch03_HotkeyGuard`
    null-guards the `Program.ConsoleWindow` static; the toggle hotkey is `repeat:false` and skipped
    while any ImGui text field has focus.
+
+22. **Lock mode = `NoMouseInputs` + a separate hot-zone window; focus visuals are overlays.**
+   With `TerminalWindowSettings.LockMode` on, an unfocused window is submitted with
+   `ImGuiWindowFlags.NoMouseInputs`: ImGui's hover resolution skips it entirely, so clicks (and
+   `WantCaptureMouse`) fall through to the game/UI beneath — and drag-move/resize are off too.
+   Specifics that must not regress:
+   - **Refocus needs a second window.** A `NoMouseInputs` window cannot capture its own refocus
+     click, so `RenderHotZone` submits a tiny decoration-less window (anchored to a corner/side of
+     the terminal rect) whose `InvisibleButton` calls `RequestFocus()` on *press*
+     (`IsItemActivated`). The click-through check includes `!_wantFocus`, so the same frame the
+     focus request is applied the window already accepts mouse input — no dead frame. The zone
+     window pushes `WindowMinSize=(1,1)` (a small zone must not leave invisible click-eating
+     window area) and its fill is drawn on the **foreground draw list** (visible above the
+     terminal background regardless of ImGui z-order).
+   - **Re-locking is just focus loss.** Clicking the game world or any other ImGui window
+     unfocuses the terminal → next frame it is click-through again; the toggle hotkey / menus /
+     hot zone refocus it. The key gate (gotcha 21) follows focus, so a locked unfocused terminal
+     never eats game keys.
+   - **While click-through, hover must not reveal chrome** (`showChrome` gates on `!clickThrough`)
+     — chrome the mouse cannot interact with reads as a bug.
+   - **Focus visuals never touch layout** (gotcha 8): the focus/hover border is an
+     `AddRect` on the foreground draw list; the unfocused cursor is rendered by
+     `FrameGridRenderer` as a steady hollow box (shape forced when `windowFocused` is false).
+   - **Cursor style/blink is the engine default, not a frontend override.**
+     `Surface.SetCursorStyle` (pushed in `WireSession` and on menu change) sets libghostty's
+     default style/blink: it applies immediately while the app has not issued DECSCUSR, an app's
+     explicit DECSCUSR still wins, and `CSI 0 q` returns to the configured default (pinned by
+     `SetCursorStyle_AppliesAsDefaultAndYieldsToDecscusr`). Blink animation is the controller's
+     shared 0.53 s phase, reset to solid on every keystroke (`DataInput`).
 
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`

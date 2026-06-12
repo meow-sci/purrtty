@@ -48,6 +48,36 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void SetCursorStyle_AppliesAsDefaultAndYieldsToDecscusr()
+    {
+        using var surface = NewSurface();
+
+        // The setting is the engine *default*: it applies immediately while the
+        // app has not chosen a style, so a menu change is visible live.
+        surface.SetCursorStyle(CursorShape.Underline, blink: true);
+        var frame = surface.BuildFrame();
+        Assert.That(frame.Cursor.Shape, Is.EqualTo(CursorShape.Underline));
+        Assert.That(frame.Cursor.Blinking, Is.True);
+
+        // An app's explicit DECSCUSR (CSI 6 q = steady bar) wins over the default...
+        WriteText(surface, "\x1b[6 q");
+        frame = surface.BuildFrame();
+        Assert.That(frame.Cursor.Shape, Is.EqualTo(CursorShape.Bar));
+        Assert.That(frame.Cursor.Blinking, Is.False);
+
+        // ...and changing the default while overridden must not stomp the app's choice.
+        surface.SetCursorStyle(CursorShape.Block, blink: false);
+        frame = surface.BuildFrame();
+        Assert.That(frame.Cursor.Shape, Is.EqualTo(CursorShape.Bar));
+
+        // DECSCUSR reset (CSI 0 q) returns to the configured default.
+        WriteText(surface, "\x1b[0 q");
+        frame = surface.BuildFrame();
+        Assert.That(frame.Cursor.Shape, Is.EqualTo(CursorShape.Block));
+        Assert.That(frame.Cursor.Blinking, Is.False);
+    }
+
+    [Test]
     public void Sgr_ForegroundResolvesToPaletteColor()
     {
         using var surface = NewSurface();

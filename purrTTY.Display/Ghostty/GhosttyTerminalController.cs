@@ -100,7 +100,14 @@ public sealed class GhosttyTerminalController : ITerminalController
         var window = new TerminalWindow(_nextWindowId++, sessions, settings, position, size);
         window.KeyboardSuppression = () => KeyboardSuppression?.Invoke() ?? false;
         window.FocusChanged += OnWindowFocusChanged;
-        window.DataInput += bytes => DataInput?.Invoke(this, new DataInputEventArgs(bytes));
+        window.DataInput += bytes =>
+        {
+            // Typing resets the shared blink phase so the cursor is solid while
+            // the user types (standard terminal behavior).
+            _blinkTimer = 0;
+            _cursorOn = true;
+            DataInput?.Invoke(this, new DataInputEventArgs(bytes));
+        };
         _windows.Add(window);
         _lastFocusedWindow ??= window;
 
@@ -190,6 +197,20 @@ public sealed class GhosttyTerminalController : ITerminalController
             window.Settings.BackgroundOpacity,
             window.Settings.ForegroundOpacity,
             window.Settings.CellBackgroundOpacity);
+        _config.SyncRuntimeFocusSettings(
+            window.Settings.CursorStyle,
+            window.Settings.CursorBlink,
+            window.Settings.BorderOnFocus,
+            window.Settings.BorderOnHover,
+            window.Settings.BorderOpacity,
+            window.Settings.LockMode,
+            window.Settings.HotZoneEnabled,
+            window.Settings.HotZonePlacement,
+            window.Settings.HotZoneWidth,
+            window.Settings.HotZoneHeight,
+            window.Settings.HotZoneColor,
+            window.Settings.HotZoneOpacity,
+            window.Settings.HotZoneHoverOpacity);
         _config.Save();
     }
 
@@ -205,6 +226,19 @@ public sealed class GhosttyTerminalController : ITerminalController
             BackgroundOpacity = Math.Clamp(_config.BackgroundOpacity, 0f, 1f),
             ForegroundOpacity = Math.Clamp(_config.ForegroundOpacity, 0f, 1f),
             CellBackgroundOpacity = Math.Clamp(_config.CellBackgroundOpacity, 0f, 1f),
+            CursorStyle = _config.CursorStyle,
+            CursorBlink = _config.CursorBlink,
+            BorderOnFocus = _config.BorderOnFocus,
+            BorderOnHover = _config.BorderOnHover,
+            BorderOpacity = Math.Clamp(_config.BorderOpacity, 0f, 1f),
+            LockMode = _config.LockMode,
+            HotZoneEnabled = _config.HotZoneEnabled,
+            HotZonePlacement = _config.HotZonePlacement,
+            HotZoneWidth = Math.Clamp(_config.HotZoneWidth, TerminalWindow.MinHotZoneSize, TerminalWindow.MaxHotZoneSize),
+            HotZoneHeight = Math.Clamp(_config.HotZoneHeight, TerminalWindow.MinHotZoneSize, TerminalWindow.MaxHotZoneSize),
+            HotZoneColor = _config.HotZoneColor,
+            HotZoneOpacity = Math.Clamp(_config.HotZoneOpacity, 0f, 1f),
+            HotZoneHoverOpacity = Math.Clamp(_config.HotZoneHoverOpacity, 0f, 1f),
         };
 
         // A theme that carries display settings (user-saved) overrides the loose defaults.
@@ -231,6 +265,71 @@ public sealed class GhosttyTerminalController : ITerminalController
         if (theme.CellBackgroundOpacity is { } cell)
         {
             settings.CellBackgroundOpacity = Math.Clamp(cell, 0f, 1f);
+        }
+
+        if (theme.CursorStyle is { } cursorStyle)
+        {
+            settings.CursorStyle = cursorStyle;
+        }
+
+        if (theme.CursorBlink is { } cursorBlink)
+        {
+            settings.CursorBlink = cursorBlink;
+        }
+
+        if (theme.BorderOnFocus is { } borderOnFocus)
+        {
+            settings.BorderOnFocus = borderOnFocus;
+        }
+
+        if (theme.BorderOnHover is { } borderOnHover)
+        {
+            settings.BorderOnHover = borderOnHover;
+        }
+
+        if (theme.BorderOpacity is { } borderOpacity)
+        {
+            settings.BorderOpacity = Math.Clamp(borderOpacity, 0f, 1f);
+        }
+
+        if (theme.LockMode is { } lockMode)
+        {
+            settings.LockMode = lockMode;
+        }
+
+        if (theme.HotZoneEnabled is { } hotZoneEnabled)
+        {
+            settings.HotZoneEnabled = hotZoneEnabled;
+        }
+
+        if (theme.HotZonePlacement is { } hotZonePlacement)
+        {
+            settings.HotZonePlacement = hotZonePlacement;
+        }
+
+        if (theme.HotZoneWidth is { } hotZoneWidth)
+        {
+            settings.HotZoneWidth = Math.Clamp(hotZoneWidth, TerminalWindow.MinHotZoneSize, TerminalWindow.MaxHotZoneSize);
+        }
+
+        if (theme.HotZoneHeight is { } hotZoneHeight)
+        {
+            settings.HotZoneHeight = Math.Clamp(hotZoneHeight, TerminalWindow.MinHotZoneSize, TerminalWindow.MaxHotZoneSize);
+        }
+
+        if (theme.HotZoneColor is { } hotZoneColor)
+        {
+            settings.HotZoneColor = hotZoneColor;
+        }
+
+        if (theme.HotZoneOpacity is { } hotZoneOpacity)
+        {
+            settings.HotZoneOpacity = Math.Clamp(hotZoneOpacity, 0f, 1f);
+        }
+
+        if (theme.HotZoneHoverOpacity is { } hotZoneHoverOpacity)
+        {
+            settings.HotZoneHoverOpacity = Math.Clamp(hotZoneHoverOpacity, 0f, 1f);
         }
 
         return settings;

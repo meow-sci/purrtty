@@ -4,10 +4,12 @@ using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Theming;
+using PurrTTY.Terminal.Rendering;
 using StarMap.API;
 using purrTTY.Logging;
 using ModMenu;
 using float2 = Brutal.Numerics.float2;
+using float3 = Brutal.Numerics.float3;
 using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.GameMod;
@@ -148,6 +150,12 @@ public class TerminalMod
         if (ImGui.BeginMenu("Font"))
         {
             DrawFontMenu(controller);
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("Focus"))
+        {
+            DrawFocusMenu(controller);
             ImGui.EndMenu();
         }
 
@@ -345,6 +353,175 @@ public class TerminalMod
                 target.Settings.FontFamily = family;
                 controller.PersistDisplayDefaults(target);
             }
+        }
+    }
+
+    private static bool _hotZoneColorDirty;
+
+    private static readonly (string Label, HotZonePlacement Placement)[] HotZonePlacements =
+    {
+        ("Top Left", HotZonePlacement.TopLeft),
+        ("Top Center", HotZonePlacement.TopCenter),
+        ("Top Right", HotZonePlacement.TopRight),
+        ("Middle Left", HotZonePlacement.MiddleLeft),
+        ("Middle Right", HotZonePlacement.MiddleRight),
+        ("Bottom Left", HotZonePlacement.BottomLeft),
+        ("Bottom Center", HotZonePlacement.BottomCenter),
+        ("Bottom Right", HotZonePlacement.BottomRight),
+    };
+
+    /// <summary>
+    ///     Focus settings for the focused window: cursor style/blink, the
+    ///     focus/hover border, and lock mode with its focus hot zone. All of it
+    ///     persists as new-window defaults and is captured by "Save Current As...".
+    /// </summary>
+    private static void DrawFocusMenu(GhosttyTerminalController controller)
+    {
+        var target = controller.FocusTarget;
+        if (target == null)
+        {
+            ImGui.TextDisabled("No terminal window open");
+            return;
+        }
+
+        var settings = target.Settings;
+
+        ImGui.TextDisabled($"Window: {target.Title}");
+        ImGui.Separator();
+
+        ImGui.TextDisabled("Cursor");
+        DrawCursorStyleItem(controller, target, "Block", CursorShape.Block);
+        DrawCursorStyleItem(controller, target, "Bar", CursorShape.Bar);
+        DrawCursorStyleItem(controller, target, "Underline", CursorShape.Underline);
+
+        bool blink = settings.CursorBlink;
+        if (ImGui.Checkbox("Blink", ref blink))
+        {
+            target.SetCursorStyle(settings.CursorStyle, blink);
+            controller.PersistDisplayDefaults(target);
+        }
+
+        ImGui.Separator();
+        ImGui.TextDisabled("Window Border");
+
+        bool borderOnFocus = settings.BorderOnFocus;
+        if (ImGui.Checkbox("Show when focused", ref borderOnFocus))
+        {
+            settings.BorderOnFocus = borderOnFocus;
+            controller.PersistDisplayDefaults(target);
+        }
+
+        bool borderOnHover = settings.BorderOnHover;
+        if (ImGui.Checkbox("Show when hovered", ref borderOnHover))
+        {
+            settings.BorderOnHover = borderOnHover;
+            controller.PersistDisplayDefaults(target);
+        }
+
+        DrawOpacitySlider(controller, target, "Border Opacity", "##purrtty_border_opacity",
+            () => settings.BorderOpacity, v => settings.BorderOpacity = v);
+
+        ImGui.Separator();
+        ImGui.TextDisabled("Lock Mode");
+
+        bool lockMode = settings.LockMode;
+        if (ImGui.Checkbox("Click-through when not focused", ref lockMode))
+        {
+            settings.LockMode = lockMode;
+            controller.PersistDisplayDefaults(target);
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("While locked and unfocused, mouse input passes through the terminal to the game.\nRefocus via the hot zone, this menu, or the toggle hotkey."u8);
+        }
+
+        bool hotZone = settings.HotZoneEnabled;
+        if (ImGui.Checkbox("Focus hot zone", ref hotZone))
+        {
+            settings.HotZoneEnabled = hotZone;
+            controller.PersistDisplayDefaults(target);
+        }
+
+        if (ImGui.BeginMenu("Hot Zone Position"))
+        {
+            foreach (var (label, placement) in HotZonePlacements)
+            {
+                if (ImGui.MenuItem(label, "", settings.HotZonePlacement == placement))
+                {
+                    settings.HotZonePlacement = placement;
+                    controller.PersistDisplayDefaults(target);
+                }
+            }
+
+            ImGui.EndMenu();
+        }
+
+        DrawHotZoneSizeSlider(controller, target, "Hot Zone Width", "##purrtty_hotzone_w",
+            () => settings.HotZoneWidth, v => settings.HotZoneWidth = v);
+        DrawHotZoneSizeSlider(controller, target, "Hot Zone Height", "##purrtty_hotzone_h",
+            () => settings.HotZoneHeight, v => settings.HotZoneHeight = v);
+
+        var zoneColor = settings.HotZoneColor;
+        var rgb = new float3(zoneColor.R / 255f, zoneColor.G / 255f, zoneColor.B / 255f);
+        ImGui.Text("Hot Zone Color");
+        ImGui.SameLine();
+        if (ImGui.ColorEdit3("##purrtty_hotzone_color", ref rgb, ImGuiColorEditFlags.NoInputs))
+        {
+            settings.HotZoneColor = new RgbaColor(
+                (byte)Math.Clamp(rgb.X * 255f, 0f, 255f),
+                (byte)Math.Clamp(rgb.Y * 255f, 0f, 255f),
+                (byte)Math.Clamp(rgb.Z * 255f, 0f, 255f));
+            _hotZoneColorDirty = true;
+        }
+
+        // Edits come from the swatch's picker *popup*, so the swatch item never
+        // reports deactivated-after-edit; persist once the drag/click is released
+        // (the open popup keeps this menu rendering, so this code still runs).
+        if (_hotZoneColorDirty && !ImGui.IsMouseDown(ImGuiMouseButton.Left))
+        {
+            _hotZoneColorDirty = false;
+            controller.PersistDisplayDefaults(target);
+        }
+
+        DrawOpacitySlider(controller, target, "Hot Zone Opacity", "##purrtty_hotzone_opacity",
+            () => settings.HotZoneOpacity, v => settings.HotZoneOpacity = v);
+        DrawOpacitySlider(controller, target, "Hot Zone Hover Opacity", "##purrtty_hotzone_hover_opacity",
+            () => settings.HotZoneHoverOpacity, v => settings.HotZoneHoverOpacity = v);
+    }
+
+    private static void DrawCursorStyleItem(
+        GhosttyTerminalController controller,
+        TerminalWindow target,
+        string label,
+        CursorShape shape)
+    {
+        if (ImGui.MenuItem(label, "", target.Settings.CursorStyle == shape))
+        {
+            target.SetCursorStyle(shape, target.Settings.CursorBlink);
+            controller.PersistDisplayDefaults(target);
+        }
+    }
+
+    private static void DrawHotZoneSizeSlider(
+        GhosttyTerminalController controller,
+        TerminalWindow target,
+        string label,
+        string id,
+        Func<float> get,
+        Action<float> set)
+    {
+        int pixels = (int)MathF.Round(get());
+        ImGui.Text(label);
+        ImGui.SetNextItemWidth(220f);
+        if (ImGui.SliderInt(id, ref pixels, (int)TerminalWindow.MinHotZoneSize, 200, "%d px"))
+        {
+            set(Math.Clamp(pixels, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize));
+        }
+
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            controller.PersistDisplayDefaults(target);
         }
     }
 

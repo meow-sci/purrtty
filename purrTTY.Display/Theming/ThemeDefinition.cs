@@ -14,6 +14,22 @@ public enum ThemeSource
 }
 
 /// <summary>
+/// Anchor for the lock-mode focus hot zone on the terminal window rect:
+/// the four corners plus the middle of each side.
+/// </summary>
+public enum HotZonePlacement
+{
+    TopLeft,
+    TopCenter,
+    TopRight,
+    MiddleLeft,
+    MiddleRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+/// <summary>
 /// The 16 ANSI colors plus the primary/cursor/selection colors a theme defines.
 /// Renderer-neutral (<see cref="RgbaColor"/>), so it can be converted into the
 /// engine-facing <see cref="TerminalTheme"/> 256-entry palette.
@@ -100,4 +116,24 @@ public sealed class ThemeDefinition
     public float? BackgroundOpacity { get; init; }
     public float? ForegroundOpacity { get; init; }
     public float? CellBackgroundOpacity { get; init; }
+
+    // Cursor appearance ([cursor] in the TOML). Only Block/Bar/Underline are
+    // valid styles; BlockHollow is reserved for the unfocused-window cursor.
+    public CursorShape? CursorStyle { get; init; }
+    public bool? CursorBlink { get; init; }
+
+    // Focus border ([focus]).
+    public bool? BorderOnFocus { get; init; }
+    public bool? BorderOnHover { get; init; }
+    public float? BorderOpacity { get; init; }
+
+    // Lock mode + focus hot zone ([lock]).
+    public bool? LockMode { get; init; }
+    public bool? HotZoneEnabled { get; init; }
+    public HotZonePlacement? HotZonePlacement { get; init; }
+    public float? HotZoneWidth { get; init; }
+    public float? HotZoneHeight { get; init; }
+    public RgbaColor? HotZoneColor { get; init; }
+    public float? HotZoneOpacity { get; init; }
+    public float? HotZoneHoverOpacity { get; init; }
 }

@@ -2,7 +2,9 @@ using System;
 using System.IO;
 using float2 = Brutal.Numerics.float2;
 using purrTTY.Core.Terminal;
+using purrTTY.Display.Theming;
 using purrTTY.Logging;
+using PurrTTY.Terminal.Rendering;
 using Tomlyn;
 using Tomlyn.Model;
 using Tomlyn.Serialization;
@@ -103,6 +105,110 @@ public class ThemeConfiguration
     {
         get => Settings.FontSize;
         set => Settings.FontSize = value;
+    }
+
+    /// <summary>Default cursor shape for new windows (Block/Bar/Underline).</summary>
+    [TomlIgnore]
+    public CursorShape CursorStyle
+    {
+        get => Settings.CursorStyle;
+        set => Settings.CursorStyle = value;
+    }
+
+    /// <summary>Whether the default cursor blinks.</summary>
+    [TomlIgnore]
+    public bool CursorBlink
+    {
+        get => Settings.CursorBlink;
+        set => Settings.CursorBlink = value;
+    }
+
+    /// <summary>Draw a window border while the terminal holds focus.</summary>
+    [TomlIgnore]
+    public bool BorderOnFocus
+    {
+        get => Settings.BorderOnFocus;
+        set => Settings.BorderOnFocus = value;
+    }
+
+    /// <summary>Draw a window border while the mouse hovers the terminal.</summary>
+    [TomlIgnore]
+    public bool BorderOnHover
+    {
+        get => Settings.BorderOnHover;
+        set => Settings.BorderOnHover = value;
+    }
+
+    /// <summary>Opacity of the focus/hover border (0.0 to 1.0).</summary>
+    [TomlIgnore]
+    public float BorderOpacity
+    {
+        get => Settings.BorderOpacity;
+        set => Settings.BorderOpacity = value;
+    }
+
+    /// <summary>Lock mode: unfocused terminal windows are mouse click-through.</summary>
+    [TomlIgnore]
+    public bool LockMode
+    {
+        get => Settings.LockMode;
+        set => Settings.LockMode = value;
+    }
+
+    /// <summary>Whether the lock-mode focus hot zone is shown.</summary>
+    [TomlIgnore]
+    public bool HotZoneEnabled
+    {
+        get => Settings.HotZoneEnabled;
+        set => Settings.HotZoneEnabled = value;
+    }
+
+    /// <summary>Anchor corner/side for the focus hot zone.</summary>
+    [TomlIgnore]
+    public HotZonePlacement HotZonePlacement
+    {
+        get => Settings.HotZonePlacement;
+        set => Settings.HotZonePlacement = value;
+    }
+
+    /// <summary>Focus hot zone width in pixels.</summary>
+    [TomlIgnore]
+    public float HotZoneWidth
+    {
+        get => Settings.HotZoneWidth;
+        set => Settings.HotZoneWidth = value;
+    }
+
+    /// <summary>Focus hot zone height in pixels.</summary>
+    [TomlIgnore]
+    public float HotZoneHeight
+    {
+        get => Settings.HotZoneHeight;
+        set => Settings.HotZoneHeight = value;
+    }
+
+    /// <summary>Focus hot zone fill color.</summary>
+    [TomlIgnore]
+    public RgbaColor HotZoneColor
+    {
+        get => Settings.HotZoneColor;
+        set => Settings.HotZoneColor = value;
+    }
+
+    /// <summary>Focus hot zone idle opacity (0.0 to 1.0).</summary>
+    [TomlIgnore]
+    public float HotZoneOpacity
+    {
+        get => Settings.HotZoneOpacity;
+        set => Settings.HotZoneOpacity = value;
+    }
+
+    /// <summary>Focus hot zone hovered opacity (0.0 to 1.0).</summary>
+    [TomlIgnore]
+    public float HotZoneHoverOpacity
+    {
+        get => Settings.HotZoneHoverOpacity;
+        set => Settings.HotZoneHoverOpacity = value;
     }
 
     /// <summary>
@@ -432,6 +538,41 @@ public class ThemeConfiguration
     }
 
     /// <summary>
+    /// Synchronizes the live cursor/border/lock display settings into the
+    /// in-memory configuration snapshot (the defaults applied to new windows),
+    /// mirroring <see cref="SyncRuntimeDisplaySettings"/>.
+    /// </summary>
+    public void SyncRuntimeFocusSettings(
+        CursorShape cursorStyle,
+        bool cursorBlink,
+        bool borderOnFocus,
+        bool borderOnHover,
+        float borderOpacity,
+        bool lockMode,
+        bool hotZoneEnabled,
+        HotZonePlacement hotZonePlacement,
+        float hotZoneWidth,
+        float hotZoneHeight,
+        RgbaColor hotZoneColor,
+        float hotZoneOpacity,
+        float hotZoneHoverOpacity)
+    {
+        CursorStyle = cursorStyle;
+        CursorBlink = cursorBlink;
+        BorderOnFocus = borderOnFocus;
+        BorderOnHover = borderOnHover;
+        BorderOpacity = borderOpacity;
+        LockMode = lockMode;
+        HotZoneEnabled = hotZoneEnabled;
+        HotZonePlacement = hotZonePlacement;
+        HotZoneWidth = hotZoneWidth;
+        HotZoneHeight = hotZoneHeight;
+        HotZoneColor = hotZoneColor;
+        HotZoneOpacity = hotZoneOpacity;
+        HotZoneHoverOpacity = hotZoneHoverOpacity;
+    }
+
+    /// <summary>
     /// Creates ProcessLaunchOptions based on the current configuration.
     /// </summary>
     /// <returns>ProcessLaunchOptions configured according to current settings</returns>
@@ -652,6 +793,75 @@ public class ThemeConfiguration
         public string? FontFamily { get; set; }
 
         public float? FontSize { get; set; }
+
+        // Cursor + focus-border + lock-mode display defaults for new windows.
+        // Enum-typed values serialize as strings (same stability pattern as
+        // DefaultShellType); unparsable values fall back to the default.
+        [TomlIgnore]
+        public CursorShape CursorStyle { get; set; } = CursorShape.Block;
+
+        [TomlPropertyName("CursorStyle")]
+        public string CursorStyleString
+        {
+            get => CursorStyle.ToString();
+            set
+            {
+                // BlockHollow is the unfocused-window cursor, not a selectable style.
+                CursorStyle = Enum.TryParse<CursorShape>(value, true, out var shape) && shape != CursorShape.BlockHollow
+                    ? shape
+                    : CursorShape.Block;
+            }
+        }
+
+        public bool CursorBlink { get; set; } = true;
+
+        public bool BorderOnFocus { get; set; }
+
+        public bool BorderOnHover { get; set; }
+
+        public float BorderOpacity { get; set; } = 0.5f;
+
+        public bool LockMode { get; set; }
+
+        public bool HotZoneEnabled { get; set; } = true;
+
+        [TomlIgnore]
+        public HotZonePlacement HotZonePlacement { get; set; } = HotZonePlacement.TopRight;
+
+        [TomlPropertyName("HotZonePlacement")]
+        public string HotZonePlacementString
+        {
+            get => HotZonePlacement.ToString();
+            set
+            {
+                HotZonePlacement = Enum.TryParse<HotZonePlacement>(value, true, out var placement)
+                    ? placement
+                    : HotZonePlacement.TopRight;
+            }
+        }
+
+        public float HotZoneWidth { get; set; } = 28f;
+
+        public float HotZoneHeight { get; set; } = 28f;
+
+        [TomlIgnore]
+        public RgbaColor HotZoneColor { get; set; } = new(0x4E, 0x9A, 0xE9);
+
+        [TomlPropertyName("HotZoneColor")]
+        public string HotZoneColorHex
+        {
+            get => ThemeTomlFormat.ToHex(HotZoneColor);
+            set
+            {
+                HotZoneColor = ThemeTomlFormat.TryParseHexColor(value, out var color)
+                    ? color
+                    : new RgbaColor(0x4E, 0x9A, 0xE9);
+            }
+        }
+
+        public float HotZoneOpacity { get; set; } = 0.25f;
+
+        public float HotZoneHoverOpacity { get; set; } = 0.6f;
 
         // Auto is the only default (and unparsable-value fallback) that works on
         // every platform: it resolves $SHELL/zsh/bash/sh on Unix and
