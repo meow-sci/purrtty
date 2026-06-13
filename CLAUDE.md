@@ -606,11 +606,26 @@ Custom shells:
    on `Program.DrawProgramMenusHook()`** (KSA's empty public menu-bar extension point — called once
    per frame for `MainViewport` right after the View menu) rather than an IL transpiler. The
    `Harmony` instance is created lazily so a StarMap reload after `unload()` re-patches, and
-   `unload()` also resets `Patch02`'s cached ModMenu-presence probe (statics survive a reload
-   without an ALC unload — any cached environment probe must be re-evaluated). `Patch01`
-   forwards key *releases* even while gated (else held-key state sticks); `Patch03_HotkeyGuard`
-   null-guards the `Program.ConsoleWindow` static; the toggle hotkey is `repeat:false` and skipped
-   while any ImGui text field has focus.
+   `unload()` also resets `Patch02`'s cached ModMenu-presence probe and `Patch01`'s held-key model
+   (statics survive a reload without an ALC unload — any cached environment probe must be
+   re-evaluated). `Patch01` gates `Program.OnKey` while a terminal is active but **must forward a
+   key release only for a key whose press it forwarded** — it tracks the game's held keys in a
+   `HashSet<GlfwKey>` (`s_gameHeldKeys`, the keyboard analogue of `TerminalWindow.Input`'s
+   `_appMousePressSent`). The reason both halves matter: swallowing a release of a genuinely-held
+   movement key strands the game's camera/vehicle controls down (so a key the game saw pressed must
+   get its release), **but** unconditionally forwarding *every* release leaks KSA's
+   release-triggered toggle hotkeys — `ToggleFps`/`ToggleUi`/`ToggleThreadProfiler`/etc. fire in
+   `Program.OnKey`'s `case GlfwKeyAction.Release` arm (F1–F12, Shift+E), so releasing an F-key typed
+   into a focused terminal toggled game UI even though the press was correctly swallowed. The
+   press-gated rule does both: a key pressed while a terminal was active is never tracked, so its
+   release is swallowed too (no toggle leak), while a key pressed game-side then released after focus
+   moved to the terminal *is* tracked and released (no stuck controls). NB: in current KSA the game
+   only receives input at all when `ImGuiBackend.InputFallthrough` is set — the backend
+   (`ImGuiBackendGlfwImpl`) forwards GLFW key/mouse to `Program.OnKey`/`OnMouseButton` **only** while
+   the 3D-viewport ImGui window is hovered (`Viewport.DrawImGui` sets it + `SetNextFrameWantCaptureKeyboard(false)`);
+   `Patch01` gates `Program.OnKey` itself, so it works regardless of how the game routes input to it.
+   `Patch03_HotkeyGuard` null-guards the `Program.ConsoleWindow` static; the toggle hotkey is
+   `repeat:false` and skipped while any ImGui text field has focus.
 
 22. **Lock mode = `NoMouseInputs` + a separate hot-zone window; focus visuals are overlays.**
    With `TerminalWindowSettings.LockMode` on, an unfocused window is submitted with

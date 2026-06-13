@@ -71,8 +71,10 @@ internal static class Patcher
 
     // Statics survive a StarMap reload without an ALC unload (same reason
     // m_harmony is recreated lazily above), so cached environment probes must
-    // be re-evaluated by the next patch() — the mod set may have changed.
+    // be re-evaluated by the next patch() — the mod set may have changed — and
+    // the held-key model must not carry stale entries across a reload.
     Patch02.Reset();
+    Patch01.Reset();
   }
 }
 
@@ -143,20 +145,58 @@ static class Patch03_HotkeyGuard
 [HarmonyPatch(typeof(KSA.Program))]
 class Patch01
 {
+  // Keys whose PRESS was forwarded to KSA.Program.OnKey (i.e. pressed while no
+  // terminal was capturing input). This models the down-state the game believes
+  // each key holds, so a RELEASE is forwarded only for a key the game actually
+  // saw go down. Same idea as the per-button _appMousePressSent gating in
+  // TerminalWindow.Input. Accessed only from Prefix1, which runs on the GLFW
+  // poll (tick) thread — no locking needed.
+  private static readonly HashSet<GlfwKey> s_gameHeldKeys = new();
+
+  /// <summary>Drops the held-key model (called on unload; statics survive a StarMap reload).</summary>
+  internal static void Reset() => s_gameHeldKeys.Clear();
 
   [HarmonyPrefix]
   [HarmonyPatch(nameof(KSA.Program.OnKey))]
   static bool Prefix1(GlfwWindow window, GlfwKey key, int scanCode, GlfwKeyAction action, GlfwModifier mods)
   {
-    // Gate game key handling while a terminal is capturing input — but always
-    // forward key *releases*. Swallowing a Release at the moment focus moves
-    // into the terminal strands the game's held-key state (camera/vehicle
-    // controls stick down); only presses/repeats need suppressing.
-    if (GhosttyTerminalController.IsAnyTerminalActive && action != GlfwKeyAction.Release)
+    // Gate game key handling while a terminal is capturing input. The naive
+    // "swallow press/repeat, always forward release" rule strands held movement
+    // keys (camera/vehicle controls stick down) if it swallows a release too —
+    // BUT unconditionally forwarding releases leaks KSA's release-triggered
+    // toggle hotkeys: ToggleFps/ToggleUi/ToggleThreadProfiler/etc. fire in
+    // Program.OnKey's `case GlfwKeyAction.Release` arm, so releasing an F-key
+    // typed into a focused terminal toggled game UI even though the press was
+    // correctly swallowed.
+    //
+    // Fix: the game may only see a key event for a key whose PRESS it received.
+    // Forward a release/repeat only for a key in s_gameHeldKeys. That still
+    // clears a genuinely-held key (its press WAS forwarded before focus moved to
+    // the terminal) while never leaking a toggle whose press the terminal ate.
+    switch (action)
     {
-      // skipping Program.OnKey for the press/repeat
-      return false;
+      case GlfwKeyAction.Press:
+        if (GhosttyTerminalController.IsAnyTerminalActive)
+        {
+          // Terminal owns the keyboard: swallow the press. The game never sees
+          // the key go down, so its release stays swallowed too (not tracked).
+          return false;
+        }
+        s_gameHeldKeys.Add(key);
+        return true;
+
+      case GlfwKeyAction.Repeat:
+        // Only sustain a repeat the game already owns and only while no terminal
+        // is active; otherwise the terminal owns the keyboard.
+        return !GhosttyTerminalController.IsAnyTerminalActive && s_gameHeldKeys.Contains(key);
+
+      case GlfwKeyAction.Release:
+        // Forward iff the game believes this key is held; remove either way so
+        // the held-key model drains as keys come back up.
+        return s_gameHeldKeys.Remove(key);
+
+      default:
+        return true;
     }
-    return true;
   }
 }
