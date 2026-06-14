@@ -221,6 +221,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(LibraryName)]
     internal static partial void ghostty_key_event_set_utf8(nint key_event, byte* utf8, nuint len);
 
+    [LibraryImport(LibraryName)]
+    internal static partial void ghostty_key_event_set_unshifted_codepoint(nint key_event, uint codepoint);
+
     // --- Grid ref introspection ---
 
     [LibraryImport(LibraryName)]

@@ -51,6 +51,21 @@ public sealed class KeyEvent : IDisposable
         set { _modifiers = value; NativeMethods.ghostty_key_event_set_mods(_handle, value); }
     }
 
+    private uint _unshiftedCodepoint;
+    /// <summary>
+    /// The key's codepoint with shift unapplied (e.g. 'r' for the R key). The
+    /// kitty keyboard protocol encoder requires this to build the
+    /// <c>CSI &lt;code&gt;;&lt;mods&gt;u</c> sequence for letters/digits/punctuation:
+    /// unlike the legacy encoder it has no <c>key.codepoint()</c> fallback, so a
+    /// modified key (Ctrl+R, …) with neither this nor <see cref="Text"/> set
+    /// encodes to zero bytes whenever an app has the protocol enabled.
+    /// </summary>
+    public uint UnshiftedCodepoint
+    {
+        get => _unshiftedCodepoint;
+        set { _unshiftedCodepoint = value; NativeMethods.ghostty_key_event_set_unshifted_codepoint(_handle, value); }
+    }
+
     public unsafe string? Text
     {
         get => _text;

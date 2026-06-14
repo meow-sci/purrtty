@@ -46,6 +46,10 @@ reference, **never** re-vendor wholesale (it would revert the fixes below). Grep
   in place, and the caller's span may point at read-only memory (u8 literals).
 - **`MouseEvent.Modifiers` marshals as u16**; double-free guards on `KeyEvent`/`MouseEvent`
   re-dispose; `MaxScrollback` plumbed (upstream hardcoded 1000 **bytes** — effectively none).
+- **`KeyEvent.UnshiftedCodepoint` is bound and set for printable keys.** The kitty keyboard
+  protocol encoder builds `CSI <code>;<mods>u` from it (no `key.codepoint()` fallback, unlike
+  legacy) and emits **nothing** without it — so a Ctrl/Alt+letter dropped silently for any app
+  that enabled the protocol. See repo-root CLAUDE.md gotcha 3.
 
 **Pruned surface:** binding modules purrtty never calls were removed rather than carried as
 freight (kitty graphics, OSC/SGR parsers, `Formatter`, `Focus`, `SizeReport`, `BuildInfo`,

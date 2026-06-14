@@ -414,7 +414,17 @@ Custom shells:
    use-after-scope: the caller read clobbered stack memory — `0x00` on macOS/arm64, `0xB0` on win-x64
    — which had been misdiagnosed as a "first-use NUL" libghostty quirk and worked around with a
    re-encode self-heal. Both the bug and the workaround are gone.) Named keys encode from `Key`
-   alone; `Text` is only for printable input.
+   alone; `Text` is only for printable input. **For letter/digit/punctuation keys the event MUST
+   also carry the unshifted codepoint** (`KeyEvent.UnshiftedCodepoint`, set in
+   `GhosttyTerminalSurface.EncodeKeyOnce` from a `TerminalKey → codepoint` map mirroring
+   libghostty's `Key.codepoint()` table). The legacy encoder has a `key.codepoint()` fallback so it
+   works without it, but the **kitty keyboard protocol** encoder does **not** — it builds
+   `CSI <code>;<mods>u` from the unshifted codepoint (or `utf8`) and returns **zero bytes** if
+   neither is set, silently dropping every Ctrl/Alt+letter while an app (e.g. atuin) has the
+   protocol enabled. Do not set `utf8` instead: under a held modifier the kitty path writes it
+   verbatim (a literal `r`). Pinned by `EncodeKey_CtrlLetter_{Legacy,Kitty}Mode_*`. NB the binding
+   exposes only the called key-event setters (`set_key`/`set_action`/`set_mods`/`set_utf8`/
+   `set_unshifted_codepoint`); `set_consumed_mods`/`set_composing` exist natively but are not bound.
 
 4. **Pre-resolved colors.** Push the theme via `Surface.SetTheme` so `TerminalFrame` cells carry
    final RGB; the frontend draws them directly (no SGR resolution in the frontend). Resolution

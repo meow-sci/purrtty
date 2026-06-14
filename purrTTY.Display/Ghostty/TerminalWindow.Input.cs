@@ -1,5 +1,6 @@
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
+using purrTTY.Logging;
 using PurrTTY.Terminal.Input;
 using PurrTTY.Terminal.Sessions;
 using TKeyMods = PurrTTY.Terminal.Input.KeyModifiers;
@@ -65,6 +66,22 @@ public sealed partial class TerminalWindow
         (ImGuiKey.Backslash, TerminalKey.Backslash),
     };
 
+    // Opt-in keyboard input diagnostics. Set PURRTTY_KEY_DIAG=1 (or =true) in
+    // the environment before launching KSA, reproduce the issue (e.g. mash
+    // Ctrl+R in atuin), then read the "[keydiag]" lines in the log. Two streams:
+    //   press … — every key the frame reports pressed, with the modifier LEVELS
+    //             ImGui reports and edge-vs-repeat. A "press key=R … ctrl=False
+    //             chars=0" line is the level/edge desync (Cause 1): the chord
+    //             gate then drops it silently.
+    //   send  … — the exact bytes EncodeKey produced. Legacy Ctrl+R = "12";
+    //             a kitty "CSI…u" sequence (starts "1B5B") means the app
+    //             negotiated the protocol (Cause 2). mods=None on a byte that
+    //             should be a control char is the desync biting the encoder.
+    // Read once: the value cannot change mid-process and per-frame env reads are
+    // wasteful.
+    private static readonly bool KeyDiag =
+        Environment.GetEnvironmentVariable("PURRTTY_KEY_DIAG") is "1" or "true";
+
     private bool _selecting;
 
     // Last grid cell reported to a mouse-tracking app via a motion event. Motion
@@ -108,6 +125,11 @@ public sealed partial class TerminalWindow
         }
 
         var mods = ReadModifiers(io);
+
+        if (KeyDiag)
+        {
+            LogChordDiagnostics(io);
+        }
 
         foreach (var (imguiKey, key) in NamedKeys)
         {
@@ -419,10 +441,57 @@ public sealed partial class TerminalWindow
         return new GridPoint(col, row);
     }
 
+    // Logs every letter/digit/Ctrl-punctuation key the frame reports as pressed
+    // (including ImGui auto-repeats), tagged with the modifier LEVELS ImGui
+    // reports right now and whether this is a true down-edge or a repeat. Skips
+    // ordinary printable typing (no Ctrl/Alt and a character was produced this
+    // frame) so the log stays focused on chords and on the dropped-chord
+    // signature: a key edge that yielded no character with no modifier held.
+    private static void LogChordDiagnostics(ImGuiIOPtr io)
+    {
+        LogKeyGroup(io, LetterKeys);
+        LogKeyGroup(io, DigitKeys);
+        LogKeyGroup(io, ControlPunctuationKeys);
+    }
+
+    private static void LogKeyGroup(ImGuiIOPtr io, (ImGuiKey ImguiKey, TerminalKey Key)[] group)
+    {
+        foreach (var (imguiKey, key) in group)
+        {
+            if (!ImGui.IsKeyPressed(imguiKey, repeat: true))
+            {
+                continue;
+            }
+
+            // Plain text input is handled by the character queue, not the chord
+            // path — don't log it (it would bury the chord lines in noise).
+            bool printable = !io.KeyCtrl && !io.KeyAlt && io.InputQueueCharacters.Count > 0;
+            if (printable)
+            {
+                continue;
+            }
+
+            bool edge = ImGui.IsKeyPressed(imguiKey, repeat: false);
+            ModLog.Log.Info(
+                $"[keydiag] press key={key} {(edge ? "edge" : "repeat")} " +
+                $"ctrl={io.KeyCtrl} alt={io.KeyAlt} shift={io.KeyShift} " +
+                $"chars={io.InputQueueCharacters.Count}");
+        }
+    }
+
     private void EncodeAndSend(TerminalSession session, in TerminalKeyEvent keyEvent)
     {
         Span<byte> buf = stackalloc byte[64];
         int n = session.Surface.EncodeKey(keyEvent, buf);
+        if (KeyDiag)
+        {
+            string text = string.IsNullOrEmpty(keyEvent.Text) ? "-" : keyEvent.Text;
+            string bytes = n > 0 ? Convert.ToHexString(buf[..n]) : "";
+            ModLog.Log.Info(
+                $"[keydiag] send key={keyEvent.Key} action={keyEvent.Action} mods={keyEvent.Modifiers} " +
+                $"text={text} bytes=[{bytes}] ({n})");
+        }
+
         if (n > 0)
         {
             Send(session, buf[..n]);

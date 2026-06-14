@@ -78,6 +78,44 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void EncodeKey_CtrlLetter_LegacyMode_ProducesControlByte()
+    {
+        using var surface = NewSurface();
+
+        // No app keyboard mode set → legacy encoding. Ctrl+R is the C0 control
+        // DC2 (0x12). This guards the legacy path against the unshifted-codepoint
+        // change (which must not perturb it).
+        Span<byte> buf = stackalloc byte[64];
+        int n = surface.EncodeKey(
+            new TerminalKeyEvent(TerminalKey.R, KeyAction.Press, KeyModifiers.Ctrl), buf);
+
+        Assert.That(n, Is.EqualTo(1), "Ctrl+R should encode to a single control byte in legacy mode");
+        Assert.That(buf[0], Is.EqualTo(0x12), "Ctrl+R legacy encoding is DC2 (0x12)");
+    }
+
+    [Test]
+    public void EncodeKey_CtrlLetter_KittyMode_ProducesCsiU()
+    {
+        using var surface = NewSurface();
+
+        // Enable the kitty keyboard protocol (push flags=1, disambiguate) the way
+        // an app like atuin does, then tick so the engine applies the mode.
+        WriteText(surface, "\x1b[>1u");
+        surface.BuildFrame();
+
+        // Regression: under the kitty protocol the encoder builds CSI<code>;<mods>u
+        // from the key's unshifted codepoint and has no key.codepoint() fallback.
+        // Before the fix this returned zero bytes, silently dropping Ctrl+R.
+        Span<byte> buf = stackalloc byte[64];
+        int n = surface.EncodeKey(
+            new TerminalKeyEvent(TerminalKey.R, KeyAction.Press, KeyModifiers.Ctrl), buf);
+
+        Assert.That(n, Is.GreaterThan(0), "Ctrl+R must not encode to zero bytes under the kitty protocol");
+        // 'r' = 114, modifiers = 1 + ctrl(4) = 5 → CSI 114 ; 5 u
+        Assert.That(Encoding.ASCII.GetString(buf[..n]), Is.EqualTo("\x1b[114;5u"));
+    }
+
+    [Test]
     public void Sgr_ForegroundResolvesToPaletteColor()
     {
         using var surface = NewSurface();

@@ -441,11 +441,48 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             ev.Text = keyEvent.Text;
         }
 
+        // The kitty keyboard protocol encoder builds the CSI…u sequence for
+        // letters/digits/punctuation from the unshifted codepoint and, unlike
+        // the legacy encoder, has no key.codepoint() fallback — so without this
+        // every Ctrl/Alt+<letter> encodes to zero bytes while an app (e.g.
+        // atuin) has the protocol enabled, silently dropping the chord. Only
+        // set it for keys with no explicit Text (Text wins for typed input).
+        uint cp = UnshiftedCodepoint(keyEvent.Key);
+        if (cp != 0 && string.IsNullOrEmpty(keyEvent.Text))
+        {
+            ev.UnshiftedCodepoint = cp;
+        }
+
         var bytes = _keyEncoder.Encode(ev);
         int n = Math.Min(bytes.Length, output.Length);
         bytes[..n].CopyTo(output);
         return n;
     }
+
+    // Maps a physical key to its shift-unapplied codepoint, mirroring
+    // libghostty's own Key.codepoint() table (input/key.zig). Returns 0 for
+    // keys with no printable codepoint (named/functional keys — the kitty
+    // encoder handles those from its predefined table instead). TerminalKey
+    // values are the GhosttyKey enum values, and the letter/digit ranges are
+    // contiguous, so the ranges below stay in lockstep with that enum.
+    private static uint UnshiftedCodepoint(TerminalKey key) => key switch
+    {
+        >= TerminalKey.A and <= TerminalKey.Z => (uint)('a' + (key - TerminalKey.A)),
+        >= TerminalKey.Digit0 and <= TerminalKey.Digit9 => (uint)('0' + (key - TerminalKey.Digit0)),
+        TerminalKey.Space => ' ',
+        TerminalKey.Semicolon => ';',
+        TerminalKey.Quote => '\'',
+        TerminalKey.Comma => ',',
+        TerminalKey.Backquote => '`',
+        TerminalKey.Period => '.',
+        TerminalKey.Slash => '/',
+        TerminalKey.Minus => '-',
+        TerminalKey.Equal => '=',
+        TerminalKey.BracketLeft => '[',
+        TerminalKey.BracketRight => ']',
+        TerminalKey.Backslash => '\\',
+        _ => 0u,
+    };
 
     public int EncodeMouse(in TerminalMouseEvent mouseEvent, Span<byte> output)
     {
