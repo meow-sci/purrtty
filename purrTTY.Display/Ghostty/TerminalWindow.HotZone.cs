@@ -10,7 +10,7 @@ public sealed partial class TerminalWindow
 {
     /// <summary>Lock-mode focus hot zone size limits (pixels).</summary>
     public const float MinHotZoneSize = 8f;
-    public const float MaxHotZoneSize = 3000f;
+    public const float MaxHotZoneSize = 5000f;
 
     private readonly string _hotZoneImguiName;
 
