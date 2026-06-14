@@ -256,6 +256,42 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_paste_encode(
         byte* data, nuint data_len, [MarshalAs(UnmanagedType.Bool)] bool bracketed,
         byte* buf, nuint buf_len, nuint* out_written);
+
+    // --- Kitty graphics (purrtty addition) ---
+    // The storage handle comes from ghostty_terminal_get(KittyGraphics). The engine
+    // parses/stores images + placements from APC graphics commands inside vt_write;
+    // these read-only getters surface them. Symbols verified exported at the pinned
+    // native commit (vendor README). See KittyGraphics.cs for the managed wrapper.
+
+    [LibraryImport(LibraryName)]
+    internal static partial nint ghostty_kitty_graphics_image(nint kitty, uint image_id);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_image_get(nint image, int data, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_get(nint kitty, int data, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_iterator_new(nint allocator, nint* iter);
+
+    [LibraryImport(LibraryName)]
+    internal static partial void ghostty_kitty_graphics_placement_iterator_free(nint iter);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_iterator_set(nint iter, int option, void* value);
+
+    // Zig `bool` is a single byte — marshal as U1 (matches NativeMethods.TrackedGridRef).
+    [LibraryImport(LibraryName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    internal static partial bool ghostty_kitty_graphics_placement_next(nint iter);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_get(nint iter, int data, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_render_info(
+        nint iter, nint image, nint terminal, void* @out);
 }
 
 // Native struct matching GhosttyTerminalOptions: { uint16_t cols, uint16_t rows, size_t max_scrollback }
