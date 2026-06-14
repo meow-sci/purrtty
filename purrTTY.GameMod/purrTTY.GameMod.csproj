@@ -38,6 +38,8 @@
             <ModManagedDll Include="$(TargetDir)ModMenu.Attributes.dll"/>
             <ModManagedDll Include="$(TargetDir)Tomlyn.dll"/>
             <ModManagedDll Include="$(TargetDir)Microsoft.Extensions.Logging.Abstractions.dll"/>
+            <!-- Managed PNG/JPEG decoder for kitty-graphics image payloads. -->
+            <ModManagedDll Include="$(TargetDir)StbImageSharp.dll"/>
         </ItemGroup>
         <Copy SourceFiles="@(ModManagedDll)" DestinationFolder="$(DistDir)"/>
 

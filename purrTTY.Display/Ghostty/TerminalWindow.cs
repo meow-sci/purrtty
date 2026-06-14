@@ -60,6 +60,10 @@ public sealed partial class TerminalWindow : IDisposable
     private float _cellWidth = 8f;
     private float _cellHeight = 16f;
 
+    // GPU texture cache for kitty-graphics images (render-thread only). Created
+    // lazily the first frame this window shows an image; disposed with the window.
+    private ImageTextureCache? _imageCache;
+
     public int Id { get; }
     public SessionManager Sessions { get; }
     public TerminalWindowSettings Settings { get; }
@@ -403,10 +407,31 @@ public sealed partial class TerminalWindow : IDisposable
             // that input currently goes elsewhere, which matters in lock mode.
             bool cursorOn = !_hasFocus || !frame.Cursor.Blinking || cursorBlinkOn;
 
+            // Kitty graphics: upload any newly-decoded images (render thread) and
+            // draw below-text placements (z < 0) under the grid, above-text ones
+            // (z >= 0) over it. Empty/zero-cost when the frame has no images.
+            var imageDrawList = ImGui.GetWindowDrawList();
+            if (frame.ImagePlacements.Length > 0 || frame.NewImages.Length > 0)
+            {
+                _imageCache ??= new ImageTextureCache();
+                _imageCache.BeginFrame();
+                _imageCache.Upload(frame.NewImages);
+                KittyImageRenderer.Draw(
+                    frame, _imageCache, imageDrawList, canvasPos, _cellWidth, _cellHeight,
+                    cols, rows, Settings.ForegroundOpacity, belowText: true);
+            }
+
             var renderStats = FrameGridRenderer.Render(
-                frame, ImGui.GetWindowDrawList(), canvasPos,
+                frame, imageDrawList, canvasPos,
                 _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn,
                 Settings.ForegroundOpacity, Settings.CellBackgroundOpacity, _hasFocus);
+
+            if (_imageCache is not null && frame.ImagePlacements.Length > 0)
+            {
+                KittyImageRenderer.Draw(
+                    frame, _imageCache, imageDrawList, canvasPos, _cellWidth, _cellHeight,
+                    cols, rows, Settings.ForegroundOpacity, belowText: false);
+            }
 
             if (ShowPerfHud)
             {
@@ -719,6 +744,7 @@ public sealed partial class TerminalWindow : IDisposable
 
         _disposed = true;
         IsOpen = false;
+        _imageCache?.Dispose();
         Sessions.Dispose();
     }
 }

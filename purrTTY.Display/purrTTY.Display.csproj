@@ -65,6 +65,12 @@
             <HintPath>$(KSAFolder)/Brutal.Vulkan.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <!-- KsaVmaAllocator (Renderer.Allocator) implements IVmaAllocator from this
+             assembly; needed to create staging pools / textures for kitty graphics. -->
+        <Reference Include="Brutal.Vulkan.Vma" Condition="Exists('$(KSAFolder)/Brutal.Vulkan.Vma.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Vulkan.Vma.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
         <Reference Include="Brutal.Core.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Core.Numerics.dll')">
             <HintPath>$(KSAFolder)/Brutal.Core.Numerics.dll</HintPath>
             <Private>false</Private>
