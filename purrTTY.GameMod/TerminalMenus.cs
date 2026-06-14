@@ -346,9 +346,11 @@ internal static class TerminalMenus
         ImGui.Text("Size");
         ImGui.SameLine();
         ImGui.SetNextItemWidth(180f);
-        if (ImGui.SliderInt("##purrtty_font_size", ref fontSize, 4, 72))
+        // DragInt (not SliderInt) so the value supports both click-drag and
+        // double-click-to-type an exact size.
+        if (ImGui.DragInt("##purrtty_font_size", ref fontSize, 0.25f, 4, 72, "%d px"))
         {
-            target.Settings.FontSize = fontSize;
+            target.Settings.FontSize = Math.Clamp(fontSize, 4, 72);
         }
 
         if (ImGui.IsItemDeactivatedAfterEdit())
@@ -530,7 +532,9 @@ internal static class TerminalMenus
         int pixels = (int)MathF.Round(get(target.Settings));
         ImGui.Text(label);
         ImGui.SetNextItemWidth(220f);
-        if (ImGui.SliderInt(id, ref pixels, (int)TerminalWindow.MinHotZoneSize, 200, "%d px"))
+        // DragInt (not SliderInt) so the value supports both click-drag and
+        // double-click-to-type an exact size, across the full hot-zone range.
+        if (ImGui.DragInt(id, ref pixels, 1f, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize, "%d px"))
         {
             set(target.Settings, Math.Clamp(pixels, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize));
         }

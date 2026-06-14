@@ -223,9 +223,13 @@ public class TerminalMod
             controller.KeyboardSuppression = ConsumeKeyboardInputSuppression;
             _controller = controller;
 
-            // Pre-open the first window so its default shell is ready before the
-            // terminal is first toggled visible.
-            controller.OpenWindow();
+            // Do NOT pre-open a window/session here: a shell must only ever be
+            // launched in response to an explicit player action. Toggling the
+            // terminal visible with no open windows opens a default-shell window
+            // on demand (GhosttyTerminalController.IsVisible), and the menu
+            // "New Window"/custom-shell paths open their own window with their
+            // requested shell — pre-opening here stranded an unwanted default
+            // (WSL2/Auto) shell alongside whatever the player actually launched.
             controller.IsVisible = _terminalVisible;
 
             ModLog.Log.Debug("purrTTY online");
