@@ -138,6 +138,17 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     private readonly TerminalFrame _frame;
     private bool _disposed;
 
+    // Kitty graphics: the engine parses/stores images + placements inside VTWrite;
+    // this reusable cursor only reads them on the tick (gotcha 1). Created lazily on
+    // first frame and reset each tick. `_emittedImageIds` tracks which images we have
+    // already decoded + handed to the frontend (first-sighting; same-id re-transmit /
+    // animation is a documented Phase-3 gap). `_prevPlacements` drives the change
+    // signal so a still image alone doesn't bump the frame generation every tick.
+    private global::Ghostty.Vt.KittyPlacementCursor? _kittyCursor;
+    private readonly HashSet<uint> _emittedImageIds = new();
+    private long _imageVersionCounter;
+    private ImagePlacement[] _prevPlacements = [];
+
     public GhosttyTerminalSurface(int cols, int rows, ILogger? logger = null, nuint? maxScrollback = null)
     {
         if (cols <= 0) throw new ArgumentOutOfRangeException(nameof(cols));
@@ -641,6 +652,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         bool changed = PopulateFrame(_pendingChange);
         _pendingChange = false;
         changed |= RefreshCursorAndScrollbar();
+        changed |= PopulateImages();
         long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         if (changed)
@@ -839,6 +851,106 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _frame.Scrollbar = scrollbar;
 
         return changed;
+    }
+
+    /// <summary>
+    /// Enumerates the engine's visible kitty-graphics placements into the frame and
+    /// decodes any newly-seen image to RGBA for the frontend to upload. The engine
+    /// resolves placement geometry against the live viewport, so this already tracks
+    /// scroll/resize. Runs on the tick thread; the engine image/storage handles are
+    /// transient, so bytes are copied + decoded immediately. Returns whether the
+    /// image state changed (new image, or the visible placement set differs) so a
+    /// still image alone doesn't bump the frame generation each tick.
+    /// </summary>
+    private bool PopulateImages()
+    {
+        _kittyCursor ??= new global::Ghostty.Vt.KittyPlacementCursor(_terminal);
+
+        List<ImagePlacement>? placements = null;
+        List<TerminalImage>? newImages = null;
+
+        if (_kittyCursor.Reset())
+        {
+            while (_kittyCursor.MoveNext())
+            {
+                // Skip off-screen placements and virtual (Unicode-placeholder)
+                // placements — the latter have no fixed screen position (Phase 2).
+                if (_kittyCursor.Current is not { ViewportVisible: true } p)
+                {
+                    continue;
+                }
+
+                placements ??= new List<ImagePlacement>(4);
+                placements.Add(new ImagePlacement
+                {
+                    ImageId = (int)p.ImageId,
+                    Col = p.ViewportCol,
+                    Row = p.ViewportRow,
+                    WidthCells = (int)p.GridCols,
+                    HeightCells = (int)p.GridRows,
+                    PixelWidth = (int)p.PixelWidth,
+                    PixelHeight = (int)p.PixelHeight,
+                    SrcX = (int)p.SourceX,
+                    SrcY = (int)p.SourceY,
+                    SrcWidth = (int)p.SourceWidth,
+                    SrcHeight = (int)p.SourceHeight,
+                    Z = p.Z,
+                });
+
+                // Decode each image once, the first frame we see it referenced.
+                // A failed decode still marks the id emitted so we don't re-attempt
+                // a broken payload every tick.
+                if (_emittedImageIds.Add(p.ImageId) && DecodeImage(p.ImageId) is { } img)
+                {
+                    newImages ??= new List<TerminalImage>(1);
+                    newImages.Add(img);
+                }
+            }
+        }
+
+        var placementsArr = placements is null ? [] : placements.ToArray();
+        var newImagesArr = newImages is null ? [] : newImages.ToArray();
+
+        bool changed = newImagesArr.Length > 0
+            || !placementsArr.AsSpan().SequenceEqual(_prevPlacements);
+
+        _frame.ImagePlacements = placementsArr;
+        _frame.NewImages = newImagesArr;
+        _prevPlacements = placementsArr;
+        return changed;
+    }
+
+    private TerminalImage? DecodeImage(uint imageId)
+    {
+        if (_kittyCursor!.GetImage(imageId) is not { } meta)
+        {
+            return null;
+        }
+
+        var data = _kittyCursor.CopyImageData(imageId);
+        if (data is null)
+        {
+            return null;
+        }
+
+        var decoded = KittyImageDecoder.Decode(
+            meta.Format, meta.Compression, data, (int)meta.Width, (int)meta.Height);
+        if (decoded is not { } d)
+        {
+            _logger.LogDebug(
+                "kitty image {Id} decode failed (format {Format}, compression {Compression}, {Bytes} bytes)",
+                imageId, meta.Format, meta.Compression, data.Length);
+            return null;
+        }
+
+        return new TerminalImage
+        {
+            ImageId = (int)imageId,
+            ContentVersion = ++_imageVersionCounter,
+            Width = d.Width,
+            Height = d.Height,
+            Rgba = d.Rgba,
+        };
     }
 
     private void FillCell(
@@ -1105,6 +1217,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
         _disposed = true;
         _selectionAnchor?.Dispose();
+        _kittyCursor?.Dispose();
         _mouseEvent.Dispose();
         _keyEncoder.Dispose();
         _mouseEncoder.Dispose();

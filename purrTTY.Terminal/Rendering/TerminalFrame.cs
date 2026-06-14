@@ -60,6 +60,19 @@ public sealed class TerminalFrame
     public ScrollbarState Scrollbar;
     public FrameColors Colors { get; } = new FrameColors();
 
+    /// <summary>
+    /// Kitty-graphics image placements visible this frame (empty when none — the
+    /// text-only path is unaffected). Geometry is engine-resolved against the live
+    /// terminal, so these already account for scroll/resize.
+    /// </summary>
+    public ImagePlacement[] ImagePlacements { get; internal set; } = [];
+
+    /// <summary>
+    /// Images decoded to RGBA this frame that the frontend has not yet uploaded
+    /// (first sighting of an id, or its content changed). Usually empty.
+    /// </summary>
+    public TerminalImage[] NewImages { get; internal set; } = [];
+
     internal TerminalFrame(int cols, int rows)
     {
         Cols = cols;

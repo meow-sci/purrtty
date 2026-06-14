@@ -21,6 +21,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Managed, dependency-free PNG/JPEG decoder for kitty-graphics image payloads
+         (libghostty hands us the bytes as transmitted; it does not decode them).
+         Pure-managed so the mod stays platform-agnostic; shipped like Tomlyn. -->
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../vendor/Ghostty.Vt/Ghostty.Vt.csproj" />
     <ProjectReference Include="../purrTTY.Logging/purrTTY.Logging.csproj" />
     <!-- ICustomShell + CustomShellRegistry (namespace purrTTY.Core.Terminal) used by
