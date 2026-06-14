@@ -225,10 +225,11 @@ Vendored binding (`vendor/Ghostty.Vt/`):
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)
 - Native P/Invoke: `src/Native/NativeMethods.cs` (+ `NativeMethods.Selection.cs`, `NativeMethods.TrackedGridRef.cs`)
 - Native loader (KSA ALC): `src/Native/NativeLibraryResolver.cs` (ModuleInitializer + `SetDllImportResolver`)
-- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef` + `Terminal.HasSelection` — a cheap native no-value probe surfaced as `ITerminalSurface.HasSelection` for UI enable-state), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), `RenderState.ReadColors(...)` (allocation-free palette read for the per-frame path — the convenience `Colors` getter allocates), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell. The binding is **pruned to the called surface** (kitty graphics, OSC/SGR parsers, formatter, sys hooks etc. were removed — see the divergence section in `vendor/Ghostty.Vt/README.md` before re-vendoring anything from upstream).
+- purrtty additions: `src/Terminal.Selection.cs` (selection + default cursor style/blink + `Terminal.TrackGridRef` + `Terminal.HasSelection` — a cheap native no-value probe surfaced as `ITerminalSurface.HasSelection` for UI enable-state), `src/TrackedGridRef.cs` (tracked grid refs — engine-owned references that follow their cell across mutations and survive scrollback pruning; used for the drag-selection anchor, see gotcha 17), `MaxScrollback` in `TerminalOptions.cs`, per-row `RowSelection` in `RenderState.cs`, and the **render-hot frame read path** in `src/RenderState.FrameReader.cs`: `RenderFrameReader` (forward-only row/cell reader — ~2 native calls per cell, 3 for styled cells, one reused cells handle per frame), `RawCell` (managed bit-decode of the packed `page.Cell` u64: content tag / codepoint / style_id / wide / content-bg — replaces per-field `ghostty_cell_get` round-trips), `RenderState.ClearDirty()` + `RenderFrameReader.ClearRowDirty()` (the engine only ever RAISES dirty flags — the consumer must clear them after each frame or `Dirty` reads Full forever), `RenderState.ReadColors(...)` (allocation-free palette read for the per-frame path — the convenience `Colors` getter allocates), UTF-8 grapheme-cluster reads into caller buffers, and `RawCellLayout.Validate()` — a runtime cross-check of the managed decode against `ghostty_cell_get` so a native pin bump that changes the bit layout fails loudly (run once per process by `GhosttyTerminalSurface`, and as the `RawCellLayout_MatchesNativeAccessors` test). The older `RenderStateRowEnumerator`/`RenderStateCellEnumerator` remain but are off the render path; use `GridRef.GetCell()` for a fully-populated cell. **Kitty graphics:** `src/KittyGraphics.cs` (`KittyPlacementCursor` — a reusable, tick-thread-only cursor over the active screen's image placements: Reset/MoveNext/Current via `placement_render_info`, plus GetImage / CopyImageData; read-only — the engine parses/stores graphics inside VTWrite) + the `KittyImage{Format,Compression}`/`KittyPlacementLayer` enums. The binding is **pruned to the called surface** (OSC/SGR parsers, formatter, sys hooks etc. were removed — see the divergence section in `vendor/Ghostty.Vt/README.md` before re-vendoring anything from upstream).
 
 Backend (`purrTTY.Terminal/`):
-- Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`)
+- Seam contract: `ITerminalSurface.cs`; frame value types: `Rendering/` (`TerminalFrame`, `FrameRow`, `FrameCell`, `RgbaColor`, `CellFlags`/`UnderlineStyle`/`CellWidth`/`CursorShape`, and the kitty-graphics carriers `ImagePlacement` (id + viewport cell geometry + z) and `TerminalImage` (id + version + decoded RGBA) on `TerminalFrame.ImagePlacements`/`NewImages`)
+- Kitty graphics: `Ghostty/GhosttyTerminalSurface.PopulateImages` enumerates the engine's visible placements each tick (engine resolves geometry → scroll/resize track for free) and decodes each image once on first sighting via `Ghostty/KittyImageDecoder.cs` (zlib inflate + PNG/JPEG via **StbImageSharp** + raw RGB/RGBA/gray → packed RGBA; size/truncation-guarded). No engine/codec types cross the seam. Virtual (Unicode-placeholder) placements and same-id re-transmit/animation are not yet handled (`KITTY_PLAN.md` Phase 2/3).
 - Engine wrapper: `Ghostty/GhosttyTerminalSurface.cs` (single-threads native; theme push; key/mouse encode; drag selection via `BeginSelectCells`/`ExtendSelectCells` with a **tracked** grid-ref anchor that survives viewport scroll *and* scrollback pruning — gotcha 17; bounded PTY inbox with chunked catch-up — gotcha 18; **dirty-aware frame production** — see gotcha 12 — with cell fg/bg resolved managed-side from style + palette in `FillCell`, a per-surface `GraphemeCache` interning cell strings so steady-state rebuilds allocate nothing, DEC 2026 synchronized-output gating — gotcha 13 — and `LastFrameStats` for the perf HUD)
 - OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream;
   decides interest in raw bytes before allocating, **discards** payloads that hit the 64 KiB cap
@@ -290,6 +291,14 @@ Frontend (`purrTTY.Display/`):
   half-block "pixel" apps (doom, chafa) collapse into color-run strips. The decoration pass is
   skipped for rows whose `FrameRow.HasDecorations` is false (computed by the backend). `Render`
   returns `GridRenderStats` (draw-call counts) for the perf HUD.
+- Kitty graphics rendering: `Ghostty/ImageTextureCache.cs` (one `SimpleVkTexture` +
+  `ImTextureRef` per image id, uploaded from the frame's decoded RGBA on the **render thread** via
+  a staging pool + one-shot command buffer, registered with `ImGuiBackend.Vulkan.AddTexture` and
+  freed with `RemoveTexture`; LRU-evicts under the shared 1000-slot descriptor pool — gotcha 23)
+  and `Ghostty/KittyImageRenderer.cs` (draws placements in two z-bands — z<0 under the glyphs,
+  z>=0 over them — sized to the cell span in fractional metrics so images stay grid-aligned,
+  clipped to the grid rect). `TerminalWindow.Render` owns the per-window cache and draws around
+  `FrameGridRenderer.Render`; the perf HUD shows `img:<placements>/<textures>`.
 - Session-manager factory: `Ghostty/GhosttySessionManagerFactory.cs` (one `SessionManager` per window via
   `CreateSessionManager(config)`; `EnsureGameShellsDiscovered()` runs custom-shell discovery once)
 - Reused chrome: `Rendering/PurrTTYFontManager.cs` (font family registry → per-window `FrameFonts`),
@@ -670,6 +679,25 @@ Custom shells:
      `InputSent` event — deliberately carries no bytes; copying them per keystroke for a
      consumer that ignores them was avoidable garbage).
 
+23. **Kitty graphics: the engine owns the protocol; we read + composite.** `Terminal.VTWrite`
+    parses and stores images + placements from APC graphics commands; purrtty never parses them.
+    Each tick `GhosttyTerminalSurface.PopulateImages` reads the engine's *visible* placements
+    (`KittyPlacementCursor`, tick-thread-only — the storage/image handles are transient pointers
+    into engine-owned maps, valid only for that tick, so image bytes are **copied + decoded
+    immediately**) and the engine resolves placement geometry against the live viewport, so scroll
+    and resize track for free (no client-side tracked refs). Decoding (zlib/PNG → RGBA) is
+    renderer-neutral CPU work in the backend; only ids + geometry + packed RGBA cross the seam.
+    **GPU upload and ImGui texture registration are render-thread-only** (`ImageTextureCache`,
+    driven from `TerminalWindow.Render` inside the UI pass): a `SimpleVkTexture` is created +
+    uploaded (staging pool + one-shot command buffer; `VkUtils` does the layout transitions) and
+    registered via `ImGuiBackend.Vulkan.AddTexture` → an `ImTextureRef` drawn with
+    `drawList.AddImage`. Never create/upload textures or call `AddTexture`/`RemoveTexture` off the
+    render thread. Evict with `RemoveTexture` **before** disposing the `SimpleVkTexture`, and stay
+    under the shared 1000-slot descriptor pool. Decode failures / oversize images are dropped
+    (logged once), so a missing texture just means that image doesn't draw — never a crash. Known
+    gaps (`KITTY_PLAN.md`): virtual Unicode-placeholder placements (Phase 2) and same-id
+    re-transmit / animation + pixel-exact non-cell sizing + source-rect crop (Phase 3).
+
 ### Changing terminal/rendering behavior
 - Frame production / cell mapping: `purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs`
 - Drawing: `purrTTY.Display/Ghostty/FrameGridRenderer.cs`
@@ -702,7 +730,8 @@ automatically (live registry enumeration, no purrTTY change needed).
    `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed
    projects must never linger in the game's mod ALC) and copies the managed payload by glob
    (`purrTTY.*.dll`) plus the explicit deps (`Ghostty.Vt`, `Tomlyn`, `ModMenu.Attributes`,
-   `Microsoft.Extensions.Logging.Abstractions`). `0Harmony.dll`/`StarMap.API.dll` are deliberately
+   `Microsoft.Extensions.Logging.Abstractions`, `StbImageSharp` — the kitty-graphics image
+   decoder). `0Harmony.dll`/`StarMap.API.dll` are deliberately
    **not** shipped — the StarMap loader supplies them. `THIRD-PARTY-NOTICES.md` +
    `third-party-licenses/` ship in the mod folder; keep both in sync with what actually ships.
 2. Launch KSA; toggle the terminal with the configured hotkey (default F12).

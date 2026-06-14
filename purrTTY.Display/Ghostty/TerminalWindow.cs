@@ -439,7 +439,7 @@ public sealed partial class TerminalWindow : IDisposable
                     session, canvasPos, avail, cols, rows,
                     Stopwatch.GetElapsedTime(buildStart, submitStart).TotalMilliseconds,
                     Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds,
-                    renderStats);
+                    renderStats, frame.ImagePlacements.Length, _imageCache?.Count ?? 0);
             }
         }
         else if (_hadSessions && Sessions.SessionCount == 0)

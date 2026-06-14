@@ -185,12 +185,13 @@ in the Display layer.
 
 ## Phasing
 
-- **Phase 0 — spike (de-risk):** restore binding, verify enums vs pinned headers, write a backend
-  integration test that feeds a raw-RGBA APC sequence and asserts placement enumeration + geometry.
-  Confirms the C API works against our actual native libs before any rendering work.
-- **Phase 1 — MVP:** classic (pinned) placements, raw RGB/RGBA + PNG + zlib decode, texture cache,
-  z-ordered draw, scroll/resize correctness. Target: `kitten icat`, `timg`, `chafa -f kitty`,
-  `yazi`/`lf` image previews over WSL render correctly and scroll with content.
+- **Phase 0 — spike (de-risk): DONE.** Restored binding (`KittyPlacementCursor`), enums verified
+  vs pinned headers, direct binding tests drive the real native lib (`KittyGraphicsBindingTests`).
+- **Phase 1 — MVP: DONE.** Classic (pinned) placements, raw RGB/RGBA/gray + PNG + zlib decode,
+  GPU texture cache (`ImageTextureCache`), z-banded draw (`KittyImageRenderer`), scroll/resize via
+  engine-resolved geometry, perf-HUD `img:` counter. Backend + decoder tests green; frontend
+  compiles against the real KSA assemblies. **In-game visual verification still pending** (run
+  `kitten icat`, `timg`, `chafa -f kitty`, `yazi`/`lf` over WSL).
 - **Phase 2 — Unicode virtual placeholders (U+10EEEE):** the `is_virtual` placements that are laid
   out by placeholder cells in the grid (used by some image plugins). More involved layout; gated on
   the per-row `KittyVirtualPlaceholder` flag already surfaced.

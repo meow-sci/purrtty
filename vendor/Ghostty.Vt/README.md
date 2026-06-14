@@ -46,13 +46,20 @@ reference, **never** re-vendor wholesale (it would revert the fixes below). Grep
   in place, and the caller's span may point at read-only memory (u8 literals).
 - **`MouseEvent.Modifiers` marshals as u16**; double-free guards on `KeyEvent`/`MouseEvent`
   re-dispose; `MaxScrollback` plumbed (upstream hardcoded 1000 **bytes** — effectively none).
+- **Kitty graphics binding is restored** (`KittyGraphics.cs` + `KittyImage*`/`KittyPlacementLayer`
+  enums + the `ghostty_kitty_graphics_*` P/Invokes). It was deleted as dead code in 91fedcf and
+  rewritten clean against the pinned headers (`src/terminal/c/kitty_graphics.zig`): a reusable
+  `KittyPlacementCursor` (Reset/MoveNext/Current using `placement_render_info`, plus GetImage /
+  CopyImageData). Read-only — the engine parses/stores graphics inside VTWrite; there is no
+  command-injection API. Enums (`KittyImageFormat`/`Compression`/`PlacementLayer`) are 0-based
+  C enums — re-verify against the headers on a pin bump. Used by purrtty's image compositing.
 - **`KeyEvent.UnshiftedCodepoint` is bound and set for printable keys.** The kitty keyboard
   protocol encoder builds `CSI <code>;<mods>u` from it (no `key.codepoint()` fallback, unlike
   legacy) and emits **nothing** without it — so a Ctrl/Alt+letter dropped silently for any app
   that enabled the protocol. See repo-root CLAUDE.md gotcha 3.
 
 **Pruned surface:** binding modules purrtty never calls were removed rather than carried as
-freight (kitty graphics, OSC/SGR parsers, `Formatter`, `Focus`, `SizeReport`, `BuildInfo`,
+freight (OSC/SGR parsers, `Formatter`, `Focus`, `SizeReport`, `BuildInfo`,
 `Sys`, batch getters, terminal color/pwd/title getters & setters, and enums that had drifted
 from the pinned headers). Restore from upstream (then re-verify against the pinned headers)
 if a feature needs one of them — drifted enums especially must be regenerated from the pin,

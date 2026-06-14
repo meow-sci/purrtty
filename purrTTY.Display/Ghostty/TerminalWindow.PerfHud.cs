@@ -29,7 +29,9 @@ public sealed partial class TerminalWindow
         int rows,
         double buildMs,
         double submitMs,
-        GridRenderStats stats)
+        GridRenderStats stats,
+        int imagePlacements,
+        int imageTextures)
     {
         var frameStats = (session.Surface as GhosttyTerminalSurface)?.LastFrameStats ?? default;
 
@@ -56,7 +58,7 @@ public sealed partial class TerminalWindow
         // the render path; it must not perturb it with three strings per frame.
         ImString l1 = $"grid {cols}x{rows}  build {buildMs:F2}ms (vt {frameStats.WriteMs:F2} upd {frameStats.UpdateMs:F2} pop {frameStats.PopulateMs:F2})";
         ImString l2 = $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s";
-        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}";
+        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}  img:{imagePlacements}/{imageTextures}";
 
         float lineH = ImGui.GetTextLineHeight();
         float w = Math.Max(ImGui.CalcTextSize(l1).X, Math.Max(ImGui.CalcTextSize(l2).X, ImGui.CalcTextSize(l3).X));

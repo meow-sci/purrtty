@@ -35,6 +35,9 @@ internal sealed class ImageTextureCache : IDisposable
     private long _frame;
     private bool _disposed;
 
+    /// <summary>Number of GPU textures currently cached (for the perf HUD).</summary>
+    public int Count => _entries.Count;
+
     /// <summary>Advances the frame counter used for LRU bookkeeping.</summary>
     public void BeginFrame() => _frame++;
 
