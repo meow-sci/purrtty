@@ -4,6 +4,7 @@ using purrTTY.CustomShells;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Theming;
+using PurrTTY.Terminal.Ghostty;
 using PurrTTY.Terminal.Rendering;
 using float3 = Brutal.Numerics.float3;
 
@@ -558,6 +559,12 @@ internal static class TerminalMenus
         if (ImGui.Checkbox("Show performance HUD", ref perfHud))
         {
             TerminalWindow.ShowPerfHud = perfHud;
+        }
+
+        bool kittyDiag = GhosttyTerminalSurface.DiagnoseKittyProtocol;
+        if (ImGui.Checkbox("Diagnose kitty APC bytes", ref kittyDiag))
+        {
+            GhosttyTerminalSurface.DiagnoseKittyProtocol = kittyDiag;
         }
 
         var target = controller.FocusTarget;

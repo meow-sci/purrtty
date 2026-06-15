@@ -242,6 +242,30 @@ public sealed unsafe class KittyPlacementCursor : IDisposable
     }
 
     /// <summary>
+    /// Returns the raw data length in bytes for the stored image, or -1 if absent/empty.
+    /// Cheaper than <see cref="CopyImageData"/> — does not allocate; used to detect
+    /// re-transmission of the same image id (same id, different length → new content).
+    /// </summary>
+    public long GetImageDataLen(uint imageId)
+    {
+        ThrowIfDisposed();
+        if (_storage == nint.Zero)
+        {
+            return -1;
+        }
+
+        nint image = NativeMethods.ghostty_kitty_graphics_image(_storage, imageId);
+        if (image == nint.Zero)
+        {
+            return -1;
+        }
+
+        nuint dataLen = 0;
+        NativeMethods.ghostty_kitty_graphics_image_get(image, (int)KittyImageDataKey.DataLen, &dataLen);
+        return (long)dataLen;
+    }
+
+    /// <summary>
     /// Copies the raw (possibly compressed/encoded) image payload for <paramref name="imageId"/>
     /// into a new array, or null if absent/empty. The engine owns the buffer only for
     /// the current tick, so the copy must happen before any further engine mutation.

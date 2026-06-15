@@ -40,8 +40,37 @@ public struct SurfaceFrameStats
     /// <summary>True when the frame was withheld by DEC 2026 synchronized output.</summary>
     public bool SyncPaused;
 
+    /// <summary>
+    /// Running total of inbox-overflow events since the surface was created.
+    /// Each event causes a CAN+ST to be injected at the drop boundary, which
+    /// can abort in-flight APC sequences. Non-zero means kitty graphics may break.
+    /// </summary>
+    public int InboxDropTotal;
+
     /// <summary>Whether the frame generation advanced this tick.</summary>
     public bool ContentChanged;
+
+    /// <summary>
+    /// Count of APC kitty sequence starts (\\x1b_G) found in the VTWrite input this tick,
+    /// or -1 when <see cref="GhosttyTerminalSurface.DiagnoseKittyProtocol"/> is disabled.
+    /// Zero starts in a large write means ConPTY may be stripping the APC wrapper before
+    /// the data reaches purrTTY.
+    /// </summary>
+    public int KittyApcStarts;
+
+    // --- Kitty diagnostic fields (all only valid when KittyApcStarts >= 0) ---
+
+    /// <summary>Whether <c>KittyPlacementCursor.Reset()</c> returned true (kitty storage exists in the engine).</summary>
+    public bool KittyStorageExists;
+
+    /// <summary>Total placements iterated before filtering (includes virtual + off-screen).</summary>
+    public int KittyTotalPlacements;
+
+    /// <summary>
+    /// Hex of first 32 bytes immediately after the first \\x1b_G in this tick's input,
+    /// or null if no APC was found. Shows whether an APC body follows the header.
+    /// </summary>
+    public string? KittyApcSample;
 }
 
 /// <summary>
@@ -80,10 +109,13 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // last resort, not the regulator.
     private const int MaxInboxBytes = 8 * 1024 * 1024;
 
-    // Cap on PTY bytes fed to the engine per BuildFrame. Bounds the per-tick
-    // stall when catching up on a large backlog (e.g. the first tick after the
-    // terminal is re-shown); the remainder stays queued for following ticks.
-    private const int MaxBytesPerTick = 1024 * 1024;
+    // Drain up to this many bytes from the inbox per BuildFrame. Set to the full
+    // inbox capacity so we always drain everything each tick: VTWrite is fast
+    // (~0 ms shown in the perf HUD) and kitty-graphics workloads (terminal-doom
+    // at ~55 MB/s) outrun the old 1 MB cap at sub-60fps game rates, causing the
+    // inbox to overflow and DropResetSeq to be injected mid-APC, which corrupts
+    // in-flight kitty sequences and lets their base64 payload land in cells as text.
+    private const int MaxBytesPerTick = MaxInboxBytes;
 
     // Set when Write had to discard bytes at the inbox tail. The next bytes
     // that are accepted are preceded by CAN + ST, which aborts any escape
@@ -92,6 +124,11 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // parser cannot desync across the gap.
     private bool _inboxDroppedTail;
     private static readonly byte[] DropResetSeq = { 0x18, 0x1B, (byte)'\\' };
+
+    // Running count of inbox-overflow events (transition into dropped state).
+    // Surfaced in the perf HUD as "drop:N"; any value above 0 means APC sequences
+    // were interrupted by a CAN+ST injection and kitty graphics likely broke.
+    private int _inboxDropCount;
 
     // Engine replies (DA/DSR/...) collected during VTWrite, flushed after.
     private readonly List<byte> _replies = new(256);
@@ -140,14 +177,33 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
     // Kitty graphics: the engine parses/stores images + placements inside VTWrite;
     // this reusable cursor only reads them on the tick (gotcha 1). Created lazily on
-    // first frame and reset each tick. `_emittedImageIds` tracks which images we have
-    // already decoded + handed to the frontend (first-sighting; same-id re-transmit /
-    // animation is a documented Phase-3 gap). `_prevPlacements` drives the change
-    // signal so a still image alone doesn't bump the frame generation every tick.
+    // first frame and reset each tick. `_emittedImageDataLen` maps image id → last-seen
+    // raw data length: a length change (same id, new content) means the app re-transmitted
+    // the image (e.g. terminal-doom sends a fresh frame to the same id every tick), so
+    // we re-decode it. `_prevPlacements` drives the change signal so a still image alone
+    // doesn't bump the frame generation every tick.
     private global::Ghostty.Vt.KittyPlacementCursor? _kittyCursor;
-    private readonly HashSet<uint> _emittedImageIds = new();
+    private readonly Dictionary<uint, long> _emittedImageDataLen = new();
     private long _imageVersionCounter;
     private ImagePlacement[] _prevPlacements = [];
+
+    /// <summary>
+    /// When true, each VTWrite input is scanned for APC kitty sequence starts (\\x1b_G)
+    /// to diagnose whether ConPTY is stripping the APC wrapper before data reaches purrTTY.
+    /// The count appears in <see cref="LastFrameStats"/>.KittyApcStarts and the perf HUD.
+    /// Large writes with zero starts → ConPTY is likely mangling the APC sequences.
+    /// Toggle from Window → "Diagnose kitty APC bytes".
+    /// </summary>
+    public static bool DiagnoseKittyProtocol { get; set; }
+
+    // Throttle timestamp for kitty diagnostic warning log (once per second).
+    private long _kittyDiagWarnTs;
+    private long _kittyDiagImgWarnTs;
+
+    // Cached diagnostic state read by DrawPerfHud via LastFrameStats each tick.
+    private bool _kittyDiagStorageExists;
+    private int _kittyDiagTotalPlacements;
+    private string? _kittyDiagApcSample; // updated once per second (string alloc)
 
     public GhosttyTerminalSurface(int cols, int rows, ILogger? logger = null, nuint? maxScrollback = null)
     {
@@ -226,6 +282,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             if (required > MaxInboxBytes)
             {
                 dropped = !_inboxDroppedTail;
+                if (dropped) _inboxDropCount++;
                 _inboxDroppedTail = true;
             }
             else
@@ -560,8 +617,10 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         int inputLen;
+        int inboxDropSnap;
         lock (_sync)
         {
+            inboxDropSnap = _inboxDropCount;
             if (_inboxLen <= MaxBytesPerTick)
             {
                 inputLen = _inboxLen;
@@ -576,6 +635,8 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                 // Backlog catch-up: feed at most MaxBytesPerTick this tick so a
                 // large buffered burst cannot stall the render thread for one
                 // giant VTWrite; the rest is consumed on subsequent ticks.
+                // NOTE: with MaxBytesPerTick == MaxInboxBytes this branch is
+                // unreachable — _inboxLen can never exceed MaxInboxBytes.
                 inputLen = MaxBytesPerTick;
                 if (_scratch.Length < inputLen)
                 {
@@ -588,10 +649,49 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             }
         }
 
+        int kittyApcStarts = -1;
         if (inputLen > 0)
         {
             var span = _scratch.AsSpan(0, inputLen);
             _osc.Feed(span);
+
+            if (DiagnoseKittyProtocol)
+            {
+                var (apcCount, firstOffset) = ScanForApc(span);
+                kittyApcStarts = apcCount;
+
+                // Throttle to once per second for the logger (NullLogger-safe) and
+                // to amortize the string allocation for the HUD sample.
+                var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(_kittyDiagWarnTs);
+                if (_kittyDiagWarnTs == 0 || elapsed.TotalSeconds >= 1.0)
+                {
+                    _kittyDiagWarnTs = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                    if (apcCount == 0 && inputLen >= 4096)
+                    {
+                        // No APC starts in a large write: ConPTY may be stripping the header.
+                        int n = Math.Min(64, inputLen);
+                        string hex = Convert.ToHexString(span[..n]);
+                        _kittyDiagApcSample = $"(none) {hex}";
+                        _logger.LogWarning(
+                            "kitty diag: 0 APC starts in {Bytes}B — ConPTY may strip \\x1b_G. First {N}B: {Hex}",
+                            inputLen, n, hex);
+                    }
+                    else if (apcCount > 0 && firstOffset >= 0)
+                    {
+                        // APC header present. Sample the bytes right after \x1b_G to see
+                        // whether data follows or the sequence ends immediately with ST.
+                        int afterHeader = firstOffset + 3; // skip ESC _ G
+                        int n = Math.Min(32, span.Length - afterHeader);
+                        string hex = n > 0 ? Convert.ToHexString(span[afterHeader..(afterHeader + n)]) : "";
+                        _kittyDiagApcSample = hex;
+                        _logger.LogWarning(
+                            "kitty diag: {Count} APC starts in {Bytes}B; first at +{Offset}, next {N}B: {Hex}",
+                            apcCount, inputLen, firstOffset, n, hex);
+                    }
+                }
+            }
+
             _terminal.VTWrite(span);
             // No _pendingChange here: the engine's dirty tracking decides
             // whether the bytes changed anything visible.
@@ -636,6 +736,11 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                     WriteMs = ElapsedMs(t0, t1),
                     BytesConsumed = inputLen,
                     SyncPaused = true,
+                    InboxDropTotal = inboxDropSnap,
+                    KittyApcStarts = kittyApcStarts,
+                    KittyStorageExists = _kittyDiagStorageExists,
+                    KittyTotalPlacements = _kittyDiagTotalPlacements,
+                    KittyApcSample = _kittyDiagApcSample,
                 };
                 return _frame;
             }
@@ -669,6 +774,11 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             BytesConsumed = inputLen,
             DirtyState = _lastDirtyState,
             ContentChanged = changed,
+            InboxDropTotal = inboxDropSnap,
+            KittyApcStarts = kittyApcStarts,
+            KittyStorageExists = _kittyDiagStorageExists,
+            KittyTotalPlacements = _kittyDiagTotalPlacements,
+            KittyApcSample = _kittyDiagApcSample,
         };
 
         return _frame;
@@ -676,6 +786,23 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
     private static double ElapsedMs(long from, long to)
         => System.Diagnostics.Stopwatch.GetElapsedTime(from, to).TotalMilliseconds;
+
+    // Scans for APC kitty sequence starts (ESC _ G = 0x1B 0x5F 0x47).
+    // Returns (count, offset of first start, or -1 if none).
+    private static (int Count, int FirstOffset) ScanForApc(ReadOnlySpan<byte> span)
+    {
+        int count = 0;
+        int first = -1;
+        for (int i = 0; i < span.Length - 2; i++)
+        {
+            if (span[i] == 0x1B && span[i + 1] == '_' && span[i + 2] == 'G')
+            {
+                if (first < 0) first = i;
+                count++;
+            }
+        }
+        return (count, first);
+    }
 
     private int _lastDirtyState; // 0 = skipped/clean, 1 = partial, 2 = full
 
@@ -868,14 +995,19 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
         List<ImagePlacement>? placements = null;
         List<TerminalImage>? newImages = null;
+        int totalSeen = 0; // for diagnostic: all placements (including filtered-out ones)
 
-        if (_kittyCursor.Reset())
+        bool hasStorage = _kittyCursor.Reset();
+        if (hasStorage)
         {
             while (_kittyCursor.MoveNext())
             {
-                // Skip off-screen placements and virtual (Unicode-placeholder)
-                // placements — the latter have no fixed screen position (Phase 2).
-                if (_kittyCursor.Current is not { ViewportVisible: true } p)
+                totalSeen++;
+
+                // Skip null (image handle gone), virtual (Unicode-placeholder, Phase 2),
+                // and off-screen placements. Virtual placements have no fixed viewport
+                // position and need a separate layout pass that is not yet implemented.
+                if (_kittyCursor.Current is not { IsVirtual: false, ViewportVisible: true } p)
                 {
                     continue;
                 }
@@ -897,14 +1029,47 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                     Z = p.Z,
                 });
 
-                // Decode each image once, the first frame we see it referenced.
-                // A failed decode still marks the id emitted so we don't re-attempt
+                // Re-decode when the image data length changed under the same id.
+                // Apps like terminal-doom delete and re-transmit the same id every
+                // frame; without this check the texture would freeze on frame 1.
+                // Length is a cheap proxy for content change (no byte copy).
+                // A decode failure still records the length so we don't re-attempt
                 // a broken payload every tick.
-                if (_emittedImageIds.Add(p.ImageId) && DecodeImage(p.ImageId) is { } img)
+                long dataLen = _kittyCursor.GetImageDataLen(p.ImageId);
+                bool needsDecode = !_emittedImageDataLen.TryGetValue(p.ImageId, out long prevLen)
+                                   || prevLen != dataLen;
+                if (needsDecode)
                 {
-                    newImages ??= new List<TerminalImage>(1);
-                    newImages.Add(img);
+                    if (DecodeImage(p.ImageId) is { } img)
+                    {
+                        newImages ??= new List<TerminalImage>(1);
+                        newImages.Add(img);
+                    }
+                    _emittedImageDataLen[p.ImageId] = dataLen;
+                    if (prevLen != 0 && prevLen != dataLen)
+                    {
+                        _logger.LogDebug(
+                            "kitty image {Id} re-transmitted ({Prev}→{New} bytes)",
+                            p.ImageId, prevLen, dataLen);
+                    }
                 }
+            }
+        }
+
+        if (DiagnoseKittyProtocol)
+        {
+            // Update HUD fields every tick (cheap). Logger path is a bonus if a real
+            // logger is wired up; NullLogger swallows it silently.
+            _kittyDiagStorageExists = hasStorage;
+            _kittyDiagTotalPlacements = totalSeen;
+
+            var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(_kittyDiagImgWarnTs);
+            if (_kittyDiagImgWarnTs == 0 || elapsed.TotalSeconds >= 1.0)
+            {
+                _kittyDiagImgWarnTs = System.Diagnostics.Stopwatch.GetTimestamp();
+                _logger.LogWarning(
+                    "kitty diag img: storage={HasStorage} total={Total} visible={Visible} decoded={New}",
+                    hasStorage, totalSeen, placements?.Count ?? 0, newImages?.Count ?? 0);
             }
         }
 
