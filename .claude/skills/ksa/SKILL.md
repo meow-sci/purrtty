@@ -1,6 +1,6 @@
 ---
 name: ksa
-description: details about the ksa game code and behavior
+description: detailed information about kitten space agency (KSA) game code, decompiled sources, modding patterns, architecture and best practices for working with mods and the game codebase
 ---
 
 # KSA Mod Structure
@@ -446,6 +446,19 @@ See [game-menus.md](game-menus.md) for the complete pattern including the transp
 KSA cameras (`OrbitController`, `FlyController`) can be intercepted via Harmony prefix on `OnFrame`. Return `false` to suppress default camera behavior. Camera uses **ECL (Ecliptic)** coordinates (distinct from vehicle CCI/CCE frames).
 
 See [camera.md](camera.md) for full details including `Transform3D`, `Controller.Camera.Following`, orbit math, and look-at helpers.
+
+# In-World Textured Quad (Render-to-Texture Surface)
+
+Draw a flat textured quad in the scene, anchored to a `Part` / `SubPart` on a `Vehicle`, sampling any `VkImageView` (e.g. an offscreen render target). Reuses KSA's `UnlitMesh.{vert,frag}` (`vec3 pos + vec2 uv`, `mat4` MVP push constant, one combined-image-sampler). Injects the draw via a Harmony **postfix on `SuperMeshRenderSystem.RenderMainPass`** — that runs inside the already-begun offscreen pass on the active command buffer.
+
+Key gotchas:
+- Bind the pipeline to `Program.OffScreenPass` (NOT `Program.MainPass`) and set `RasterizationSamples = Program.OffScreenPass.SampleCount` — otherwise depth silently misbehaves under MSAA.
+- Use `RenderingPresets.ReverseZDepthStencil.DepthTestWrite` (KSA's offscreen pass is reverse-Z) and `Presets.Rasterization.Fill.CullNone` (double-sided).
+- Compose the model matrix in **ego space**: combine `part.PositionEgo(...)` + `part.Asmb2Ego(...)` with your own scale / rotation / offset; multiply by `camera.MVP.viewProjection` for the MVP push constant.
+- Don't bake `part.MatrixAsmb2Ego` directly — it includes the part's scale, which you usually want to exclude.
+- If the source texture is gamma-encoded (as ImGui output is), use `R8G8B8A8UNorm` for the source; SRGB formats double-decode and darken the result.
+
+See [quad.md](quad.md) for the complete pipeline setup, vertex/index layout, per-frame model-matrix composition, ray-vs-quad picking via `Cursor.InputRay`, and lifecycle / disposal rules.
 
 # Numerics
 
