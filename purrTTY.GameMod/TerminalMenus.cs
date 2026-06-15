@@ -567,6 +567,15 @@ internal static class TerminalMenus
             GhosttyTerminalSurface.DiagnoseKittyProtocol = kittyDiag;
         }
 
+        int maxTex = TerminalWindow.KittyCacheLimit;
+        ImGui.Text("Kitty cache limit");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(80f);
+        if (ImGui.DragInt("##purrtty_kitty_cache", ref maxTex, 0.5f, 4, 256, "%d tex"))
+        {
+            TerminalWindow.KittyCacheLimit = Math.Clamp(maxTex, 4, 256);
+        }
+
         var target = controller.FocusTarget;
         if (target == null)
         {

@@ -18,6 +18,15 @@ public sealed class TerminalImage
     public int Width { get; init; }
     public int Height { get; init; }
 
+    private byte[] _rgba = [];
+
     /// <summary>Tightly packed RGBA8888, length == Width * Height * 4.</summary>
-    public byte[] Rgba { get; init; } = [];
+    public byte[] Rgba
+    {
+        get => _rgba;
+        init => _rgba = value;
+    }
+
+    /// <summary>Releases the pixel buffer after GPU upload to free the LOH allocation immediately.</summary>
+    public void ClearPixelData() => _rgba = [];
 }

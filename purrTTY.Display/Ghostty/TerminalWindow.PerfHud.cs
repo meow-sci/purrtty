@@ -12,6 +12,13 @@ public sealed partial class TerminalWindow
     /// <summary>Debug overlay with frame-build / submit timings and draw-call counts (all windows).</summary>
     public static bool ShowPerfHud { get; set; }
 
+    /// <summary>Tunable kitty image GPU texture cache size limit (shared across all windows).</summary>
+    public static int KittyCacheLimit
+    {
+        get => ImageTextureCache.MaxTextures;
+        set => ImageTextureCache.MaxTextures = value;
+    }
+
     // Perf-HUD throughput tracking (bytes consumed per second, ~500ms window).
     private long _hudAccumBytes;
     private long _hudWindowStartTs;
@@ -32,7 +39,8 @@ public sealed partial class TerminalWindow
         GridRenderStats stats,
         int imagePlacements,
         int imageTextures,
-        int newImages)
+        int newImages,
+        long vramBytes)
     {
         var frameStats = (session.Surface as GhosttyTerminalSurface)?.LastFrameStats ?? default;
 
@@ -66,7 +74,7 @@ public sealed partial class TerminalWindow
             (false, true)  => $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s  DROP:{frameStats.InboxDropTotal}",
             _              => $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s",
         };
-        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}  img:{imagePlacements}/{imageTextures}+{newImages}";
+        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}  img:{imagePlacements}/{imageTextures}+{newImages}  vram:{vramBytes / 1048576.0:F1}MB";
 
         // Line 4: kitty diagnostics (only when the diag flag is on).
         // Shows storage existence, placement counts, and the first 32 bytes after

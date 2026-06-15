@@ -440,7 +440,7 @@ public sealed partial class TerminalWindow : IDisposable
                     Stopwatch.GetElapsedTime(buildStart, submitStart).TotalMilliseconds,
                     Stopwatch.GetElapsedTime(submitStart).TotalMilliseconds,
                     renderStats, frame.ImagePlacements.Length, _imageCache?.Count ?? 0,
-                    frame.NewImages.Length);
+                    frame.NewImages.Length, _imageCache?.EstimatedVramBytes ?? 0L);
             }
         }
         else if (_hadSessions && Sessions.SessionCount == 0)

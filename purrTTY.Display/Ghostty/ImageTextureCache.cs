@@ -14,8 +14,10 @@ namespace purrTTY.Display.Ghostty;
 /// + ImGui descriptor (<see cref="ImTextureRef"/>) per image id, created from the
 /// backend's decoded RGBA and drawn via the window draw list. Render-thread only
 /// (Vulkan upload + ImGui registration): driven from <c>TerminalWindow.Render</c>,
-/// which runs inside the game's UI pass. LRU-evicts to stay well under the shared
-/// 1000-slot ImGui descriptor pool.
+/// which runs inside the game's UI pass. O(1) LRU-evicts to stay well under the shared
+/// 1000-slot ImGui descriptor pool. Evicted textures are deferred for
+/// <see cref="DeferredDeleteFrames"/> frames so in-flight GPU draw commands finish before
+/// the Vulkan object is freed.
 /// </summary>
 internal sealed class ImageTextureCache : IDisposable
 {
@@ -24,22 +26,49 @@ internal sealed class ImageTextureCache : IDisposable
         public required SimpleVkTexture Texture;
         public ImTextureRef TexRef;
         public long ContentVersion;
-        public long LastUsedFrame;
+        public int Width;
+        public int Height;
     }
 
-    // Conservative cap: the ImGui descriptor pool holds 1000 sets shared with the
-    // whole game; terminal image previews need far fewer.
-    private const int MaxTextures = 64;
+    // Tunable cap shared across all instances: the ImGui descriptor pool has 1000 slots
+    // (whole game). Terminal-doom cycles ~1 image per frame, so 32 is ample and saves VRAM.
+    public static int MaxTextures { get; set; } = 32;
 
-    private readonly Dictionary<int, Entry> _entries = new();
+    // Hold evicted textures for this many frames before calling Dispose so in-flight
+    // GPU draw commands (from the previous 1–2 frames) finish before the Vulkan object
+    // is freed. 3 covers double- and triple-buffered swap chains with one frame of margin.
+    private const int DeferredDeleteFrames = 3;
+
+    // O(1) LRU: _lruOrder front = least-recently-used, back = most-recently-used.
+    // Storing the LinkedListNode inside the dictionary enables O(1) promote on TryGet
+    // (remove + re-add-last) and O(1) evict (take First, look up bucket, remove both).
+    private readonly Dictionary<int, (Entry Entry, LinkedListNode<int> Node)> _entries = new();
+    private readonly LinkedList<int> _lruOrder = new();
+    private readonly Queue<(Entry Entry, long DeleteAtFrame)> _pendingDelete = new();
     private long _frame;
+    private long _estimatedVramBytes;
     private bool _disposed;
 
     /// <summary>Number of GPU textures currently cached (for the perf HUD).</summary>
     public int Count => _entries.Count;
 
-    /// <summary>Advances the frame counter used for LRU bookkeeping.</summary>
-    public void BeginFrame() => _frame++;
+    /// <summary>
+    /// Approximate GPU VRAM used by cached textures in bytes (Width × Height × 4 per entry).
+    /// </summary>
+    public long EstimatedVramBytes => _estimatedVramBytes;
+
+    /// <summary>
+    /// Advances the frame counter and releases any GPU textures whose deferred-delete
+    /// deadline has passed. Must be called once at the start of each render pass.
+    /// </summary>
+    public void BeginFrame()
+    {
+        _frame++;
+        while (_pendingDelete.Count > 0 && _pendingDelete.Peek().DeleteAtFrame <= _frame)
+        {
+            try { _pendingDelete.Dequeue().Entry.Texture.Dispose(); } catch { }
+        }
+    }
 
     /// <summary>
     /// Uploads each newly-decoded image to the GPU (idempotent per id+version).
@@ -72,13 +101,14 @@ internal sealed class ImageTextureCache : IDisposable
         }
     }
 
-    /// <summary>Looks up the texture for an image id, marking it used this frame.</summary>
+    /// <summary>Looks up the texture for an image id, promoting it to MRU position.</summary>
     public bool TryGet(int imageId, out ImTextureRef texRef)
     {
-        if (_entries.TryGetValue(imageId, out var entry))
+        if (_entries.TryGetValue(imageId, out var bucket))
         {
-            entry.LastUsedFrame = _frame;
-            texRef = entry.TexRef;
+            _lruOrder.Remove(bucket.Node);
+            _lruOrder.AddLast(bucket.Node);
+            texRef = bucket.Entry.TexRef;
             return true;
         }
 
@@ -94,14 +124,13 @@ internal sealed class ImageTextureCache : IDisposable
             return;
         }
 
-        // Already have this exact content — nothing to do.
         if (_entries.TryGetValue(img.ImageId, out var existing))
         {
-            if (existing.ContentVersion == img.ContentVersion)
+            if (existing.Entry.ContentVersion == img.ContentVersion)
             {
                 return;
             }
-            Remove(img.ImageId); // content changed: replace
+            Evict(img.ImageId, existing); // content changed: replace
         }
 
         var texture = new SimpleVkTexture(
@@ -126,13 +155,20 @@ internal sealed class ImageTextureCache : IDisposable
             }
 
             var texRef = ImGuiBackend.Vulkan.AddTexture(renderer.LinearSampler, texture.ImageView);
-            _entries[img.ImageId] = new Entry
+            // GPU upload and ImGui registration both succeeded — release the CPU buffer now.
+            img.ClearPixelData();
+
+            var entry = new Entry
             {
                 Texture = texture,
                 TexRef = texRef,
                 ContentVersion = img.ContentVersion,
-                LastUsedFrame = _frame,
+                Width = img.Width,
+                Height = img.Height,
             };
+            var node = _lruOrder.AddLast(img.ImageId);
+            _entries[img.ImageId] = (entry, node);
+            _estimatedVramBytes += (long)img.Width * img.Height * 4;
         }
         catch
         {
@@ -140,48 +176,42 @@ internal sealed class ImageTextureCache : IDisposable
             throw;
         }
 
-        EvictIfNeeded();
+        EvictLruIfNeeded();
     }
 
-    private void EvictIfNeeded()
+    private void EvictLruIfNeeded()
     {
         while (_entries.Count > MaxTextures)
         {
-            int lruId = -1;
-            long lru = long.MaxValue;
-            foreach (var (id, entry) in _entries)
-            {
-                if (entry.LastUsedFrame < lru)
-                {
-                    lru = entry.LastUsedFrame;
-                    lruId = id;
-                }
-            }
-
-            if (lruId < 0)
+            var lruNode = _lruOrder.First;
+            if (lruNode is null)
             {
                 break;
             }
-            Remove(lruId);
+
+            if (_entries.TryGetValue(lruNode.Value, out var bucket))
+            {
+                Evict(lruNode.Value, bucket);
+            }
+            else
+            {
+                _lruOrder.RemoveFirst(); // state desync recovery; should not happen
+            }
         }
     }
 
-    private void Remove(int imageId)
+    private void Evict(int imageId, (Entry Entry, LinkedListNode<int> Node) bucket)
     {
-        if (!_entries.Remove(imageId, out var entry))
-        {
-            return;
-        }
+        _entries.Remove(imageId);
+        _lruOrder.Remove(bucket.Node);
+        _estimatedVramBytes = Math.Max(0, _estimatedVramBytes - (long)bucket.Entry.Width * bucket.Entry.Height * 4);
 
-        try
-        {
-            ImGuiBackend.Vulkan.RemoveTexture(entry.TexRef);
-        }
-        catch
-        {
-            // Best-effort descriptor release; still dispose the image below.
-        }
-        entry.Texture.Dispose();
+        // Release the ImGui descriptor slot immediately (prevents new draw calls from
+        // referencing this texture). The Vulkan image itself is deferred: in-flight
+        // commands from prior frames may still be sampling it via the old descriptor.
+        try { ImGuiBackend.Vulkan.RemoveTexture(bucket.Entry.TexRef); } catch { }
+
+        _pendingDelete.Enqueue((bucket.Entry, _frame + DeferredDeleteFrames));
     }
 
     public void Dispose()
@@ -192,18 +222,18 @@ internal sealed class ImageTextureCache : IDisposable
         }
         _disposed = true;
 
-        foreach (var entry in _entries.Values)
+        while (_pendingDelete.Count > 0)
         {
-            try
-            {
-                ImGuiBackend.Vulkan.RemoveTexture(entry.TexRef);
-            }
-            catch
-            {
-                // ignore
-            }
-            entry.Texture.Dispose();
+            try { _pendingDelete.Dequeue().Entry.Texture.Dispose(); } catch { }
+        }
+
+        foreach (var (entry, _) in _entries.Values)
+        {
+            try { ImGuiBackend.Vulkan.RemoveTexture(entry.TexRef); } catch { }
+            try { entry.Texture.Dispose(); } catch { }
         }
         _entries.Clear();
+        _lruOrder.Clear();
+        _estimatedVramBytes = 0;
     }
 }
