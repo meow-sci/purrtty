@@ -44,9 +44,16 @@ public class CustomShellStartOptions
             WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
         };
 
-        // Add common environment variables
+        // Add common environment variables.
+        //
+        // Advertise as Ghostty: purrTTY's VT engine *is* libghostty-vt and speaks the
+        // kitty graphics + keyboard protocols, so image tools (chafa/viu/yazi) that key
+        // off the terminal identity enable kitty rendering. chafa matches
+        // TERM_PROGRAM=ghostty exactly. TERM stays xterm-256color so no Ghostty terminfo
+        // is required. (See ProcessLaunchOptions.CreateDefault for the full rationale.)
         options.EnvironmentVariables["TERM"] = "xterm-256color";
-        options.EnvironmentVariables["TERM_PROGRAM"] = "purrTTY";
+        options.EnvironmentVariables["TERM_PROGRAM"] = "ghostty";
+        options.EnvironmentVariables["TERM_PROGRAM_VERSION"] = "1.3.2";
         options.EnvironmentVariables["COLORTERM"] = "truecolor";
         options.EnvironmentVariables["FORCE_COLOR"] = "1";
         options.EnvironmentVariables["CLICOLOR_FORCE"] = "1";

@@ -201,6 +201,31 @@ in the Display layer.
 
 ---
 
+## Feature detection (so chafa / viu / yazi pick the kitty protocol)
+
+**Primary path — terminal identity (what chafa/viu/yazi actually use).** These tools do *not* probe
+for kitty support; they match the terminal's *identity* from the environment against a built-in
+database. chafa's `chafa-term-db.c` enables kitty graphics on `TERM=xterm-kitty`, `KITTY_PID`,
+`TERM=xterm-ghostty`, `TERM_PROGRAM=ghostty`, or `GHOSTTY_BIN_DIR`. purrtty therefore advertises
+**`TERM_PROGRAM=ghostty`** (+ `TERM_PROGRAM_VERSION`) — honest, since the VT engine *is* libghostty-vt —
+while keeping **`TERM=xterm-256color`** so no host/guest needs Ghostty/kitty terminfo (ncurses apps
+don't degrade). Set in `ProcessLaunchOptions.CreateDefault` and `CustomShellStartOptions.CreateDefault`.
+
+> **SSH note:** `TERM_PROGRAM` is **not** forwarded over SSH (only `TERM` is). For a remote guest
+> (gatOS) the same export must live guest-side — gatOS ships it via
+> `guest/rootfs-overlay/etc/profile.d/10-ghostty-term.sh`, sourced on each interactive login.
+
+**Secondary path — the escape-sequence probe.** The kitty kitten / recent viuer / yazi can also send
+the kitty query `\x1b_Gi=<id>…a=q…\x1b\` immediately followed by a Primary DA `\x1b[c`, reading until
+the DA reply and treating a kitty `\x1b_Gi=<id>;OK\x1b\` seen *before* it as supported. `GhosttyTerminalSurface`
+wires both halves so this also works: the engine emits the `OK` inside `VTWrite` (delivered via
+`OnWritePty → _replies → PtyReply → ProcessManager.Write`), and `opts.OnDeviceAttributes` answers DA1
+as `\x1b[?62;22;52c` (VT220 + ANSI color + OSC 52 clipboard), the sentinel the probe blocks on. We
+**omit sixel (feature 4)** on purpose until purrtty can render it. Covered by
+`GhosttyKittyGraphicsTests.KittyGraphicsProbe_RepliesOkBeforeDeviceAttributes`.
+
+---
+
 ## Risks & mitigations
 
 | Risk | Severity | Mitigation |

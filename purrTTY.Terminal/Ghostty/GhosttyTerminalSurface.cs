@@ -133,6 +133,28 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // Engine replies (DA/DSR/...) collected during VTWrite, flushed after.
     private readonly List<byte> _replies = new(256);
 
+    // Device Attributes reply (DA1 = CSI c, DA2 = CSI > c, DA3 = CSI = c).
+    // Constant for the surface's lifetime, so one shared instance answers every
+    // query. Answering Primary DA matters beyond conformance: it is the *sentinel*
+    // that terminal graphics-capability probes depend on. The canonical kitty
+    // graphics detection (chafa --probe, the kitty query_terminal kitten,
+    // viuer/yazi) sends a kitty query (…a=q…) immediately followed by CSI c, then
+    // reads until the DA reply arrives — treating a kitty "OK" seen before it as
+    // "kitty graphics supported". The engine already emits that OK (via
+    // OnWritePty), but without a DA reply the probe blocks until its timeout and
+    // falls back to no-graphics. We quack as a VT220 with ANSI color + clipboard
+    // (OSC 52), matching Ghostty's own reply, and DELIBERATELY omit sixel
+    // (feature 4): purrtty cannot render sixel yet, so advertising it would make
+    // probers pick a protocol we can't honor.
+    private static readonly GhosttyTypes.DeviceAttributes DeviceAttributesReply = new()
+    {
+        ConformanceLevel = 62, // Level 2 conformance (VT220)
+        Features = [22, 52],   // 22 = ANSI color, 52 = clipboard (OSC 52)
+        DeviceType = 1,        // DA2 device type: VT220
+        FirmwareVersion = 10,  // DA2: mirrors Ghostty's "\x1b[>1;10;0c"
+        UnitId = 0,            // DA3 unit id
+    };
+
     private bool _bellPending;
     private bool _titlePending;
     private bool _pendingChange = true; // first frame counts as a change
@@ -222,6 +244,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             opts.OnWritePty = span => _replies.AddRange(span);
             opts.OnBell = () => _bellPending = true;
             opts.OnTitleChanged = () => _titlePending = true;
+            opts.OnDeviceAttributes = () => DeviceAttributesReply;
         });
 
         _renderState = new VtRenderState();

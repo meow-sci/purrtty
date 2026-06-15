@@ -384,8 +384,9 @@ public sealed class GhosttyTerminalSurfaceTests
     {
         // Hidden-terminal scenario: PTY output arrives but nothing ticks
         // BuildFrame. The inbox must cap (8 MiB) instead of growing without
-        // bound, catch-up must be chunked (1 MiB per tick), and the surface
-        // must stay usable after the drop.
+        // bound, and the surface must stay usable after the drop.
+        // MaxBytesPerTick == MaxInboxBytes so the full inbox drains in one tick —
+        // chunking was removed to prevent CAN+ST injection mid-APC sequence.
         using var surface = NewSurface();
         var chunk = new byte[1024 * 1024];
         Array.Fill(chunk, (byte)'x');
@@ -395,8 +396,8 @@ public sealed class GhosttyTerminalSurfaceTests
         }
 
         surface.BuildFrame();
-        Assert.That(surface.LastFrameStats.BytesConsumed, Is.EqualTo(1024 * 1024),
-            "backlog catch-up should be chunked, not one giant engine write");
+        Assert.That(surface.LastFrameStats.BytesConsumed, Is.EqualTo(8 * 1024 * 1024),
+            "full inbox should drain in one tick (MaxBytesPerTick == MaxInboxBytes)");
 
         long consumed = surface.LastFrameStats.BytesConsumed;
         for (int i = 0; i < 16; i++)

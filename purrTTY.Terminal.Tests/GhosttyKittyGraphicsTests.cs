@@ -98,4 +98,35 @@ public sealed class GhosttyKittyGraphicsTests
         Assert.That(frame.ImagePlacements, Is.Empty);
         Assert.That(frame.NewImages, Is.Empty);
     }
+
+    // The canonical kitty-graphics feature-detection probe (chafa --probe, the
+    // kitty query_terminal kitten, viuer/yazi): a kitty query (a=q) immediately
+    // followed by a Primary DA request (CSI c). A supporting terminal replies to
+    // the query *before* the DA, so a prober that reads until the DA sentinel and
+    // sees the kitty "OK" first concludes graphics are supported.
+    [Test]
+    public void KittyGraphicsProbe_RepliesOkBeforeDeviceAttributes()
+    {
+        using var surface = NewSurface();
+
+        var reply = new List<byte>();
+        surface.PtyReply += bytes => reply.AddRange(bytes);
+
+        // i=31, 1x1 RGB, query action, direct transmission — chafa's exact probe.
+        Write(surface, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
+        surface.BuildFrame();
+
+        var text = Encoding.ASCII.GetString(reply.ToArray());
+
+        int okAt = text.IndexOf("\x1b_Gi=31;OK\x1b\\", StringComparison.Ordinal);
+        Assert.That(okAt, Is.GreaterThanOrEqualTo(0), "engine must answer the kitty graphics query");
+
+        // DA1 reply: CSI ? ... c, advertising VT220 + ANSI color, and crucially
+        // NOT sixel (feature 4) since purrtty cannot render it yet.
+        int daAt = text.IndexOf("\x1b[?62;22;52c", StringComparison.Ordinal);
+        Assert.That(daAt, Is.GreaterThanOrEqualTo(0), "Primary DA must be answered (the probe's sentinel)");
+        Assert.That(text, Does.Not.Contain(";4;").And.Not.Contain(";4c"), "must not advertise sixel");
+
+        Assert.That(okAt, Is.LessThan(daAt), "kitty OK must precede the DA sentinel");
+    }
 }

@@ -127,9 +127,21 @@ public class ProcessLaunchOptions
             options.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
 
-        // Add common environment variables
+        // Add common environment variables.
+        //
+        // Advertise as Ghostty: purrTTY's VT engine *is* libghostty-vt (Ghostty's
+        // engine) and implements the kitty graphics + kitty keyboard protocols, so
+        // capability detectors should treat us as Ghostty. Image tools key off the
+        // terminal identity, NOT an escape-sequence probe — chafa matches
+        // TERM_PROGRAM=ghostty exactly to enable the kitty graphics protocol; without
+        // it chafa/viu/yazi fall back to sixel/ASCII even though our kitty rendering
+        // works. We keep TERM=xterm-256color (universally present) rather than
+        // xterm-ghostty so no host/guest ever needs Ghostty terminfo and ncurses apps
+        // don't degrade. NOTE: TERM_PROGRAM is not forwarded over SSH — for a remote
+        // (e.g. gatOS) guest it must also be exported guest-side.
         options.EnvironmentVariables["TERM"] = "xterm-256color";
-        options.EnvironmentVariables["TERM_PROGRAM"] = "purrTTY";
+        options.EnvironmentVariables["TERM_PROGRAM"] = "ghostty";
+        options.EnvironmentVariables["TERM_PROGRAM_VERSION"] = "1.3.2";
         options.EnvironmentVariables["COLORTERM"] = "truecolor";
         options.EnvironmentVariables["FORCE_COLOR"] = "1";
         options.EnvironmentVariables["CLICOLOR_FORCE"] = "1";
