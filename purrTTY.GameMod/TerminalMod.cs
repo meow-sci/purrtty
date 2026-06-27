@@ -438,7 +438,7 @@ public class TerminalMod
             return false;
         }
 
-        ImGui.TextWrapped($"Delete the saved theme '{_deleteThemeName}'? This permanently removes its file and cannot be undone.");
+        ImGui.TextWrapped($"Delete the saved theme '{_deleteThemeName ?? string.Empty}'? This permanently removes its file and cannot be undone.");
 
         if (_deleteThemeError != null)
         {
