@@ -9,6 +9,7 @@ using purrTTY.GameMod.InWorld.Input;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.GameMod.InWorld.UI;
 using purrTTY.Logging;
+using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.GameMod.InWorld;
 
@@ -200,6 +201,19 @@ public sealed class InWorldTerminalManager : IDisposable
         {
             // Shared encoder; no suppression / blink-reset needed for the quad.
             TerminalInputEncoder.ProcessKeyboard(session, io);
+        }
+
+        // App-mouse: when focused in part mode, map the cursor's quad hit to a cell
+        // and forward press/drag/wheel so in-world TUIs (vim, htop) respond to clicks.
+        if (IsInputFocused && !_settings.IsBillboard && _quad != null && _content != null)
+        {
+            float2? hitUv = null;
+            if (_quad.TryRaycast(Cursor.InputRay, out _, out float2 uv))
+            {
+                hitUv = uv;
+            }
+
+            _content.ProcessMouse(hitUv, io);
         }
 
         if (_content != null)

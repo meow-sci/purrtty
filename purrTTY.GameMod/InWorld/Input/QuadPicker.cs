@@ -43,7 +43,7 @@ public sealed class QuadPicker
             return;
         }
 
-        if (_quad.TryRaycast(Cursor.InputRay, out _))
+        if (_quad.TryRaycast(Cursor.InputRay, out _, out _))
         {
             InWorldTerminalManager.IsInputFocused = true;
         }

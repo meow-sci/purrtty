@@ -306,9 +306,10 @@ public sealed class InWorldQuad : IDisposable
     ///     uses a screen-space test added in Phase 8. The local corners MUST match
     ///     the vertex buffer.
     /// </summary>
-    public bool TryRaycast(Ray ray, out double t)
+    public bool TryRaycast(Ray ray, out double t, out float2 uv)
     {
         t = double.MaxValue;
+        uv = default;
         if (_settings.IsBillboard) return false;
         if (!TryComputeModel(out float4x4 modelEgo, out _)) return false;
 
@@ -336,7 +337,28 @@ public sealed class InWorldQuad : IDisposable
             }
             any = true;
         }
-        return any;
+
+        if (!any)
+        {
+            return false;
+        }
+
+        // Texture UV of the hit: project the hit point onto the quad's two edge
+        // vectors. v0 = local(-0.5,-0.5) with uv(0,1); the +X edge (v0→v1) runs
+        // u 0→1, the +Y edge (v0→v3) runs v 1→0 (V flipped to match the texture).
+        double3 hit = new double3(
+            ray.Origin.X + t * ray.Direction.X,
+            ray.Origin.Y + t * ray.Direction.Y,
+            ray.Origin.Z + t * ray.Direction.Z);
+        double3 ex = v1 - v0;
+        double3 ey = v3 - v0;
+        double3 d = hit - v0;
+        double s = double3.Dot(d, ex) / double3.Dot(ex, ex);
+        double w = double3.Dot(d, ey) / double3.Dot(ey, ey);
+        uv = new float2(
+            (float)Math.Clamp(s, 0.0, 1.0),
+            (float)Math.Clamp(1.0 - w, 0.0, 1.0));
+        return true;
     }
 
     /// <summary>

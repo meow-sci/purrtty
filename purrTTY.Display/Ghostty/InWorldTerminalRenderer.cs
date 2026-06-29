@@ -5,6 +5,7 @@ using purrTTY.Display.Controllers;
 using purrTTY.Display.Rendering;
 using purrTTY.Display.Theming;
 using purrTTY.Logging;
+using PurrTTY.Terminal.Input;
 using PurrTTY.Terminal.Rendering;
 using PurrTTY.Terminal.Sessions;
 using TerminalTheme = PurrTTY.Terminal.TerminalTheme;
@@ -57,6 +58,15 @@ public sealed class InWorldTerminalRenderer : IDisposable
     private int _cachedLoadedFontCount;
     private float _cellWidth = 8f;
     private float _cellHeight = 16f;
+
+    // App-mouse (Phase 9): the grid's pixel extent (from the last BuildUi) used to
+    // map a quad-hit UV to a cell, plus per-button press-gating and last-cell
+    // tracking, mirroring TerminalWindow's app-mouse path.
+    private float _gridPixelWidth;
+    private float _gridPixelHeight;
+    private int _appMouseCol = -1;
+    private int _appMouseRow = -1;
+    private readonly bool[] _appMousePressSent = new bool[3];
 
     private bool _disposed;
 
@@ -172,6 +182,15 @@ public sealed class InWorldTerminalRenderer : IDisposable
             _sessions.UpdateLastKnownTerminalDimensions(cols, rows);
         }
 
+        // Mouse geometry for app-mouse cell mapping: the engine divides pixels by
+        // these INTEGER cell metrics, so a quad-hit cell must be synthesized in them
+        // too (Phase 9). The grid pixel extent feeds ProcessMouse's UV→cell map.
+        int mouseCellW = Math.Max(1, (int)_cellWidth);
+        int mouseCellH = Math.Max(1, (int)_cellHeight);
+        session.Surface.SetMouseGeometry(cols * mouseCellW, rows * mouseCellH, mouseCellW, mouseCellH);
+        _gridPixelWidth = avail.X;
+        _gridPixelHeight = avail.Y;
+
         // BuildFrame is the tick: it drains the PTY inbox and advances the engine.
         // It must run every frame (gotcha 18 — an unticked surface grows its inbox
         // unbounded), which it does because the in-world manager calls BuildUi each
@@ -276,6 +295,142 @@ public sealed class InWorldTerminalRenderer : IDisposable
         => !string.IsNullOrEmpty(name) && PurrTTYFontManager.LoadedFonts.TryGetValue(name, out var font)
             ? font
             : null;
+
+    /// <summary>
+    ///     Maps an in-world quad hit (texture UV, or null when the cursor is off the
+    ///     quad) to a terminal cell and forwards app-mouse events (press / release /
+    ///     drag-motion / wheel) to the dedicated shell — so in-world TUIs (vim,
+    ///     htop, ...) respond to clicks. No-op unless the app requested mouse
+    ///     tracking. Mirrors <see cref="TerminalWindow"/>'s app-mouse gating. Call on
+    ///     the main thread (the in-world manager calls it from <c>OnAfterGui</c>).
+    /// </summary>
+    public void ProcessMouse(float2? hitUv, ImGuiIOPtr io)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var session = _sessions.ActiveSession;
+        // Only when the app requests mouse tracking; otherwise clicks just focus.
+        if (session == null || !session.Surface.IsMouseTrackingEnabled)
+        {
+            return;
+        }
+
+        int cols = session.Surface.Cols;
+        int rows = session.Surface.Rows;
+        if (cols <= 0 || rows <= 0 || _gridPixelWidth <= 0f || _gridPixelHeight <= 0f)
+        {
+            return;
+        }
+
+        int cellW = Math.Max(1, (int)_cellWidth);
+        int cellH = Math.Max(1, (int)_cellHeight);
+
+        bool over = hitUv.HasValue;
+        int col = _appMouseCol < 0 ? 0 : _appMouseCol;
+        int row = _appMouseRow < 0 ? 0 : _appMouseRow;
+        if (hitUv is { } uvHit)
+        {
+            // UV → texture pixel → cell, using the same fractional metrics the grid
+            // was drawn with so the cell matches the glyph under the cursor.
+            float px = uvHit.X * _gridPixelWidth;
+            float py = uvHit.Y * _gridPixelHeight;
+            col = Math.Clamp((int)(px / _cellWidth), 0, cols - 1);
+            row = Math.Clamp((int)(py / _cellHeight), 0, rows - 1);
+        }
+
+        bool cellChanged = col != _appMouseCol || row != _appMouseRow;
+        _appMouseCol = col;
+        _appMouseRow = row;
+
+        var mods = TerminalInputEncoder.ReadModifiers(io);
+        // Synthesize the cell-center in INTEGER metrics so the engine's integer
+        // pixel→cell division recovers the same cell (gotcha 11).
+        var pos = new float2(col * cellW + cellW * 0.5f, row * cellH + cellH * 0.5f);
+
+        // Press is gated on being over the quad; release fires ungated (but only
+        // when the matching press was forwarded), mirroring TerminalWindow.
+        if (over && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            _appMousePressSent[(int)MouseButton.Left] = true;
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Left, mods, pos);
+        }
+        else if (_appMousePressSent[(int)MouseButton.Left] && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            _appMousePressSent[(int)MouseButton.Left] = false;
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Left, mods, pos);
+        }
+        else if (over && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+        {
+            _appMousePressSent[(int)MouseButton.Right] = true;
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Right, mods, pos);
+        }
+        else if (_appMousePressSent[(int)MouseButton.Right] && ImGui.IsMouseReleased(ImGuiMouseButton.Right))
+        {
+            _appMousePressSent[(int)MouseButton.Right] = false;
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Right, mods, pos);
+        }
+        else if (over && ImGui.IsMouseClicked(ImGuiMouseButton.Middle))
+        {
+            _appMousePressSent[(int)MouseButton.Middle] = true;
+            EncodeMouseAndSend(session, MouseAction.Press, MouseButton.Middle, mods, pos);
+        }
+        else if (_appMousePressSent[(int)MouseButton.Middle] && ImGui.IsMouseReleased(ImGuiMouseButton.Middle))
+        {
+            _appMousePressSent[(int)MouseButton.Middle] = false;
+            EncodeMouseAndSend(session, MouseAction.Release, MouseButton.Middle, mods, pos);
+        }
+        else if (cellChanged)
+        {
+            // Drag / hover motion: the engine's encoder is mode-aware, so just offer
+            // each cell crossing (a held button = drag, over-quad = any-event hover).
+            var held = HeldMouseButton();
+            if (held != MouseButton.None || over)
+            {
+                EncodeMouseAndSend(session, MouseAction.Motion, held, mods, pos);
+            }
+        }
+
+        // Wheel reports as scroll-button presses, one per notch.
+        if (over && io.MouseWheel != 0f)
+        {
+            var button = io.MouseWheel > 0f ? MouseButton.ScrollUp : MouseButton.ScrollDown;
+            int notches = Math.Clamp((int)Math.Round(Math.Abs(io.MouseWheel)), 1, 10);
+            for (int i = 0; i < notches; i++)
+            {
+                EncodeMouseAndSend(session, MouseAction.Press, button, mods, pos);
+            }
+        }
+    }
+
+    private static MouseButton HeldMouseButton()
+    {
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Left)) return MouseButton.Left;
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Middle)) return MouseButton.Middle;
+        if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) return MouseButton.Right;
+        return MouseButton.None;
+    }
+
+    private static void EncodeMouseAndSend(
+        TerminalSession session, MouseAction action, MouseButton button, KeyModifiers mods, float2 pos)
+    {
+        var ev = new TerminalMouseEvent
+        {
+            Action = action,
+            Button = button,
+            Modifiers = mods,
+            X = pos.X,
+            Y = pos.Y,
+        };
+        Span<byte> buf = stackalloc byte[64];
+        int n = session.Surface.EncodeMouse(ev, buf);
+        if (n > 0)
+        {
+            session.SendInput(buf[..n]);
+        }
+    }
 
     public void Dispose()
     {

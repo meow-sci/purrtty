@@ -238,7 +238,8 @@ public static class TerminalInputEncoder
         Send(session, encoded, onInputSent);
     }
 
-    private static TKeyMods ReadModifiers(ImGuiIOPtr io)
+    /// <summary>Reads the current ImGui modifier levels into terminal key modifiers.</summary>
+    public static TKeyMods ReadModifiers(ImGuiIOPtr io)
     {
         var mods = TKeyMods.None;
         if (io.KeyShift) mods |= TKeyMods.Shift;
