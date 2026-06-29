@@ -85,6 +85,13 @@ public sealed class InWorldTerminalRenderer : IDisposable
     public TerminalSession? ActiveSession => _sessions.ActiveSession;
 
     /// <summary>
+    ///     Whether the in-world terminal currently has input focus. Drives the
+    ///     cursor style (solid block when focused, steady hollow box when not).
+    ///     Set by the in-world manager each frame.
+    /// </summary>
+    public bool HasFocus { get; set; }
+
+    /// <summary>
     /// Draws the terminal into the current ImGui context's window draw list. Call
     /// with the secondary (off-screen) context current; the in-world manager wraps
     /// this in <c>PerFrameRenderer</c>'s NewFrame/Render.
@@ -171,12 +178,12 @@ public sealed class InWorldTerminalRenderer : IDisposable
         // frame.
         var frame = session.Surface.BuildFrame();
 
-        // Unfocused for now (input/focus is a later phase): a steady hollow cursor,
-        // which the renderer forces when windowFocused is false.
+        // Solid block cursor when focused; the renderer forces a steady hollow box
+        // when windowFocused is false (input is going elsewhere).
         FrameGridRenderer.Render(
             frame, drawList, canvasPos,
             _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn: true,
-            _settings.ForegroundOpacity, _settings.CellBackgroundOpacity, windowFocused: false);
+            _settings.ForegroundOpacity, _settings.CellBackgroundOpacity, windowFocused: HasFocus);
     }
 
     private void StartDefaultSession()

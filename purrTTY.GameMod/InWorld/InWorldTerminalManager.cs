@@ -1,9 +1,11 @@
+using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
 using purrTTY.GameMod.InWorld.Display;
+using purrTTY.GameMod.InWorld.Input;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.GameMod.InWorld.UI;
 using purrTTY.Logging;
@@ -34,6 +36,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private PerFrameRenderer? _perFrame;
     private InWorldTerminalRenderer? _content;
     private InWorldQuad? _quad;
+    private QuadPicker? _picker;
     private InWorldLaunchUI? _launchUI;
     private bool _disposed;
 
@@ -44,6 +47,13 @@ public sealed class InWorldTerminalManager : IDisposable
     ///     teardown so an in-flight postfix can't dereference freed handles.
     /// </summary>
     public static bool Active;
+
+    /// <summary>
+    ///     Whether the in-world terminal currently owns keyboard input. Read by the
+    ///     game-key gate (Patch01) + the hotkey guard so typing at the quad never
+    ///     leaks to vehicle/camera controls. Main-thread only.
+    /// </summary>
+    public static bool IsInputFocused;
 
     /// <summary>The live manager instance the render postfix reaches the quad through.</summary>
     public static InWorldTerminalManager? Instance { get; private set; }
@@ -89,6 +99,15 @@ public sealed class InWorldTerminalManager : IDisposable
 
     /// <summary>Menu action: open the launch / reconfigure popup.</summary>
     public void OpenConfigure() => _launchUI?.RequestOpen();
+
+    /// <summary>Menu action: toggle in-world input focus (the focus path for billboard mode).</summary>
+    public void ToggleFocus()
+    {
+        if (Active)
+        {
+            IsInputFocused = !IsInputFocused;
+        }
+    }
 
     /// <summary>
     ///     Builds the GPU resources + dedicated session + quad (once) and starts
@@ -138,6 +157,7 @@ public sealed class InWorldTerminalManager : IDisposable
         // current frame's already-recorded quad draw is in flight would be a
         // use-after-free). They are released on Unload.
         Active = false;
+        IsInputFocused = false;
 
         if (_settings.Enabled)
         {
@@ -164,6 +184,29 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
 
+        // Mutually exclusive with 2D-window focus: if a 2D terminal owns the
+        // keyboard this frame, the quad does not (prevents double-input).
+        if (GhosttyTerminalController.IsAnyTerminalActive)
+        {
+            IsInputFocused = false;
+        }
+
+        // Click-to-focus + keyboard forwarding run in the main context (current
+        // here), reading the main ImGui IO where GLFW delivers key/char events.
+        _picker?.Tick();
+
+        var io = ImGui.GetIO();
+        if (IsInputFocused && !io.WantTextInput && _content?.ActiveSession is { } session)
+        {
+            // Shared encoder; no suppression / blink-reset needed for the quad.
+            TerminalInputEncoder.ProcessKeyboard(session, io);
+        }
+
+        if (_content != null)
+        {
+            _content.HasFocus = IsInputFocused;
+        }
+
         try
         {
             _perFrame.Frame(dt);
@@ -173,6 +216,7 @@ public sealed class InWorldTerminalManager : IDisposable
             // Disable on first failure: a render-loop throw otherwise repeats every
             // frame and can corrupt Vulkan state. Resources are released at Unload.
             Active = false;
+            IsInputFocused = false;
             ModLog.Log.Error($"purrTTY in-world: per-frame render failed, disabling ({ex.Message})");
         }
     }
@@ -217,6 +261,7 @@ public sealed class InWorldTerminalManager : IDisposable
             // World-space quad sampling the texture; reads InWorldSettings live (so
             // launch-UI edits update it instantly).
             _quad = new InWorldQuad(renderer, _target, _settings);
+            _picker = new QuadPicker(_quad, _settings);
 
             ModLog.Log.Debug($"purrTTY in-world: resources built ({width}x{height})");
             return true;
@@ -236,6 +281,7 @@ public sealed class InWorldTerminalManager : IDisposable
 
         // Stop the postfix BEFORE freeing GPU resources.
         Active = false;
+        IsInputFocused = false;
         Instance = null;
 
         TeardownResources();
@@ -250,6 +296,7 @@ public sealed class InWorldTerminalManager : IDisposable
 
         // The quad (pipeline + descriptor set referencing the off-screen image)
         // before the target it samples.
+        _picker = null;
         _quad?.Dispose();
         _quad = null;
 

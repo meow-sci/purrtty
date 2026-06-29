@@ -81,8 +81,9 @@ public class TerminalMod
             modalVisible |= RenderSaveThemeModal();
             modalVisible |= RenderDeleteThemeModal();
 
-            // Handle terminal toggle keybind (dynamic, defaults to F12)
-            if (!modalVisible && IsToggleHotkeyPressed())
+            // Handle terminal toggle keybind (dynamic, defaults to F12). Suppressed
+            // while the in-world terminal is focused so the key reaches that shell.
+            if (!modalVisible && !InWorldTerminalManager.IsInputFocused && IsToggleHotkeyPressed())
             {
                 bool wasVisible = IsTerminalVisible;
                 ToggleTerminal();
@@ -165,6 +166,8 @@ public class TerminalMod
             TerminalMenus.ToggleInWorld = () => _inWorld?.Toggle();
             TerminalMenus.OpenInWorldConfigure = () => _inWorld?.OpenConfigure();
             TerminalMenus.IsInWorldActive = () => _inWorld?.IsActive ?? false;
+            TerminalMenus.FocusInWorld = () => _inWorld?.ToggleFocus();
+            TerminalMenus.IsInWorldFocused = () => InWorldTerminalManager.IsInputFocused;
         }
         catch (Exception ex)
         {
@@ -816,6 +819,8 @@ public class TerminalMod
             TerminalMenus.ToggleInWorld = null;
             TerminalMenus.OpenInWorldConfigure = null;
             TerminalMenus.IsInWorldActive = null;
+            TerminalMenus.FocusInWorld = null;
+            TerminalMenus.IsInWorldFocused = null;
 
             _isInitialized = false;
             _isDisposed = true;

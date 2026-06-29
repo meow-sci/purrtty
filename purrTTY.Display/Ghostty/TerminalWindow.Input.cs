@@ -1,87 +1,15 @@
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
-using purrTTY.Logging;
 using PurrTTY.Terminal.Input;
 using PurrTTY.Terminal.Sessions;
 using TKeyMods = PurrTTY.Terminal.Input.KeyModifiers;
 
 namespace purrTTY.Display.Ghostty;
 
-// Input handling: keyboard encoding (named/Ctrl/Alt keys, AltGr text, surrogate
-// pairing), selection + app-mouse reporting, clipboard, and the grid context menu.
+// Input handling: keyboard encoding (delegated to the shared TerminalInputEncoder),
+// selection + app-mouse reporting, clipboard, and the grid context menu.
 public sealed partial class TerminalWindow
 {
-    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] NamedKeys =
-    {
-        (ImGuiKey.Enter, TerminalKey.Enter),
-        (ImGuiKey.KeypadEnter, TerminalKey.Enter),
-        (ImGuiKey.Backspace, TerminalKey.Backspace),
-        (ImGuiKey.Tab, TerminalKey.Tab),
-        (ImGuiKey.Escape, TerminalKey.Escape),
-        (ImGuiKey.UpArrow, TerminalKey.ArrowUp),
-        (ImGuiKey.DownArrow, TerminalKey.ArrowDown),
-        (ImGuiKey.RightArrow, TerminalKey.ArrowRight),
-        (ImGuiKey.LeftArrow, TerminalKey.ArrowLeft),
-        (ImGuiKey.Home, TerminalKey.Home),
-        (ImGuiKey.End, TerminalKey.End),
-        (ImGuiKey.Delete, TerminalKey.Delete),
-        (ImGuiKey.Insert, TerminalKey.Insert),
-        (ImGuiKey.PageUp, TerminalKey.PageUp),
-        (ImGuiKey.PageDown, TerminalKey.PageDown),
-        (ImGuiKey.F1, TerminalKey.F1), (ImGuiKey.F2, TerminalKey.F2), (ImGuiKey.F3, TerminalKey.F3),
-        (ImGuiKey.F4, TerminalKey.F4), (ImGuiKey.F5, TerminalKey.F5), (ImGuiKey.F6, TerminalKey.F6),
-        (ImGuiKey.F7, TerminalKey.F7), (ImGuiKey.F8, TerminalKey.F8), (ImGuiKey.F9, TerminalKey.F9),
-        (ImGuiKey.F10, TerminalKey.F10), (ImGuiKey.F11, TerminalKey.F11), (ImGuiKey.F12, TerminalKey.F12),
-    };
-
-    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] LetterKeys =
-    {
-        (ImGuiKey.A, TerminalKey.A), (ImGuiKey.B, TerminalKey.B), (ImGuiKey.C, TerminalKey.C),
-        (ImGuiKey.D, TerminalKey.D), (ImGuiKey.E, TerminalKey.E), (ImGuiKey.F, TerminalKey.F),
-        (ImGuiKey.G, TerminalKey.G), (ImGuiKey.H, TerminalKey.H), (ImGuiKey.I, TerminalKey.I),
-        (ImGuiKey.J, TerminalKey.J), (ImGuiKey.K, TerminalKey.K), (ImGuiKey.L, TerminalKey.L),
-        (ImGuiKey.M, TerminalKey.M), (ImGuiKey.N, TerminalKey.N), (ImGuiKey.O, TerminalKey.O),
-        (ImGuiKey.P, TerminalKey.P), (ImGuiKey.Q, TerminalKey.Q), (ImGuiKey.R, TerminalKey.R),
-        (ImGuiKey.S, TerminalKey.S), (ImGuiKey.T, TerminalKey.T), (ImGuiKey.U, TerminalKey.U),
-        (ImGuiKey.V, TerminalKey.V), (ImGuiKey.W, TerminalKey.W), (ImGuiKey.X, TerminalKey.X),
-        (ImGuiKey.Y, TerminalKey.Y), (ImGuiKey.Z, TerminalKey.Z),
-    };
-
-    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] DigitKeys =
-    {
-        (ImGuiKey._0, TerminalKey.Digit0), (ImGuiKey._1, TerminalKey.Digit1),
-        (ImGuiKey._2, TerminalKey.Digit2), (ImGuiKey._3, TerminalKey.Digit3),
-        (ImGuiKey._4, TerminalKey.Digit4), (ImGuiKey._5, TerminalKey.Digit5),
-        (ImGuiKey._6, TerminalKey.Digit6), (ImGuiKey._7, TerminalKey.Digit7),
-        (ImGuiKey._8, TerminalKey.Digit8), (ImGuiKey._9, TerminalKey.Digit9),
-    };
-
-    // Ctrl+Space/[/\/] produce the NUL/ESC/FS/GS controls (and ESC-prefixed
-    // forms under Alt); the engine's key encoder derives the byte from key+mods.
-    private static readonly (ImGuiKey ImguiKey, TerminalKey Key)[] ControlPunctuationKeys =
-    {
-        (ImGuiKey.Space, TerminalKey.Space),
-        (ImGuiKey.LeftBracket, TerminalKey.BracketLeft),
-        (ImGuiKey.RightBracket, TerminalKey.BracketRight),
-        (ImGuiKey.Backslash, TerminalKey.Backslash),
-    };
-
-    // Opt-in keyboard input diagnostics. Set PURRTTY_KEY_DIAG=1 (or =true) in
-    // the environment before launching KSA, reproduce the issue (e.g. mash
-    // Ctrl+R in atuin), then read the "[keydiag]" lines in the log. Two streams:
-    //   press … — every key the frame reports pressed, with the modifier LEVELS
-    //             ImGui reports and edge-vs-repeat. A "press key=R … ctrl=False
-    //             chars=0" line is the level/edge desync (Cause 1): the chord
-    //             gate then drops it silently.
-    //   send  … — the exact bytes EncodeKey produced. Legacy Ctrl+R = "12";
-    //             a kitty "CSI…u" sequence (starts "1B5B") means the app
-    //             negotiated the protocol (Cause 2). mods=None on a byte that
-    //             should be a control char is the desync biting the encoder.
-    // Read once: the value cannot change mid-process and per-frame env reads are
-    // wasteful.
-    private static readonly bool KeyDiag =
-        Environment.GetEnvironmentVariable("PURRTTY_KEY_DIAG") is "1" or "true";
-
     private bool _selecting;
 
     // Last grid cell reported to a mouse-tracking app via a motion event. Motion
@@ -97,6 +25,10 @@ public sealed partial class TerminalWindow
     // click that started on the game UI — would leak a spurious report.
     private readonly bool[] _appMousePressSent = new bool[3];
 
+    // Cached so the keyboard path allocates no per-frame closure: the encoder
+    // raises this whenever input was sent, and the controller resets the blink phase.
+    private Action? _raiseInputSent;
+
     private void HandleInput(TerminalSession session, float2 canvasPos, int cols, int rows, bool gridHovered)
     {
         var io = ImGui.GetIO();
@@ -104,116 +36,11 @@ public sealed partial class TerminalWindow
         HandleMouse(session, io, canvasPos, cols, rows, gridHovered);
     }
 
+    // Keyboard encoding is shared with the in-world terminal via TerminalInputEncoder.
     private void HandleKeyboard(TerminalSession session, ImGuiIOPtr io)
     {
-        if (KeyboardSuppression?.Invoke() == true)
-        {
-            return;
-        }
-
-        // Standard terminal clipboard chords; never forwarded to the shell.
-        if (io.KeyCtrl && io.KeyShift && ImGui.IsKeyPressed(ImGuiKey.V))
-        {
-            PasteFromClipboard();
-            return;
-        }
-
-        if (io.KeyCtrl && io.KeyShift && ImGui.IsKeyPressed(ImGuiKey.C))
-        {
-            CopySelectionToClipboard();
-            return;
-        }
-
-        var mods = ReadModifiers(io);
-
-        if (KeyDiag)
-        {
-            LogChordDiagnostics(io);
-        }
-
-        foreach (var (imguiKey, key) in NamedKeys)
-        {
-            if (ImGui.IsKeyPressed(imguiKey))
-            {
-                EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
-            }
-        }
-
-        // AltGr (Windows international layouts) is delivered as Ctrl+Alt with
-        // the produced character in the ImGui character queue. When both are
-        // held AND text arrived, the text is what the user typed (@, {, €, ...)
-        // — prefer it over a spurious Ctrl+Alt chord. This is the standard
-        // terminal heuristic (ghostty/wezterm/Windows Terminal).
-        bool altGrText = io.KeyCtrl && io.KeyAlt && io.InputQueueCharacters.Count > 0;
-
-        // Ctrl/Alt-modified keys never enter the ImGui character queue, so they
-        // are encoded from key presses: Ctrl+letter controls, Alt+letter Meta
-        // chords (readline Alt+B/F/D, Emacs, mc), Ctrl/Alt+digit, and the Ctrl
-        // punctuation controls (NUL/ESC/FS/GS). The engine's key encoder
-        // derives the bytes from key + modifiers.
-        if ((io.KeyCtrl || io.KeyAlt) && !altGrText)
-        {
-            foreach (var (imguiKey, key) in LetterKeys)
-            {
-                if (ImGui.IsKeyPressed(imguiKey))
-                {
-                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
-                }
-            }
-
-            foreach (var (imguiKey, key) in DigitKeys)
-            {
-                if (ImGui.IsKeyPressed(imguiKey))
-                {
-                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
-                }
-            }
-
-            foreach (var (imguiKey, key) in ControlPunctuationKeys)
-            {
-                if (ImGui.IsKeyPressed(imguiKey))
-                {
-                    EncodeAndSend(session, new TerminalKeyEvent(key, KeyAction.Press, mods));
-                }
-            }
-        }
-
-        // Printable text. Skip when Ctrl/Alt are held (those are command combos
-        // handled above and do not represent typed text) — unless it's AltGr
-        // input, where the queued characters ARE the typed text.
-        if (((!io.KeyCtrl && !io.KeyAlt) || altGrText) && io.InputQueueCharacters.Count > 0)
-        {
-            int count = io.InputQueueCharacters.Count;
-            Span<char> chars = stackalloc char[2];
-            Span<byte> utf8 = stackalloc byte[4];
-            for (int i = 0; i < count; i++)
-            {
-                char ch = (char)io.InputQueueCharacters[i];
-
-                // Astral-plane input arrives as two queue entries (a UTF-16
-                // surrogate pair); encode the pair as one code point — encoding
-                // a lone half yields U+FFFD.
-                if (char.IsHighSurrogate(ch))
-                {
-                    if (i + 1 < count && char.IsLowSurrogate((char)io.InputQueueCharacters[i + 1]))
-                    {
-                        chars[0] = ch;
-                        chars[1] = (char)io.InputQueueCharacters[++i];
-                        Send(session, utf8[..System.Text.Encoding.UTF8.GetBytes(chars, utf8)]);
-                    }
-
-                    continue; // unpaired high surrogate: drop
-                }
-
-                if (char.IsLowSurrogate(ch) || ch < 32 || ch == 127)
-                {
-                    continue;
-                }
-
-                chars[0] = ch;
-                Send(session, utf8[..System.Text.Encoding.UTF8.GetBytes(chars[..1], utf8)]);
-            }
-        }
+        _raiseInputSent ??= () => InputSent?.Invoke();
+        TerminalInputEncoder.ProcessKeyboard(session, io, KeyboardSuppression, _raiseInputSent);
     }
 
     private void HandleMouse(TerminalSession session, ImGuiIOPtr io, float2 canvasPos, int cols, int rows, bool gridHovered)
@@ -439,63 +266,6 @@ public sealed partial class TerminalWindow
         int col = Math.Clamp((int)((mouse.X - canvasPos.X) / _cellWidth), 0, Math.Max(0, cols - 1));
         int row = Math.Clamp((int)((mouse.Y - canvasPos.Y) / _cellHeight), 0, Math.Max(0, rows - 1));
         return new GridPoint(col, row);
-    }
-
-    // Logs every letter/digit/Ctrl-punctuation key the frame reports as pressed
-    // (including ImGui auto-repeats), tagged with the modifier LEVELS ImGui
-    // reports right now and whether this is a true down-edge or a repeat. Skips
-    // ordinary printable typing (no Ctrl/Alt and a character was produced this
-    // frame) so the log stays focused on chords and on the dropped-chord
-    // signature: a key edge that yielded no character with no modifier held.
-    private static void LogChordDiagnostics(ImGuiIOPtr io)
-    {
-        LogKeyGroup(io, LetterKeys);
-        LogKeyGroup(io, DigitKeys);
-        LogKeyGroup(io, ControlPunctuationKeys);
-    }
-
-    private static void LogKeyGroup(ImGuiIOPtr io, (ImGuiKey ImguiKey, TerminalKey Key)[] group)
-    {
-        foreach (var (imguiKey, key) in group)
-        {
-            if (!ImGui.IsKeyPressed(imguiKey, repeat: true))
-            {
-                continue;
-            }
-
-            // Plain text input is handled by the character queue, not the chord
-            // path — don't log it (it would bury the chord lines in noise).
-            bool printable = !io.KeyCtrl && !io.KeyAlt && io.InputQueueCharacters.Count > 0;
-            if (printable)
-            {
-                continue;
-            }
-
-            bool edge = ImGui.IsKeyPressed(imguiKey, repeat: false);
-            ModLog.Log.Info(
-                $"[keydiag] press key={key} {(edge ? "edge" : "repeat")} " +
-                $"ctrl={io.KeyCtrl} alt={io.KeyAlt} shift={io.KeyShift} " +
-                $"chars={io.InputQueueCharacters.Count}");
-        }
-    }
-
-    private void EncodeAndSend(TerminalSession session, in TerminalKeyEvent keyEvent)
-    {
-        Span<byte> buf = stackalloc byte[64];
-        int n = session.Surface.EncodeKey(keyEvent, buf);
-        if (KeyDiag)
-        {
-            string text = string.IsNullOrEmpty(keyEvent.Text) ? "-" : keyEvent.Text;
-            string bytes = n > 0 ? Convert.ToHexString(buf[..n]) : "";
-            ModLog.Log.Info(
-                $"[keydiag] send key={keyEvent.Key} action={keyEvent.Action} mods={keyEvent.Modifiers} " +
-                $"text={text} bytes=[{bytes}] ({n})");
-        }
-
-        if (n > 0)
-        {
-            Send(session, buf[..n]);
-        }
     }
 
     private void EncodeMouseAndSend(TerminalSession session, MouseAction action, MouseButton button, TKeyMods mods, float2 pos)

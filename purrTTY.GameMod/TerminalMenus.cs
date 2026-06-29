@@ -60,6 +60,12 @@ internal static class TerminalMenus
     /// <summary>Returns whether the in-world terminal is currently active (for the menu check).</summary>
     internal static Func<bool>? IsInWorldActive;
 
+    /// <summary>Toggles in-world input focus (the focus path for billboard mode).</summary>
+    internal static Action? FocusInWorld;
+
+    /// <summary>Returns whether the in-world terminal currently has input focus (menu check).</summary>
+    internal static Func<bool>? IsInWorldFocused;
+
     /// <summary>
     ///     The live controller the game menus act on (null until initialized).
     /// </summary>
@@ -119,6 +125,15 @@ internal static class TerminalMenus
             if (ImGui.MenuItem("Configure In-World..."))
             {
                 OpenInWorldConfigure?.Invoke();
+            }
+
+            if (inWorldActive)
+            {
+                bool inWorldFocused = IsInWorldFocused?.Invoke() ?? false;
+                if (ImGui.MenuItem("Focus In-World Terminal", "", inWorldFocused))
+                {
+                    FocusInWorld?.Invoke();
+                }
             }
         }
 

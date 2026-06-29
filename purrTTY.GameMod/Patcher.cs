@@ -4,6 +4,7 @@ using Brutal.ImGuiApi;
 using KSA;
 using purrTTY.Display.Ghostty;
 using purrTTY.GameMod;
+using purrTTY.GameMod.InWorld;
 using purrTTY.GameMod.Patches;
 using purrTTY.GameMod.InWorld.Patches;
 using purrTTY.Logging;
@@ -136,7 +137,7 @@ static class Patch03_HotkeyGuard
     // null/closed console as "not open" so a focused text field still suppresses
     // game hotkeys without NREing on the static field.
     bool consoleOpen = Program.ConsoleWindow is { IsOpen: true };
-    if (!consoleOpen && ImGui.GetIO().WantTextInput)
+    if (!consoleOpen && (ImGui.GetIO().WantTextInput || InWorldTerminalManager.IsInputFocused))
     {
       __result = true;
       return false;
@@ -159,6 +160,11 @@ class Patch01
   /// <summary>Drops the held-key model (called on unload; statics survive a StarMap reload).</summary>
   internal static void Reset() => s_gameHeldKeys.Clear();
 
+  // The terminal owns the keyboard while a 2D window is focused OR the in-world
+  // quad is focused — game keys are gated and routed to a shell in either case.
+  private static bool TerminalOwnsKeyboard =>
+    GhosttyTerminalController.IsAnyTerminalActive || InWorldTerminalManager.IsInputFocused;
+
   [HarmonyPrefix]
   [HarmonyPatch(nameof(KSA.Program.OnKey))]
   static bool Prefix1(GlfwWindow window, GlfwKey key, int scanCode, GlfwKeyAction action, GlfwModifier mods)
@@ -179,7 +185,7 @@ class Patch01
     switch (action)
     {
       case GlfwKeyAction.Press:
-        if (GhosttyTerminalController.IsAnyTerminalActive)
+        if (TerminalOwnsKeyboard)
         {
           // Terminal owns the keyboard: swallow the press. The game never sees
           // the key go down, so its release stays swallowed too (not tracked).
@@ -190,8 +196,8 @@ class Patch01
 
       case GlfwKeyAction.Repeat:
         // Only sustain a repeat the game already owns and only while no terminal
-        // is active; otherwise the terminal owns the keyboard.
-        return !GhosttyTerminalController.IsAnyTerminalActive && s_gameHeldKeys.Contains(key);
+        // owns the keyboard; otherwise the terminal owns it.
+        return !TerminalOwnsKeyboard && s_gameHeldKeys.Contains(key);
 
       case GlfwKeyAction.Release:
         // Forward iff the game believes this key is held; remove either way so
