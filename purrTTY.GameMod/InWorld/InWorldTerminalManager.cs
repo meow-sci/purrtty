@@ -4,27 +4,29 @@ using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
 using purrTTY.GameMod.InWorld.Display;
+using purrTTY.GameMod.InWorld.Settings;
+using purrTTY.GameMod.InWorld.UI;
 using purrTTY.Logging;
 
 namespace purrTTY.GameMod.InWorld;
 
 /// <summary>
 ///     Top-level coordinator for the in-world (render-to-texture) terminal feature:
-///     the terminal is rendered into an off-screen GPU texture and that texture is
-///     drawn on a quad in 3D game space.
+///     a dedicated shell is rendered into an off-screen GPU texture and that texture
+///     is drawn on a world-space quad (part-anchored or camera-billboard).
 ///     <para>
-///         Built incrementally per <c>plans/GAME_SPACE_QUAD_PLAN.md</c>: the
-///         off-screen target, the secondary ImGui context + Vulkan backend, the
-///         per-frame render loop, the dedicated terminal session, and the
-///         part-anchored world-space quad are in place. Input/focus and the launch
-///         UI arrive in later phases.
+///         <see cref="Initialize"/> is cheap (no GPU); the GPU resources + session +
+///         quad are built lazily on <see cref="Enable"/> and torn down on
+///         <see cref="Dispose"/>. <see cref="Disable"/> just stops drawing (keeping
+///         resources for an instant re-enable). The render postfix reads the static
+///         <see cref="Active"/>/<see cref="Instance"/>.
 ///     </para>
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
 {
-    // Fixed off-screen texture resolution for the prototype. Phase 7 (§5.10)
-    // replaces this constant with a persisted InWorldSettings knob.
-    private const int DefaultTextureSize = 1024;
+    private readonly InWorldSettings _settings = InWorldSettings.LoadOrDefault();
+    private ThemeConfiguration? _config;
+    private ThemeCatalog? _catalog;
 
     private OffscreenRenderTarget? _target;
     private OffscreenImGuiContext? _ctx;
@@ -32,7 +34,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private PerFrameRenderer? _perFrame;
     private InWorldTerminalRenderer? _content;
     private InWorldQuad? _quad;
-    private bool _initialized;
+    private InWorldLaunchUI? _launchUI;
     private bool _disposed;
 
     /// <summary>
@@ -46,111 +48,118 @@ public sealed class InWorldTerminalManager : IDisposable
     /// <summary>The live manager instance the render postfix reaches the quad through.</summary>
     public static InWorldTerminalManager? Instance { get; private set; }
 
-    /// <summary>The off-screen color/depth target the terminal renders into and the quad samples.</summary>
-    public OffscreenRenderTarget? Target => _target;
-
     /// <summary>The world-space quad drawn by the render postfix (null until built).</summary>
     public InWorldQuad? Quad => _quad;
 
-    /// <summary>True once all GPU resources built successfully and the per-frame loop is live.</summary>
-    public bool IsInitialized => _initialized;
+    /// <summary>The persisted in-world settings (mutated live by the launch UI).</summary>
+    public InWorldSettings Settings => _settings;
+
+    /// <summary>True while the in-world terminal is on (drawing + rendering).</summary>
+    public bool IsActive => Active;
 
     /// <summary>
-    ///     Builds the GPU resources and the dedicated terminal session. Call once
-    ///     after the renderer is live (StarMap <c>OnFullyLoaded</c>); it is unsafe
-    ///     earlier. Any failure is logged, the partially-built resources are torn
-    ///     down, and the feature is left disabled — it must never crash the game.
+    ///     Stores the shared config/catalog and auto-enables when persisted on (or
+    ///     the dev gate is set). Cheap: no GPU work happens here. Call from
+    ///     <c>OnFullyLoaded</c>.
     /// </summary>
-    /// <param name="config">The mod's loaded theme/shell configuration (shared with the 2D controller).</param>
-    /// <param name="catalog">The theme catalog used to resolve the configured default theme.</param>
     public void Initialize(ThemeConfiguration config, ThemeCatalog catalog)
     {
-        try
+        _config = config;
+        _catalog = catalog;
+        _launchUI = new InWorldLaunchUI(this);
+
+        if (_settings.Enabled || IsDevGateEnabled())
         {
-            var renderer = Program.GetRenderer();
-            if (renderer == null)
-            {
-                ModLog.Log.Error("purrTTY in-world: Program.GetRenderer() returned null; in-world terminal disabled");
-                return;
-            }
-
-            // R8G8B8A8Unorm (not SRGB): UnlitMesh.frag applies gammaToLinear() to
-            // the sampled texel before writing, on the assumption the texture holds
-            // gamma-encoded data. With an SRGB-format target the GPU auto-decodes on
-            // sample, so the shader's gammaToLinear() would run on already-linear
-            // values and the in-world colors come out noticeably darker than the
-            // on-screen terminal. UNORM keeps the ImGui-written bytes raw so the
-            // shader's gamma decode is the single, correct one.
-            _target = new OffscreenRenderTarget(
-                renderer,
-                "purrTTY-Offscreen",
-                DefaultTextureSize,
-                DefaultTextureSize,
-                VkFormat.R8G8B8A8UNorm,
-                renderer.DepthFormat);
-
-            ModLog.Log.Debug(
-                $"purrTTY in-world: off-screen target {DefaultTextureSize}x{DefaultTextureSize} created " +
-                $"(colorView present={_target.ColorImageView.VkHandle != 0}, " +
-                $"framebuffer present={_target.Framebuffer.VkHandle != 0})");
-
-            // Secondary ImGui context (shares the main font atlas) + a second Vulkan
-            // ImGui backend bound to the off-screen render pass. The backend's ctor
-            // mutates the *current* context's IO + main viewport, so it must be
-            // constructed with the secondary context current — hence the With(...).
-            // MinImageCount/ImageCount = 2 matches MaxFramesInFlight and satisfies
-            // the backend's MinImageCount >= 2 assertion; DescriptorPoolSize = 256
-            // is KSA's hard floor.
-            _ctx = new OffscreenImGuiContext(DefaultTextureSize, DefaultTextureSize);
-            _ctx.With(() =>
-            {
-                _backend = new OffscreenImGuiBackend(
-                    renderer,
-                    _target.RenderPass,
-                    minImageCount: 2,
-                    imageCount: 2,
-                    descriptorPoolSize: 256);
-            });
-
-            // Per-frame loop: a mod-owned command-buffer + fence ring records the
-            // secondary-context UI into the off-screen target each frame.
-            _perFrame = new PerFrameRenderer(renderer, _target, _ctx, _backend!, framesInFlight: 2);
-
-            // Dedicated terminal session (its own shell) drawn into the off-screen
-            // target via the shared FrameGridRenderer. Self-contained — no visible
-            // 2D window is involved.
-            _content = new InWorldTerminalRenderer(config, catalog);
-            _perFrame.BuildUi = _content.BuildUi;
-
-            // World-space quad sampling the off-screen texture, injected into the
-            // scene pass by the RenderMainPass postfix. Part-anchored (auto-anchors
-            // to the controlled vessel's first part until Phase 7 adds the picker).
-            _quad = new InWorldQuad(renderer, _target);
-
-            _initialized = true;
-            // Publish to the render postfix only once everything is built: Instance
-            // first, then Active (the postfix checks Active before touching Instance).
-            Instance = this;
-            Active = true;
-            ModLog.Log.Debug("purrTTY in-world: ready (dedicated session + part-anchored quad)");
-        }
-        catch (Exception ex)
-        {
-            ModLog.Log.Error($"purrTTY in-world: initialization failed ({ex.Message}); in-world terminal disabled");
-            DisposeInternal();
+            Enable();
         }
     }
 
+    /// <summary>Menu action: toggle the in-world terminal on/off using current settings.</summary>
+    public void Toggle()
+    {
+        if (Active)
+        {
+            Disable();
+        }
+        else
+        {
+            Enable();
+        }
+    }
+
+    /// <summary>Menu action: open the launch / reconfigure popup.</summary>
+    public void OpenConfigure() => _launchUI?.RequestOpen();
+
     /// <summary>
-    ///     Drives one off-screen terminal frame (which the world-space quad samples).
-    ///     Call once per frame from the main thread (StarMap <c>OnAfterGui</c>). A
-    ///     render failure disables the per-frame loop rather than spamming the log
-    ///     every frame. There is no on-screen 2D window — the quad is the sole
-    ///     presentation.
+    ///     Builds the GPU resources + dedicated session + quad (once) and starts
+    ///     drawing. Idempotent. A build failure is logged, partial resources are torn
+    ///     down, and the feature stays off — it must never crash the game.
+    /// </summary>
+    public void Enable()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_config == null || _catalog == null)
+        {
+            ModLog.Log.Error("purrTTY in-world: Enable() called before Initialize()");
+            return;
+        }
+
+        if (_target == null && !BuildResources(_config, _catalog))
+        {
+            return; // build failed (already logged + torn down)
+        }
+
+        // Publish to the render postfix once everything is built: Instance first,
+        // then Active (the postfix checks Active before touching Instance).
+        Instance = this;
+        Active = true;
+
+        if (!_settings.Enabled)
+        {
+            _settings.Enabled = true;
+            _settings.Save();
+        }
+
+        ModLog.Log.Debug($"purrTTY in-world: enabled ({_settings.Mode} mode)");
+    }
+
+    /// <summary>
+    ///     Stops drawing + rendering. Resources (and the shell) are kept so a
+    ///     re-enable is instant; everything is freed on <see cref="Dispose"/>.
+    /// </summary>
+    public void Disable()
+    {
+        // Clear Active so neither the postfix nor the per-frame loop touch the
+        // resources; we deliberately do NOT free them here (freeing while the
+        // current frame's already-recorded quad draw is in flight would be a
+        // use-after-free). They are released on Unload.
+        Active = false;
+
+        if (_settings.Enabled)
+        {
+            _settings.Enabled = false;
+            _settings.Save();
+        }
+
+        ModLog.Log.Debug("purrTTY in-world: disabled");
+    }
+
+    /// <summary>
+    ///     Drives one off-screen terminal frame (which the world-space quad samples)
+    ///     while active. Call once per frame from the main thread (StarMap
+    ///     <c>OnAfterGui</c>). A render failure stops the loop rather than spamming.
     /// </summary>
     public void OnAfterGui(double dt)
     {
-        if (!_initialized || _perFrame == null)
+        // Launch/config UI renders in the main context — available even when the
+        // in-world terminal is off, so the player can enable/configure it.
+        _launchUI?.Draw();
+
+        if (!Active || _perFrame == null)
         {
             return;
         }
@@ -162,10 +171,61 @@ public sealed class InWorldTerminalManager : IDisposable
         catch (Exception ex)
         {
             // Disable on first failure: a render-loop throw otherwise repeats every
-            // frame and can corrupt Vulkan state. GPU resources are released at
-            // Unload; here we just stop driving the loop.
-            _initialized = false;
+            // frame and can corrupt Vulkan state. Resources are released at Unload.
+            Active = false;
             ModLog.Log.Error($"purrTTY in-world: per-frame render failed, disabling ({ex.Message})");
+        }
+    }
+
+    private bool BuildResources(ThemeConfiguration config, ThemeCatalog catalog)
+    {
+        try
+        {
+            var renderer = Program.GetRenderer();
+            if (renderer == null)
+            {
+                ModLog.Log.Error("purrTTY in-world: Program.GetRenderer() returned null; cannot enable");
+                return false;
+            }
+
+            int width = Math.Clamp(_settings.TextureWidth, 256, 4096);
+            int height = Math.Clamp(_settings.TextureHeight, 256, 4096);
+
+            // R8G8B8A8Unorm (not SRGB): UnlitMesh.frag applies gammaToLinear() to the
+            // sampled texel, expecting gamma-encoded bytes. An SRGB target would
+            // double-decode and render the in-world terminal noticeably dark.
+            _target = new OffscreenRenderTarget(
+                renderer, "purrTTY-Offscreen", width, height, VkFormat.R8G8B8A8UNorm, renderer.DepthFormat);
+
+            // Secondary ImGui context (shares the main font atlas) + a second Vulkan
+            // ImGui backend bound to the off-screen pass. The backend ctor mutates
+            // the current context's IO, so build it under With(...).
+            _ctx = new OffscreenImGuiContext(width, height);
+            _ctx.With(() =>
+            {
+                _backend = new OffscreenImGuiBackend(renderer, _target.RenderPass,
+                    minImageCount: 2, imageCount: 2, descriptorPoolSize: 256);
+            });
+
+            _perFrame = new PerFrameRenderer(renderer, _target, _ctx, _backend!, framesInFlight: 2);
+
+            // Dedicated terminal session (its own shell) drawn into the off-screen
+            // target via the shared FrameGridRenderer. Self-contained.
+            _content = new InWorldTerminalRenderer(config, catalog);
+            _perFrame.BuildUi = _content.BuildUi;
+
+            // World-space quad sampling the texture; reads InWorldSettings live (so
+            // launch-UI edits update it instantly).
+            _quad = new InWorldQuad(renderer, _target, _settings);
+
+            ModLog.Log.Debug($"purrTTY in-world: resources built ({width}x{height})");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world: resource build failed ({ex.Message}); disabling");
+            TeardownResources();
+            return false;
         }
     }
 
@@ -173,28 +233,23 @@ public sealed class InWorldTerminalManager : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        DisposeInternal();
-    }
 
-    private void DisposeInternal()
-    {
-        _initialized = false;
-
-        // Stop the render postfix BEFORE freeing GPU resources: clear Active first
-        // (the postfix early-outs on it), then drop the Instance it reaches the quad
-        // through. Same thread as the postfix, so this can't interleave with an
-        // in-flight RecordDraw.
+        // Stop the postfix BEFORE freeing GPU resources.
         Active = false;
         Instance = null;
 
-        // Dedicated terminal session: closes the shell + its native surface. Safe
-        // here — Unload runs on the tick thread and the per-frame loop has already
-        // stopped (_initialized = false above).
+        TeardownResources();
+    }
+
+    private void TeardownResources()
+    {
+        // Dedicated terminal session: closes the shell + its native surface. Safe on
+        // the tick thread (Unload). The per-frame loop has already stopped.
         _content?.Dispose();
         _content = null;
 
         // The quad (pipeline + descriptor set referencing the off-screen image)
-        // before the target it samples. The postfix is already disabled (Active).
+        // before the target it samples.
         _quad?.Dispose();
         _quad = null;
 
@@ -204,9 +259,8 @@ public sealed class InWorldTerminalManager : IDisposable
         _perFrame?.Dispose();
         _perFrame = null;
 
-        // Reverse construction order. The ImGui backend's teardown mutates the
-        // secondary context's IO, so it must run with that context current and
-        // before the context itself is destroyed.
+        // The ImGui backend's teardown mutates the secondary context's IO, so it
+        // must run with that context current and before the context is destroyed.
         if (_backend != null)
         {
             var backend = _backend;
@@ -226,5 +280,14 @@ public sealed class InWorldTerminalManager : IDisposable
 
         _target?.Dispose();
         _target = null;
+    }
+
+    // Dev convenience: auto-enable on load when PURRTTY_INWORLD is set, independent
+    // of the persisted toggle. The menu (Enable/Disable) is the user-facing path.
+    private static bool IsDevGateEnabled()
+    {
+        var v = Environment.GetEnvironmentVariable("PURRTTY_INWORLD");
+        return !string.IsNullOrEmpty(v) &&
+               (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
     }
 }

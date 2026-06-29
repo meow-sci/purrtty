@@ -97,6 +97,8 @@
 
     <ItemGroup>
         <PackageReference Include="ModMenu.Attributes" Version="1.0.1" />
+        <!-- In-world terminal settings persistence (TOML), mirroring ThemeConfiguration. -->
+        <PackageReference Include="Tomlyn" Version="2.3.0" />
     </ItemGroup>
 
     <ItemGroup>

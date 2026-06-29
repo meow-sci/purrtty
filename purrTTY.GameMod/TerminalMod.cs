@@ -146,22 +146,13 @@ public class TerminalMod
         }
     }
 
-    // Dev gate for the in-world quad while it is built up phase by phase: there is
-    // no in-game launch UI yet (that arrives in a later phase), and the GPU target
-    // costs VRAM, so the prototype only initializes when PURRTTY_INWORLD is set.
-    private static bool IsInWorldPrototypeEnabled()
-    {
-        var v = Environment.GetEnvironmentVariable("PURRTTY_INWORLD");
-        return !string.IsNullOrEmpty(v) &&
-               (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
-    }
-
     private void TryInitializeInWorld()
     {
-        // Needs the controller's shared theme configuration + catalog to build the
-        // dedicated in-world session (loading a second config is the gotcha-6
-        // config-revert trap).
-        if (!IsInWorldPrototypeEnabled() || _controller == null)
+        // The in-world terminal is menu-driven (Enable/Disable); the manager
+        // auto-enables when persisted on, or when the PURRTTY_INWORLD dev gate is
+        // set. Needs the controller's shared config + catalog (loading a second
+        // config is the gotcha-6 config-revert trap).
+        if (_controller == null)
         {
             return;
         }
@@ -170,6 +161,10 @@ public class TerminalMod
         {
             _inWorld = new InWorldTerminalManager();
             _inWorld.Initialize(_controller.Configuration, _controller.Catalog);
+
+            TerminalMenus.ToggleInWorld = () => _inWorld?.Toggle();
+            TerminalMenus.OpenInWorldConfigure = () => _inWorld?.OpenConfigure();
+            TerminalMenus.IsInWorldActive = () => _inWorld?.IsActive ?? false;
         }
         catch (Exception ex)
         {
@@ -818,6 +813,9 @@ public class TerminalMod
             TerminalMenus.OpenSaveThemeDialog = null;
             TerminalMenus.OpenDeleteThemeDialog = null;
             TerminalMenus.MenuController = null;
+            TerminalMenus.ToggleInWorld = null;
+            TerminalMenus.OpenInWorldConfigure = null;
+            TerminalMenus.IsInWorldActive = null;
 
             _isInitialized = false;
             _isDisposed = true;

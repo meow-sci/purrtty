@@ -5,6 +5,7 @@ using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Core;
 using KSA;
+using purrTTY.GameMod.InWorld.Settings;
 using RenderCore;
 
 namespace purrTTY.GameMod.InWorld.Display;
@@ -16,62 +17,50 @@ namespace purrTTY.GameMod.InWorld.Display;
 ///     <c>SuperMeshRenderSystem.RenderMainPass</c>.
 ///     <para>
 ///         Reuses KSA's <c>UnlitMesh.{vert,frag}</c> shaders (vec3 pos + vec2 uv,
-///         a single mat4 push constant, one combined-image-sampler). The quad is
-///         anchored to a Part/SubPart on the controlled vessel: each frame it reads
-///         the part's ego-space pose (rotation + position, <b>excluding</b> the
-///         part's own scale so the Width/Height knobs are the sole size source) and
-///         composes it with the user's local offset/rotation. KSA renders the scene
-///         in ego space and supplies <c>Camera.MVP.viewProjection</c>; the pipeline
-///         is reverse-Z (<c>DepthTestWrite</c>) and bound to <c>Program.OffScreenPass</c>
-///         so the quad occludes / is occluded correctly.
+///         a single mat4 push constant, one combined-image-sampler). Two anchor
+///         modes share one pipeline pair, selected per-frame from
+///         <see cref="InWorldSettings"/>:
+///         <list type="bullet">
+///             <item><b>Part</b> — ego-space MVP anchored to a Part/SubPart pose
+///                   (rotation + position, excluding the part's own scale), drawn
+///                   with reverse-Z <c>DepthTestWrite</c> so it occludes / is
+///                   occluded by the scene.</item>
+///             <item><b>Billboard</b> — a view-space MVP (camera-locked HUD panel),
+///                   drawn with <c>NoDepthTest</c> (always-on-top) or
+///                   <c>DepthTestWrite</c> per <see cref="InWorldSettings.BillboardAlwaysOnTop"/>.</item>
+///         </list>
 ///     </para>
 ///     <para>
 ///         Main thread only. The constructor allocates GPU resources and must run
-///         after the renderer is live (the manager builds it from <c>OnFullyLoaded</c>).
+///         after the renderer is live (the manager builds it from <c>OnFullyLoaded</c>
+///         or a later Enable). It reads <see cref="InWorldSettings"/> live each
+///         frame, so editing the settings updates the quad instantly.
 ///     </para>
 /// </summary>
 public sealed class InWorldQuad : IDisposable
 {
     private readonly Renderer              _renderer;
     private readonly OffscreenRenderTarget _target;
+    private readonly InWorldSettings       _settings;
 
     private readonly DescriptorPoolEx      _descriptorPool;
     private readonly DescriptorSetLayoutEx _descriptorSetLayout;
     private readonly VkDescriptorSet       _descriptorSet;
     private readonly VkPipelineLayout      _pipelineLayout;
-    private readonly VkPipeline            _pipeline;
+    private readonly VkPipeline            _pipelineDepthWrite;  // part mode / occluding billboard
+    private readonly VkPipeline            _pipelineNoDepth;     // always-on-top billboard
     private readonly VertexInput           _vertexInput;
     private readonly BufferEx              _vertexBuffer;
     private readonly BufferEx              _indexBuffer;
 
     private bool _disposed;
 
-    // --- Anchor configuration (Phase 7 wires these to persisted InWorldSettings +
-    // the launch UI). For the prototype they default to a visible 2x2m panel a
-    // couple of metres off the anchor part. ---
-
     /// <summary>
-    ///     Id of the Part/SubPart to anchor to. When null/empty the quad falls
-    ///     back to the controlled vessel's first top-level part so the prototype is
-    ///     visible without a picker.
+    ///     True when the live model matrix can be composed this frame. Billboard
+    ///     mode needs only a camera; part mode also needs a controlled vessel and a
+    ///     resolvable anchor part. Mirrors <see cref="RecordDraw"/>'s predicate.
     /// </summary>
-    public string? TargetPartId { get; set; }
-
-    public float OffsetX { get; set; }
-    public float OffsetY { get; set; }
-    public float OffsetZ { get; set; } = 2f;
-    public float RotationXDeg { get; set; }
-    public float RotationYDeg { get; set; }
-    public float RotationZDeg { get; set; }
-    public float WidthMeters { get; set; } = 2f;
-    public float HeightMeters { get; set; } = 2f;
-
-    /// <summary>
-    ///     True when the live model matrix can be composed this frame (a camera,
-    ///     a controlled vessel, and a resolvable anchor part all exist). Mirrors
-    ///     <see cref="RecordDraw"/>'s predicate so the UI can show honest status.
-    /// </summary>
-    public bool IsAnchored => TryComputeModelEgo(out _);
+    public bool IsAnchored => TryComputeModel(out _, out _);
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct QuadVertex
@@ -80,13 +69,15 @@ public sealed class InWorldQuad : IDisposable
         public float2 Uv;
     }
 
-    public unsafe InWorldQuad(Renderer renderer, OffscreenRenderTarget target)
+    public unsafe InWorldQuad(Renderer renderer, OffscreenRenderTarget target, InWorldSettings settings)
     {
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(settings);
 
         _renderer = renderer;
         _target   = target;
+        _settings = settings;
 
         // The unlit mesh shader pair KSA already ships. Get<T> throws if either id
         // is missing, which the manager catches to disable the feature cleanly. The
@@ -127,9 +118,6 @@ public sealed class InWorldQuad : IDisposable
         _descriptorSet  = device.AllocateDescriptorSet(_descriptorPool, _descriptorSetLayout);
 
         // ---- Write sampler + image-view into the descriptor set ----
-        // The off-screen render pass finalizes the color attachment to
-        // ShaderReadOnlyOptimal, so no manual layout transition is needed before
-        // sampling. Reuse the target's linear-clamped sampler.
         var imageInfo = new VkDescriptorImageInfo
         {
             ImageView   = _target.ColorImageView,
@@ -186,11 +174,12 @@ public sealed class InWorldQuad : IDisposable
         // ---- Pipeline state — the load-bearing bits (z-order fix from commit 5be1aad) ----
         // Bind to Program.OffScreenPass, NOT Program.MainPass: the scene (parts +
         // our postfix) runs inside the offscreen MSAA pass; MainPass is the 1-bit
-        // swapchain pass. Binding the wrong pass passes validation but breaks depth
-        // (quad always paints on top). RasterizationSamples must match the scene
-        // framebuffer's MSAA. Reverse-Z DepthTestWrite (clear 0, GreaterOrEqual) so
-        // the quad occludes / is occluded. Cull none: a user-orientable single quad
-        // should never be invisible from its back face.
+        // swapchain pass. RasterizationSamples must match the scene framebuffer's
+        // MSAA. Cull none: a user-orientable single quad should never be invisible
+        // from its back face. Two pipelines differ only in depth state:
+        //   DepthTestWrite — reverse-Z (clear 0, GreaterOrEqual), occluding (part
+        //                    mode, or an occluding billboard).
+        //   NoDepthTest    — always-on-top HUD billboard.
         var multisample = new VkPipelineMultisampleStateCreateInfo
         {
             RasterizationSamples = Program.OffScreenPass.SampleCount,
@@ -212,22 +201,26 @@ public sealed class InWorldQuad : IDisposable
             ColorBlendState    = Presets.BlendState.BlendNone,
             MultisampleState   = &multisample,
         };
-        _pipeline = device.CreateGraphicsPipeline(default(VkPipelineCache), pipelineInfo, null);
-
-        // ---- Vertex / index buffers ----
-        // Centered unit quad in the XY plane, +Z normal. V is flipped so the
-        // texture's (0,0) top-left aligns with the ImGui-written content.
-        Span<QuadVertex> verts = stackalloc QuadVertex[4]
-        {
-            new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(0f, 1f) },
-            new QuadVertex { Pos = new float3( 0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
-            new QuadVertex { Pos = new float3( 0.5f,  0.5f, 0f), Uv = new float2(1f, 0f) },
-            new QuadVertex { Pos = new float3(-0.5f,  0.5f, 0f), Uv = new float2(0f, 0f) },
-        };
-        Span<ushort> indices = stackalloc ushort[6] { 0, 1, 2, 0, 2, 3 };
 
         try
         {
+            _pipelineDepthWrite = device.CreateGraphicsPipeline(default(VkPipelineCache), pipelineInfo, null);
+
+            pipelineInfo.DepthStencilState = RenderingPresets.ReverseZDepthStencil.NoDepthTest;
+            _pipelineNoDepth = device.CreateGraphicsPipeline(default(VkPipelineCache), pipelineInfo, null);
+
+            // ---- Vertex / index buffers ----
+            // Centered unit quad in the XY plane, +Z normal. V is flipped so the
+            // texture's (0,0) top-left aligns with the ImGui-written content.
+            Span<QuadVertex> verts = stackalloc QuadVertex[4]
+            {
+                new QuadVertex { Pos = new float3(-0.5f, -0.5f, 0f), Uv = new float2(0f, 1f) },
+                new QuadVertex { Pos = new float3( 0.5f, -0.5f, 0f), Uv = new float2(1f, 1f) },
+                new QuadVertex { Pos = new float3( 0.5f,  0.5f, 0f), Uv = new float2(1f, 0f) },
+                new QuadVertex { Pos = new float3(-0.5f,  0.5f, 0f), Uv = new float2(0f, 0f) },
+            };
+            Span<ushort> indices = stackalloc ushort[6] { 0, 1, 2, 0, 2, 3 };
+
             _vertexBuffer = renderer.Allocator.CreateBuffer(new BufferEx.CreateInfo
             {
                 Name                    = "purrTTY-Quad-VB",
@@ -257,8 +250,6 @@ public sealed class InWorldQuad : IDisposable
         }
         catch
         {
-            // Free what was allocated if buffer creation/upload throws after the
-            // pipeline objects exist, so the caller doesn't leak GPU resources.
             DestroyGpu();
             throw;
         }
@@ -267,20 +258,25 @@ public sealed class InWorldQuad : IDisposable
     /// <summary>
     ///     Records bind + draw commands for the quad into the supplied (live,
     ///     inside-render-pass) command buffer. No-op when the live model cannot be
-    ///     composed (no camera / no vessel / anchor part missing).
+    ///     composed (e.g. no camera, or part mode with no anchor part).
     /// </summary>
     public unsafe void RecordDraw(CommandBuffer cmd)
     {
         if (_disposed) return;
-        if (!TryComputeModelEgo(out float4x4 modelEgo)) return;
+        if (!TryComputeModel(out float4x4 model, out bool useNoDepth)) return;
 
         var camera = Program.GetMainCamera();
         if (camera == null) return;
 
-        // MVP = model * viewProjection (row-vector convention).
-        float4x4 mvp = modelEgo * camera.MVP.viewProjection;
+        // Part mode: model is in ego space → multiply by view*projection. Billboard
+        // mode: model is already in view space → skip view, multiply by projection.
+        float4x4 mvp = _settings.IsBillboard
+            ? model * camera.MVP.projection
+            : model * camera.MVP.viewProjection;
 
-        cmd.BindPipeline(VkPipelineBindPoint.Graphics, _pipeline);
+        VkPipeline pipeline = useNoDepth ? _pipelineNoDepth : _pipelineDepthWrite;
+
+        cmd.BindPipeline(VkPipelineBindPoint.Graphics, pipeline);
         VkDescriptorSet descSetCopy = _descriptorSet;
         cmd.BindDescriptorSets(
             VkPipelineBindPoint.Graphics,
@@ -305,15 +301,16 @@ public sealed class InWorldQuad : IDisposable
     }
 
     /// <summary>
-    ///     Ego-space ray vs. quad pick (Phase 8 click-to-focus). Returns true and
-    ///     the nearer positive <c>t</c> when the ray hits one of the two triangles.
-    ///     The local corners MUST match the vertex buffer (keep in sync, or picking
-    ///     lands off-target).
+    ///     Ego-space ray vs. quad pick (Phase 8 click-to-focus). Valid in part mode
+    ///     (ego-space model + ego-space <c>Cursor.InputRay</c>); billboard picking
+    ///     uses a screen-space test added in Phase 8. The local corners MUST match
+    ///     the vertex buffer.
     /// </summary>
     public bool TryRaycast(Ray ray, out double t)
     {
         t = double.MaxValue;
-        if (!TryComputeModelEgo(out float4x4 modelEgo)) return false;
+        if (_settings.IsBillboard) return false;
+        if (!TryComputeModel(out float4x4 modelEgo, out _)) return false;
 
         float3 v0Local = new float3(-0.5f, -0.5f, 0f);
         float3 v1Local = new float3( 0.5f, -0.5f, 0f);
@@ -343,18 +340,31 @@ public sealed class InWorldQuad : IDisposable
     }
 
     /// <summary>
-    ///     Composes the ego-space model matrix from (1) Width/Height (scale),
-    ///     (2) the user's local Euler rotation, (3) the user's local offset, and
-    ///     (4) the anchor part's ego-space rotation + position. Returns false when
-    ///     any of {camera, controlled vehicle, anchor part} is missing.
+    ///     Composes the model matrix for the active anchor mode. Returns false when
+    ///     it cannot be composed this frame. <paramref name="useNoDepth"/> selects
+    ///     the always-on-top pipeline variant.
     /// </summary>
-    private bool TryComputeModelEgo(out float4x4 model)
+    private bool TryComputeModel(out float4x4 model, out bool useNoDepth)
     {
         model = float4x4.Identity;
+        useNoDepth = false;
         if (_disposed) return false;
 
         var camera = Program.GetMainCamera();
         if (camera == null) return false;
+
+        if (_settings.IsBillboard)
+        {
+            return TryComputeBillboardModel(out model, out useNoDepth);
+        }
+
+        // Part mode always depth-writes (it lives in the scene and should occlude).
+        return TryComputePartModel(camera, out model);
+    }
+
+    private bool TryComputePartModel(Camera camera, out float4x4 model)
+    {
+        model = float4x4.Identity;
 
         Vehicle? vehicle = Program.ControlledVehicle;
         if (vehicle == null) return false;
@@ -376,26 +386,44 @@ public sealed class InWorldQuad : IDisposable
         float4x4 partEgo = partRotMat * partTransMat;
 
         const float deg2rad = MathF.PI / 180f;
-        float4x4 userRot = float4x4.CreateRotationX(RotationXDeg * deg2rad)
-                         * float4x4.CreateRotationY(RotationYDeg * deg2rad)
-                         * float4x4.CreateRotationZ(RotationZDeg * deg2rad);
-        float4x4 userTrans = float4x4.CreateTranslation(new float3(OffsetX, OffsetY, OffsetZ));
-        float4x4 scaleMat  = float4x4.CreateScale(WidthMeters, HeightMeters, 1f);
+        float4x4 userRot = float4x4.CreateRotationX(_settings.PartRotationX * deg2rad)
+                         * float4x4.CreateRotationY(_settings.PartRotationY * deg2rad)
+                         * float4x4.CreateRotationZ(_settings.PartRotationZ * deg2rad);
+        float4x4 userTrans = float4x4.CreateTranslation(
+            new float3(_settings.PartOffsetX, _settings.PartOffsetY, _settings.PartOffsetZ));
+        float4x4 scaleMat = float4x4.CreateScale(_settings.PartWidthMeters, _settings.PartHeightMeters, 1f);
 
         // v_local → scale → userRot → userTrans → partEgo → ego
         model = scaleMat * userRot * userTrans * partEgo;
         return true;
     }
 
+    private bool TryComputeBillboardModel(out float4x4 model, out bool useNoDepth)
+    {
+        // View space: the camera sits at the origin looking down its forward axis.
+        // Place the quad `distance` in front (offset in screen X/Y), so mvp =
+        // model * projection (skip view) keeps it pinned in the camera's frame.
+        //
+        // NOTE: the forward-axis sign (-distance) is the single most likely first-
+        // run surprise — if the panel renders behind the camera, flip the sign.
+        float4x4 scaleMat = float4x4.CreateScale(_settings.BillboardWidthMeters, _settings.BillboardHeightMeters, 1f);
+        float4x4 placeMat = float4x4.CreateTranslation(
+            new float3(_settings.BillboardOffsetX, _settings.BillboardOffsetY, -_settings.BillboardDistance));
+
+        model = scaleMat * placeMat;
+        useNoDepth = _settings.BillboardAlwaysOnTop;
+        return true;
+    }
+
     private Part? ResolvePart(Vehicle vehicle)
     {
-        if (!string.IsNullOrEmpty(TargetPartId))
+        if (!string.IsNullOrEmpty(_settings.TargetPartId))
         {
-            return FindPart(vehicle, TargetPartId);
+            return FindPart(vehicle, _settings.TargetPartId);
         }
 
-        // Prototype fallback: anchor to the first top-level part so the quad is
-        // visible without a configured target (Phase 7 adds the picker UI).
+        // Fallback: anchor to the first top-level part so the quad is visible even
+        // before a target is picked.
         foreach (Part p in vehicle.Parts.Parts)
         {
             return p;
@@ -425,9 +453,13 @@ public sealed class InWorldQuad : IDisposable
         var device = _renderer.Device;
         // Reverse construction order. VkShaderModules are owned by ModLibrary — do
         // NOT destroy them here.
-        if (_pipeline.VkHandle != 0)
+        if (_pipelineNoDepth.VkHandle != 0)
         {
-            try { device.DestroyPipeline(_pipeline, null); } catch { /* best-effort */ }
+            try { device.DestroyPipeline(_pipelineNoDepth, null); } catch { /* best-effort */ }
+        }
+        if (_pipelineDepthWrite.VkHandle != 0)
+        {
+            try { device.DestroyPipeline(_pipelineDepthWrite, null); } catch { /* best-effort */ }
         }
         if (_pipelineLayout.VkHandle != 0)
         {
