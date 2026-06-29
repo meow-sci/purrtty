@@ -1,4 +1,3 @@
-using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
 using purrTTY.Display.Configuration;
@@ -6,7 +5,6 @@ using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
 using purrTTY.GameMod.InWorld.Display;
 using purrTTY.Logging;
-using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.GameMod.InWorld;
 
@@ -36,12 +34,6 @@ public sealed class InWorldTerminalManager : IDisposable
     private InWorldQuad? _quad;
     private bool _initialized;
     private bool _disposed;
-
-    // Temporary Phase 3 verification: surface the off-screen texture in a 2D ImGui
-    // window so the render-to-texture path can be confirmed before the world-space
-    // quad exists. Removed in Phase 6 once the quad shows the texture in 3D.
-    private ImTextureRef _debugTexRef;
-    private bool _debugTexAdded;
 
     /// <summary>
     ///     Read by the <c>SuperMeshRenderSystem.RenderMainPass</c> postfix to decide
@@ -150,10 +142,11 @@ public sealed class InWorldTerminalManager : IDisposable
     }
 
     /// <summary>
-    ///     Drives one off-screen frame and (temporarily, in Phase 3) draws a 2D
-    ///     debug window showing the resulting texture. Call once per frame from the
-    ///     main thread (StarMap <c>OnAfterGui</c>). A render failure disables the
-    ///     per-frame loop rather than spamming the log every frame.
+    ///     Drives one off-screen terminal frame (which the world-space quad samples).
+    ///     Call once per frame from the main thread (StarMap <c>OnAfterGui</c>). A
+    ///     render failure disables the per-frame loop rather than spamming the log
+    ///     every frame. There is no on-screen 2D window — the quad is the sole
+    ///     presentation.
     /// </summary>
     public void OnAfterGui(double dt)
     {
@@ -173,34 +166,7 @@ public sealed class InWorldTerminalManager : IDisposable
             // Unload; here we just stop driving the loop.
             _initialized = false;
             ModLog.Log.Error($"purrTTY in-world: per-frame render failed, disabling ({ex.Message})");
-            return;
         }
-
-        DrawDebugWindow();
-    }
-
-    // Temporary Phase 3 verification (removed in Phase 6): show the off-screen color
-    // texture inside a normal 2D ImGui window in the MAIN context, to confirm it has
-    // real content before the world-space quad exists.
-    private void DrawDebugWindow()
-    {
-        if (_target == null) return;
-
-        if (!_debugTexAdded)
-        {
-            // Register the off-screen image with the MAIN backend so ImGui.Image can
-            // sample it. Done lazily on the first frame (after content exists).
-            _debugTexRef = ImGuiBackend.Vulkan.AddTexture(_target.Sampler, _target.ColorImageView);
-            _debugTexAdded = true;
-        }
-
-        ImGui.SetNextWindowSize(new float2(548f, 600f), ImGuiCond.FirstUseEver);
-        if (ImGui.Begin("purrTTY in-world (debug)"))
-        {
-            ImGui.Text("Off-screen terminal texture:");
-            ImGui.Image(_debugTexRef, new float2(512f, 512f));
-        }
-        ImGui.End();
     }
 
     public void Dispose()
@@ -220,15 +186,6 @@ public sealed class InWorldTerminalManager : IDisposable
         // in-flight RecordDraw.
         Active = false;
         Instance = null;
-
-        // Remove the temporary debug texture from the MAIN backend first — it
-        // references the off-screen image view we are about to destroy.
-        if (_debugTexAdded)
-        {
-            try { ImGuiBackend.Vulkan.RemoveTexture(_debugTexRef); } catch { /* best-effort */ }
-            _debugTexAdded = false;
-            _debugTexRef = default;
-        }
 
         // Dedicated terminal session: closes the shell + its native surface. Safe
         // here — Unload runs on the tick thread and the per-frame loop has already
