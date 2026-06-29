@@ -33,7 +33,7 @@ internal static class RenderMainPassPatch
 
         try
         {
-            InWorldTerminalManager.Instance?.Quad?.RecordDraw(commandBuffer);
+            InWorldTerminalManager.Instance?.RecordDrawAll(commandBuffer);
         }
         catch (Exception ex)
         {

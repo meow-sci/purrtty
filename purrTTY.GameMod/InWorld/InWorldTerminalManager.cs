@@ -4,8 +4,6 @@ using KSA;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
-using purrTTY.GameMod.InWorld.Display;
-using purrTTY.GameMod.InWorld.Input;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.GameMod.InWorld.UI;
 using purrTTY.Logging;
@@ -14,15 +12,17 @@ using float2 = Brutal.Numerics.float2;
 namespace purrTTY.GameMod.InWorld;
 
 /// <summary>
-///     Top-level coordinator for the in-world (render-to-texture) terminal feature:
-///     a dedicated shell is rendered into an off-screen GPU texture and that texture
-///     is drawn on a world-space quad (part-anchored or camera-billboard).
+///     Coordinator for the in-world (render-to-texture) terminal feature: it owns a
+///     list of <see cref="InWorldTerminalInstance"/>s (each a dedicated shell rendered
+///     into an off-screen GPU texture and drawn on a world-space quad), arbitrates
+///     input focus, drives every instance's per-frame render, and exposes the static
+///     seams the render postfix + game-key gate read.
 ///     <para>
-///         <see cref="Initialize"/> is cheap (no GPU); the GPU resources + session +
-///         quad are built lazily on <see cref="Enable"/> and torn down on
-///         <see cref="Dispose"/>. <see cref="Disable"/> just stops drawing (keeping
-///         resources for an instant re-enable). The render postfix reads the static
-///         <see cref="Active"/>/<see cref="Instance"/>.
+///         Today exactly one instance is created (the per-instance settings are still
+///         a single <see cref="InWorldSettings"/>); the list + per-instance extraction
+///         are the groundwork for N named instances. <see cref="Initialize"/> is cheap
+///         (no GPU); instances are built lazily on <see cref="Enable"/> and torn down
+///         on <see cref="Dispose"/>. <see cref="Disable"/> just stops drawing.
 ///     </para>
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
@@ -31,36 +31,28 @@ public sealed class InWorldTerminalManager : IDisposable
     private ThemeConfiguration? _config;
     private ThemeCatalog? _catalog;
 
-    private OffscreenRenderTarget? _target;
-    private OffscreenImGuiContext? _ctx;
-    private OffscreenImGuiBackend? _backend;
-    private PerFrameRenderer? _perFrame;
-    private InWorldTerminalRenderer? _content;
-    private InWorldQuad? _quad;
-    private QuadPicker? _picker;
+    private readonly List<InWorldTerminalInstance> _instances = new();
     private InWorldLaunchUI? _launchUI;
     private bool _disposed;
 
     /// <summary>
     ///     Read by the <c>SuperMeshRenderSystem.RenderMainPass</c> postfix to decide
-    ///     whether to draw the quad. Flipped on the main thread (the same thread the
+    ///     whether to draw any quad. Flipped on the main thread (the same thread the
     ///     postfix runs on), so no synchronization is needed; cleared before GPU
     ///     teardown so an in-flight postfix can't dereference freed handles.
     /// </summary>
     public static bool Active;
 
     /// <summary>
-    ///     Whether the in-world terminal currently owns keyboard input. Read by the
+    ///     Whether an in-world terminal currently owns keyboard input. Read by the
     ///     game-key gate (Patch01) + the hotkey guard so typing at the quad never
-    ///     leaks to vehicle/camera controls. Main-thread only.
+    ///     leaks to vehicle/camera controls. Main-thread only. (With one instance this
+    ///     is a plain bool; the N-instance refactor turns it into a focused-instance id.)
     /// </summary>
     public static bool IsInputFocused;
 
-    /// <summary>The live manager instance the render postfix reaches the quad through.</summary>
+    /// <summary>The live coordinator the render postfix reaches the instances through.</summary>
     public static InWorldTerminalManager? Instance { get; private set; }
-
-    /// <summary>The world-space quad drawn by the render postfix (null until built).</summary>
-    public InWorldQuad? Quad => _quad;
 
     /// <summary>The persisted in-world settings (mutated live by the launch UI).</summary>
     public InWorldSettings Settings => _settings;
@@ -111,9 +103,9 @@ public sealed class InWorldTerminalManager : IDisposable
     }
 
     /// <summary>
-    ///     Builds the GPU resources + dedicated session + quad (once) and starts
-    ///     drawing. Idempotent. A build failure is logged, partial resources are torn
-    ///     down, and the feature stays off — it must never crash the game.
+    ///     Builds the GPU resources + dedicated session + quad for the (single)
+    ///     instance and starts drawing. Idempotent. A build failure is logged and the
+    ///     feature stays off — it must never crash the game.
     /// </summary>
     public void Enable()
     {
@@ -128,9 +120,17 @@ public sealed class InWorldTerminalManager : IDisposable
             return;
         }
 
-        if (_target == null && !BuildResources(_config, _catalog))
+        if (_instances.Count == 0)
         {
-            return; // build failed (already logged + torn down)
+            try
+            {
+                _instances.Add(new InWorldTerminalInstance(_config, _catalog, _settings));
+            }
+            catch (Exception ex)
+            {
+                ModLog.Log.Error($"purrTTY in-world: resource build failed ({ex.Message}); disabling");
+                return; // instance ctor already tore down any partial allocation
+            }
         }
 
         // Publish to the render postfix once everything is built: Instance first,
@@ -148,7 +148,7 @@ public sealed class InWorldTerminalManager : IDisposable
     }
 
     /// <summary>
-    ///     Stops drawing + rendering. Resources (and the shell) are kept so a
+    ///     Stops drawing + rendering. Instances (and their shells) are kept so a
     ///     re-enable is instant; everything is freed on <see cref="Dispose"/>.
     /// </summary>
     public void Disable()
@@ -170,8 +170,21 @@ public sealed class InWorldTerminalManager : IDisposable
     }
 
     /// <summary>
-    ///     Drives one off-screen terminal frame (which the world-space quad samples)
-    ///     while active. Call once per frame from the main thread (StarMap
+    ///     Appends every live instance's quad draw to the scene-pass command buffer.
+    ///     Called from the render postfix (which guards on <see cref="Active"/> and
+    ///     wraps this in a try/catch that disables on failure).
+    /// </summary>
+    public void RecordDrawAll(CommandBuffer commandBuffer)
+    {
+        for (int i = 0; i < _instances.Count; i++)
+        {
+            _instances[i].RecordDraw(commandBuffer);
+        }
+    }
+
+    /// <summary>
+    ///     Drives one off-screen frame per instance (which each world-space quad
+    ///     samples) while active. Call once per frame from the main thread (StarMap
     ///     <c>OnAfterGui</c>). A render failure stops the loop rather than spamming.
     /// </summary>
     public void OnAfterGui(double dt)
@@ -180,7 +193,7 @@ public sealed class InWorldTerminalManager : IDisposable
         // in-world terminal is off, so the player can enable/configure it.
         _launchUI?.Draw();
 
-        if (!Active || _perFrame == null)
+        if (!Active || _instances.Count == 0)
         {
             return;
         }
@@ -192,12 +205,15 @@ public sealed class InWorldTerminalManager : IDisposable
             IsInputFocused = false;
         }
 
-        // Click-to-focus + keyboard forwarding run in the main context (current
-        // here), reading the main ImGui IO where GLFW delivers key/char events.
-        _picker?.Tick();
+        // Click-to-focus runs in the main context (current here), reading the main
+        // ImGui IO where GLFW delivers mouse events.
+        TickPicker();
+
+        // With one instance, "focused" is that instance while IsInputFocused holds.
+        var focused = IsInputFocused ? _instances[0] : null;
 
         var io = ImGui.GetIO();
-        if (IsInputFocused && !io.WantTextInput && _content?.ActiveSession is { } session)
+        if (focused != null && !io.WantTextInput && focused.Content.ActiveSession is { } session)
         {
             // Shared encoder; no suppression / blink-reset needed for the quad.
             TerminalInputEncoder.ProcessKeyboard(session, io);
@@ -205,25 +221,29 @@ public sealed class InWorldTerminalManager : IDisposable
 
         // App-mouse: when focused in part mode, map the cursor's quad hit to a cell
         // and forward press/drag/wheel so in-world TUIs (vim, htop) respond to clicks.
-        if (IsInputFocused && !_settings.IsBillboard && _quad != null && _content != null)
+        if (focused != null && !_settings.IsBillboard)
         {
             float2? hitUv = null;
-            if (_quad.TryRaycast(Cursor.InputRay, out _, out float2 uv))
+            if (focused.TryRaycast(Cursor.InputRay, out _, out float2 uv))
             {
                 hitUv = uv;
             }
 
-            _content.ProcessMouse(hitUv, io);
+            focused.Content.ProcessMouse(hitUv, io);
         }
 
-        if (_content != null)
+        // Only the focused instance shows a focused cursor/selection.
+        for (int i = 0; i < _instances.Count; i++)
         {
-            _content.HasFocus = IsInputFocused;
+            _instances[i].Content.HasFocus = ReferenceEquals(_instances[i], focused);
         }
 
         try
         {
-            _perFrame.Frame(dt);
+            for (int i = 0; i < _instances.Count; i++)
+            {
+                _instances[i].Frame(dt);
+            }
         }
         catch (Exception ex)
         {
@@ -235,62 +255,44 @@ public sealed class InWorldTerminalManager : IDisposable
         }
     }
 
-    private bool BuildResources(ThemeConfiguration config, ThemeCatalog catalog)
+    /// <summary>
+    ///     Click-to-focus for part mode (billboard focus is menu-driven). On a left
+    ///     click it ray-tests the quad: a hit grabs input focus, a click in empty
+    ///     world space releases it; clicks captured by ImGui are ignored. Escape is
+    ///     deliberately NOT a release key — it must reach the shell (vim, less, …).
+    ///     Folded in from the former QuadPicker; the N-instance refactor turns the
+    ///     single ray-test into a nearest-hit test over all part-mode quads.
+    /// </summary>
+    private void TickPicker()
     {
-        try
+        if (_settings.IsBillboard)
         {
-            var renderer = Program.GetRenderer();
-            if (renderer == null)
-            {
-                ModLog.Log.Error("purrTTY in-world: Program.GetRenderer() returned null; cannot enable");
-                return false;
-            }
-
-            int width = Math.Clamp(_settings.TextureWidth, 256, 4096);
-            int height = Math.Clamp(_settings.TextureHeight, 256, 4096);
-
-            // R8G8B8A8Unorm (not SRGB): UnlitMesh.frag applies gammaToLinear() to the
-            // sampled texel, expecting gamma-encoded bytes. An SRGB target would
-            // double-decode and render the in-world terminal noticeably dark.
-            _target = new OffscreenRenderTarget(
-                renderer, "purrTTY-Offscreen", width, height, VkFormat.R8G8B8A8UNorm, renderer.DepthFormat);
-
-            // Secondary ImGui context (shares the main font atlas) + a second Vulkan
-            // ImGui backend bound to the off-screen pass. The backend ctor mutates
-            // the current context's IO, so build it under With(...).
-            _ctx = new OffscreenImGuiContext(width, height);
-            _ctx.With(() =>
-            {
-                _backend = new OffscreenImGuiBackend(renderer, _target.RenderPass,
-                    minImageCount: 2, imageCount: 2, descriptorPoolSize: 256);
-            });
-
-            _perFrame = new PerFrameRenderer(renderer, _target, _ctx, _backend!, framesInFlight: 2);
-
-            // Dedicated terminal session (its own shell) drawn into the off-screen
-            // target via the shared FrameGridRenderer. Self-contained.
-            _content = new InWorldTerminalRenderer(config, catalog);
-            _perFrame.BuildUi = _content.BuildUi;
-
-            // World-space quad sampling the texture; reads InWorldSettings live (so
-            // launch-UI edits update it instantly).
-            _quad = new InWorldQuad(renderer, _target, _settings);
-            _picker = new QuadPicker(_quad, _settings);
-
-            ModLog.Log.Debug($"purrTTY in-world: resources built ({width}x{height})");
-            return true;
+            return;
         }
-        catch (Exception ex)
+
+        if (!ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
-            ModLog.Log.Error($"purrTTY in-world: resource build failed ({ex.Message}); disabling");
-            TeardownResources();
-            return false;
+            return;
+        }
+
+        if (_instances[0].TryRaycast(Cursor.InputRay, out _, out _))
+        {
+            IsInputFocused = true;
+        }
+        else if (!ImGui.GetIO().WantCaptureMouse)
+        {
+            // Clicked empty world space (not over an ImGui widget) → release.
+            IsInputFocused = false;
         }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
 
         // Stop the postfix BEFORE freeing GPU resources.
@@ -298,49 +300,13 @@ public sealed class InWorldTerminalManager : IDisposable
         IsInputFocused = false;
         Instance = null;
 
-        TeardownResources();
-    }
-
-    private void TeardownResources()
-    {
-        // Dedicated terminal session: closes the shell + its native surface. Safe on
-        // the tick thread (Unload). The per-frame loop has already stopped.
-        _content?.Dispose();
-        _content = null;
-
-        // The quad (pipeline + descriptor set referencing the off-screen image)
-        // before the target it samples.
-        _picker = null;
-        _quad?.Dispose();
-        _quad = null;
-
-        // Per-frame renderer drains its fences (waiting out in-flight off-screen
-        // work) then frees its command buffers + pool. Must precede the backend so
-        // no in-flight command buffer references freed backend resources.
-        _perFrame?.Dispose();
-        _perFrame = null;
-
-        // The ImGui backend's teardown mutates the secondary context's IO, so it
-        // must run with that context current and before the context is destroyed.
-        if (_backend != null)
+        // Each instance drains its fences and frees its GPU graph + shell in order.
+        for (int i = 0; i < _instances.Count; i++)
         {
-            var backend = _backend;
-            _backend = null;
-            if (_ctx != null)
-            {
-                _ctx.With(backend.Dispose);
-            }
-            else
-            {
-                backend.Dispose();
-            }
+            _instances[i].Dispose();
         }
 
-        _ctx?.Dispose();
-        _ctx = null;
-
-        _target?.Dispose();
-        _target = null;
+        _instances.Clear();
     }
 
     // Dev convenience: auto-enable on load when PURRTTY_INWORLD is set, independent
