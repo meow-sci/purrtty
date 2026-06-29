@@ -158,7 +158,10 @@ public class TerminalMod
 
     private void TryInitializeInWorld()
     {
-        if (!IsInWorldPrototypeEnabled())
+        // Needs the controller's shared theme configuration + catalog to build the
+        // dedicated in-world session (loading a second config is the gotcha-6
+        // config-revert trap).
+        if (!IsInWorldPrototypeEnabled() || _controller == null)
         {
             return;
         }
@@ -166,7 +169,7 @@ public class TerminalMod
         try
         {
             _inWorld = new InWorldTerminalManager();
-            _inWorld.Initialize();
+            _inWorld.Initialize(_controller.Configuration, _controller.Catalog);
         }
         catch (Exception ex)
         {

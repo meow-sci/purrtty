@@ -1,9 +1,11 @@
 using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
+using purrTTY.Display.Configuration;
+using purrTTY.Display.Ghostty;
+using purrTTY.Display.Theming;
 using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
-using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.GameMod.InWorld;
 
@@ -29,8 +31,8 @@ public sealed class InWorldTerminalManager : IDisposable
     private OffscreenImGuiContext? _ctx;
     private OffscreenImGuiBackend? _backend;
     private PerFrameRenderer? _perFrame;
+    private InWorldTerminalRenderer? _content;
     private bool _initialized;
-    private ulong _frameCounter;
     private bool _disposed;
 
     // Temporary Phase 3 verification: surface the off-screen texture in a 2D ImGui
@@ -46,12 +48,14 @@ public sealed class InWorldTerminalManager : IDisposable
     public bool IsInitialized => _initialized;
 
     /// <summary>
-    ///     Builds the GPU resources. Call once after the renderer is live
-    ///     (StarMap <c>OnFullyLoaded</c>); it is unsafe earlier. Any failure is
-    ///     logged, the partially-built resources are torn down, and the feature
-    ///     is left disabled — it must never crash the game.
+    ///     Builds the GPU resources and the dedicated terminal session. Call once
+    ///     after the renderer is live (StarMap <c>OnFullyLoaded</c>); it is unsafe
+    ///     earlier. Any failure is logged, the partially-built resources are torn
+    ///     down, and the feature is left disabled — it must never crash the game.
     /// </summary>
-    public void Initialize()
+    /// <param name="config">The mod's loaded theme/shell configuration (shared with the 2D controller).</param>
+    /// <param name="catalog">The theme catalog used to resolve the configured default theme.</param>
+    public void Initialize(ThemeConfiguration config, ThemeCatalog catalog)
     {
         try
         {
@@ -101,13 +105,17 @@ public sealed class InWorldTerminalManager : IDisposable
             });
 
             // Per-frame loop: a mod-owned command-buffer + fence ring records the
-            // secondary-context UI into the off-screen target each frame. For now it
-            // draws a placeholder; Phase 4 swaps in the real terminal draw.
+            // secondary-context UI into the off-screen target each frame.
             _perFrame = new PerFrameRenderer(renderer, _target, _ctx, _backend!, framesInFlight: 2);
-            _perFrame.BuildUi = BuildPlaceholderUi;
+
+            // Dedicated terminal session (its own shell) drawn into the off-screen
+            // target via the shared FrameGridRenderer. Self-contained — no visible
+            // 2D window is involved.
+            _content = new InWorldTerminalRenderer(config, catalog);
+            _perFrame.BuildUi = _content.BuildUi;
 
             _initialized = true;
-            ModLog.Log.Debug("purrTTY in-world: per-frame off-screen renderer ready (placeholder content)");
+            ModLog.Log.Debug("purrTTY in-world: per-frame off-screen renderer ready (dedicated session)");
         }
         catch (Exception ex)
         {
@@ -131,7 +139,6 @@ public sealed class InWorldTerminalManager : IDisposable
 
         try
         {
-            _frameCounter++;
             _perFrame.Frame(dt);
         }
         catch (Exception ex)
@@ -145,30 +152,6 @@ public sealed class InWorldTerminalManager : IDisposable
         }
 
         DrawDebugWindow();
-    }
-
-    // Placeholder secondary-context UI for Phase 3 — a borderless window filling the
-    // texture with a little text and a live frame counter, enough to prove the loop
-    // is rendering. Runs inside the secondary context (PerFrameRenderer wraps it in
-    // NewFrame/Render). Phase 4 replaces this with the real terminal grid draw.
-    private void BuildPlaceholderUi()
-    {
-        if (_target == null) return;
-
-        ImGui.SetNextWindowPos(new float2(0f, 0f));
-        ImGui.SetNextWindowSize(new float2(_target.Extent.Width, _target.Extent.Height));
-
-        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
-                                       ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoScrollbar |
-                                       ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoSavedSettings;
-        if (ImGui.Begin("##purrtty-inworld-placeholder", flags))
-        {
-            ImGui.TextColored(new float4(0.5f, 1f, 0.6f, 1f), "purrTTY in-world — phase 3");
-            ImGui.Text("render-to-texture off-screen loop");
-            ImGui.Separator();
-            ImGui.Text("frame " + _frameCounter.ToString());
-        }
-        ImGui.End();
     }
 
     // Temporary Phase 3 verification (removed in Phase 6): show the off-screen color
@@ -214,6 +197,12 @@ public sealed class InWorldTerminalManager : IDisposable
             _debugTexAdded = false;
             _debugTexRef = default;
         }
+
+        // Dedicated terminal session: closes the shell + its native surface. Safe
+        // here — Unload runs on the tick thread and the per-frame loop has already
+        // stopped (_initialized = false above).
+        _content?.Dispose();
+        _content = null;
 
         // Per-frame renderer drains its fences (waiting out in-flight off-screen
         // work) then frees its command buffers + pool. Must precede the backend so
