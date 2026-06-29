@@ -282,13 +282,31 @@ public sealed class InWorldTerminalRenderer : IDisposable
     }
 
     private void ComputeCellMetrics(ImFontPtr font, float fontSize)
+        => (_cellWidth, _cellHeight) = MeasureCell(font, fontSize);
+
+    private static (float Width, float Height) MeasureCell(ImFontPtr font, float fontSize)
     {
         ImGui.PushFont(font, fontSize);
         var size = ImGui.CalcTextSize("M");
         ImGui.PopFont();
 
-        _cellWidth = size.X > 0.5f ? size.X : fontSize * 0.6f;
-        _cellHeight = size.Y > 0.5f ? size.Y : fontSize * 1.2f;
+        return (size.X > 0.5f ? size.X : fontSize * 0.6f, size.Y > 0.5f ? size.Y : fontSize * 1.2f);
+    }
+
+    /// <summary>
+    ///     Measures the cell size (pixels) for the in-world terminal's configured font
+    ///     — family + size resolved from the theme config exactly as a live renderer
+    ///     would — using the current ImGui context's shared font atlas. Lets a
+    ///     fixed-grid instance derive its off-screen texture extent (cols×Width,
+    ///     rows×Height) at build time. Must be called with an ImGui frame active (the
+    ///     in-world manager builds instances from <c>OnAfterGui</c>).
+    /// </summary>
+    public static (float Width, float Height) MeasureCell(ThemeConfiguration config, ThemeCatalog catalog)
+    {
+        var settings = BuildSettings(config, catalog);
+        var fontConfig = PurrTTYFontManager.CreateFontConfigForFamily(settings.FontFamily);
+        var regular = ResolveFontByName(fontConfig.RegularFontName) ?? ImGui.GetFont();
+        return MeasureCell(regular, settings.FontSize);
     }
 
     private static ImFontPtr? ResolveFontByName(string? name)

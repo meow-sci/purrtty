@@ -24,7 +24,7 @@ namespace purrTTY.GameMod.InWorld;
 /// </summary>
 public sealed class InWorldTerminalInstance : IDisposable
 {
-    private readonly InWorldSettings _settings;
+    private readonly InWorldTerminalRecord _record;
 
     private OffscreenRenderTarget? _target;
     private OffscreenImGuiContext? _ctx;
@@ -38,19 +38,24 @@ public sealed class InWorldTerminalInstance : IDisposable
     public InWorldTerminalRenderer Content => _content!;
 
     /// <summary>True when this instance is a camera billboard (no ego-space raycast / click-to-focus).</summary>
-    public bool IsBillboard => _settings.IsBillboard;
+    public bool IsBillboard => _record.IsBillboard;
 
-    public InWorldTerminalInstance(ThemeConfiguration config, ThemeCatalog catalog, InWorldSettings settings)
+    public InWorldTerminalInstance(ThemeConfiguration config, ThemeCatalog catalog, InWorldTerminalRecord record)
     {
-        _settings = settings;
+        _record = record;
 
         try
         {
             var renderer = Program.GetRenderer()
                 ?? throw new InvalidOperationException("Program.GetRenderer() returned null");
 
-            int width = Math.Clamp(settings.TextureWidth, 256, 4096);
-            int height = Math.Clamp(settings.TextureHeight, 256, 4096);
+            // Grid-driven texture: derive the off-screen extent from the fixed
+            // cols×rows and the configured font's cell size (measured on the current
+            // ImGui frame's shared atlas), clamped to the GPU texture range. The
+            // content renderer then resizes its surface back to exactly cols×rows.
+            var (cellWidth, cellHeight) = InWorldTerminalRenderer.MeasureCell(config, catalog);
+            int width = Math.Clamp((int)MathF.Ceiling(record.Cols * cellWidth), 256, 4096);
+            int height = Math.Clamp((int)MathF.Ceiling(record.Rows * cellHeight), 256, 4096);
 
             // R8G8B8A8Unorm (not SRGB): UnlitMesh.frag applies gammaToLinear() to the
             // sampled texel, expecting gamma-encoded bytes. An SRGB target would
@@ -77,7 +82,7 @@ public sealed class InWorldTerminalInstance : IDisposable
 
             // World-space quad sampling the texture; reads InWorldSettings live (so
             // launch-UI edits update it instantly).
-            _quad = new InWorldQuad(renderer, _target, _settings);
+            _quad = new InWorldQuad(renderer, _target, _record);
         }
         catch
         {

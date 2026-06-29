@@ -19,7 +19,7 @@ namespace purrTTY.GameMod.InWorld.Display;
 ///         Reuses KSA's <c>UnlitMesh.{vert,frag}</c> shaders (vec3 pos + vec2 uv,
 ///         a single mat4 push constant, one combined-image-sampler). Two anchor
 ///         modes share one pipeline pair, selected per-frame from
-///         <see cref="InWorldSettings"/>:
+///         <see cref="InWorldTerminalRecord"/>:
 ///         <list type="bullet">
 ///             <item><b>Part</b> — ego-space MVP anchored to a Part/SubPart pose
 ///                   (rotation + position, excluding the part's own scale), drawn
@@ -27,13 +27,13 @@ namespace purrTTY.GameMod.InWorld.Display;
 ///                   occluded by the scene.</item>
 ///             <item><b>Billboard</b> — a view-space MVP (camera-locked HUD panel),
 ///                   drawn with <c>NoDepthTest</c> (always-on-top) or
-///                   <c>DepthTestWrite</c> per <see cref="InWorldSettings.BillboardAlwaysOnTop"/>.</item>
+///                   <c>DepthTestWrite</c> per <see cref="InWorldTerminalRecord.BillboardAlwaysOnTop"/>.</item>
 ///         </list>
 ///     </para>
 ///     <para>
 ///         Main thread only. The constructor allocates GPU resources and must run
 ///         after the renderer is live (the manager builds it from <c>OnFullyLoaded</c>
-///         or a later Enable). It reads <see cref="InWorldSettings"/> live each
+///         or a later Enable). It reads <see cref="InWorldTerminalRecord"/> live each
 ///         frame, so editing the settings updates the quad instantly.
 ///     </para>
 /// </summary>
@@ -41,7 +41,7 @@ public sealed class InWorldQuad : IDisposable
 {
     private readonly Renderer              _renderer;
     private readonly OffscreenRenderTarget _target;
-    private readonly InWorldSettings       _settings;
+    private readonly InWorldTerminalRecord       _settings;
 
     private readonly DescriptorPoolEx      _descriptorPool;
     private readonly DescriptorSetLayoutEx _descriptorSetLayout;
@@ -69,7 +69,7 @@ public sealed class InWorldQuad : IDisposable
         public float2 Uv;
     }
 
-    public unsafe InWorldQuad(Renderer renderer, OffscreenRenderTarget target, InWorldSettings settings)
+    public unsafe InWorldQuad(Renderer renderer, OffscreenRenderTarget target, InWorldTerminalRecord settings)
     {
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(target);

@@ -11,7 +11,7 @@ namespace purrTTY.GameMod.InWorld.UI;
 ///     (vehicle part or camera billboard), then a mode-tailored config form.
 ///     Renders in the <b>main</b> ImGui context — the product requirement is that
 ///     the terminal <em>window</em> is hidden, not that a config dialog is. Edits
-///     mutate the live <see cref="InWorldSettings"/>, which the quad reads every
+///     mutate the live <see cref="InWorldTerminalRecord"/>, which the quad reads every
 ///     frame, so the in-world panel updates instantly while the form is open.
 /// </summary>
 public sealed class InWorldLaunchUI
@@ -76,7 +76,7 @@ public sealed class InWorldLaunchUI
 
         if (ImGui.Button("Anchor to Vehicle Part", new float2(-1f, 0f)))
         {
-            _manager.Settings.Mode = InWorldSettings.ModePart;
+            _manager.Settings.Mode = InWorldTerminalRecord.ModePart;
             _stage = Stage.PartForm;
             _manager.Enable(); // live preview while editing
         }
@@ -86,7 +86,7 @@ public sealed class InWorldLaunchUI
 
         if (ImGui.Button("Camera Billboard", new float2(-1f, 0f)))
         {
-            _manager.Settings.Mode = InWorldSettings.ModeBillboard;
+            _manager.Settings.Mode = InWorldTerminalRecord.ModeBillboard;
             _stage = Stage.BillboardForm;
             _manager.Enable();
         }
@@ -151,7 +151,8 @@ public sealed class InWorldLaunchUI
 
         if (ImGui.Button("Apply", new float2(w, 0f)))
         {
-            _manager.Settings.Save();
+            // Session-only: edits are already live on the record (the quad reads it
+            // each frame); "Apply" just dismisses the popup.
             ImGui.CloseCurrentPopup();
         }
 
@@ -169,7 +170,7 @@ public sealed class InWorldLaunchUI
         }
     }
 
-    private void DrawPartCombo(InWorldSettings s)
+    private void DrawPartCombo(InWorldTerminalRecord s)
     {
         var vehicle = Program.ControlledVehicle;
         string current = string.IsNullOrEmpty(s.TargetPartId) ? "(auto: first part)" : s.TargetPartId;

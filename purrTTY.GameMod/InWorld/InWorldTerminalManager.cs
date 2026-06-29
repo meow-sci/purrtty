@@ -27,12 +27,13 @@ namespace purrTTY.GameMod.InWorld;
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
 {
-    private readonly InWorldSettings _settings = InWorldSettings.LoadOrDefault();
+    private readonly InWorldTerminalRecord _settings = new();
     private ThemeConfiguration? _config;
     private ThemeCatalog? _catalog;
 
     private readonly List<InWorldTerminalInstance> _instances = new();
     private InWorldLaunchUI? _launchUI;
+    private bool _pendingEnable;
     private bool _disposed;
 
     /// <summary>
@@ -54,8 +55,8 @@ public sealed class InWorldTerminalManager : IDisposable
     /// <summary>The live coordinator the render postfix reaches the instances through.</summary>
     public static InWorldTerminalManager? Instance { get; private set; }
 
-    /// <summary>The persisted in-world settings (mutated live by the launch UI).</summary>
-    public InWorldSettings Settings => _settings;
+    /// <summary>The (session-only) in-world terminal record, mutated live by the launch UI.</summary>
+    public InWorldTerminalRecord Settings => _settings;
 
     /// <summary>True while the in-world terminal is on (drawing + rendering).</summary>
     public bool IsActive => Active;
@@ -71,9 +72,12 @@ public sealed class InWorldTerminalManager : IDisposable
         _catalog = catalog;
         _launchUI = new InWorldLaunchUI(this);
 
-        if (_settings.Enabled || IsDevGateEnabled())
+        // Defer the dev-gate auto-enable to the first OnAfterGui frame: building an
+        // instance measures the font cell on the live ImGui frame (grid-driven
+        // texture sizing), which is not available here in OnFullyLoaded.
+        if (IsDevGateEnabled())
         {
-            Enable();
+            _pendingEnable = true;
         }
     }
 
@@ -138,12 +142,6 @@ public sealed class InWorldTerminalManager : IDisposable
         Instance = this;
         Active = true;
 
-        if (!_settings.Enabled)
-        {
-            _settings.Enabled = true;
-            _settings.Save();
-        }
-
         ModLog.Log.Debug($"purrTTY in-world: enabled ({_settings.Mode} mode)");
     }
 
@@ -159,12 +157,6 @@ public sealed class InWorldTerminalManager : IDisposable
         // use-after-free). They are released on Unload.
         Active = false;
         IsInputFocused = false;
-
-        if (_settings.Enabled)
-        {
-            _settings.Enabled = false;
-            _settings.Save();
-        }
 
         ModLog.Log.Debug("purrTTY in-world: disabled");
     }
@@ -192,6 +184,14 @@ public sealed class InWorldTerminalManager : IDisposable
         // Launch/config UI renders in the main context — available even when the
         // in-world terminal is off, so the player can enable/configure it.
         _launchUI?.Draw();
+
+        // Process a deferred dev-gate enable now that an ImGui frame is active (the
+        // instance build measures the font cell to size its texture).
+        if (_pendingEnable)
+        {
+            _pendingEnable = false;
+            Enable();
+        }
 
         if (!Active || _instances.Count == 0)
         {
