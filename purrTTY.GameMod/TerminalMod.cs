@@ -106,6 +106,10 @@ public class TerminalMod
                 _controller.Update((float)dt);
                 _controller.Render();
             }
+
+            // In-world render-to-texture loop (prototype; gated by PURRTTY_INWORLD).
+            // No-op until the renderer/quad subsystem has been initialized.
+            _inWorld?.OnAfterGui(dt);
         }
         catch (Exception ex)
         {
