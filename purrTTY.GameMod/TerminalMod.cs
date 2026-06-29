@@ -5,6 +5,7 @@ using purrTTY.Display.Rendering;
 using purrTTY.Display.Theming;
 using StarMap.API;
 using purrTTY.Logging;
+using purrTTY.GameMod.InWorld;
 using ModMenu;
 using float2 = Brutal.Numerics.float2;
 using float4 = Brutal.Numerics.float4;
@@ -26,6 +27,7 @@ public class TerminalMod
     private const string DeleteThemePopupId = "Delete purrTTY Theme##purrtty_delete_theme_modal";
 
     private GhosttyTerminalController? _controller;
+    private InWorldTerminalManager? _inWorld;
     private bool _isDisposed;
     private bool _isInitialized;
     private bool _terminalVisible;
@@ -129,10 +131,45 @@ public class TerminalMod
             Patcher.patch();
 
             InitializeTerminal();
+
+            // In-world render-to-texture quad (plans/GAME_SPACE_QUAD_PLAN.md).
+            // Built here because the renderer is only live from OnFullyLoaded on.
+            TryInitializeInWorld();
         }
         catch (Exception ex)
         {
             ModLog.Log.Error($"purrTTY GameMod initialization failed: {ex.Message}");
+        }
+    }
+
+    // Dev gate for the in-world quad while it is built up phase by phase: there is
+    // no in-game launch UI yet (that arrives in a later phase), and the GPU target
+    // costs VRAM, so the prototype only initializes when PURRTTY_INWORLD is set.
+    private static bool IsInWorldPrototypeEnabled()
+    {
+        var v = Environment.GetEnvironmentVariable("PURRTTY_INWORLD");
+        return !string.IsNullOrEmpty(v) &&
+               (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void TryInitializeInWorld()
+    {
+        if (!IsInWorldPrototypeEnabled())
+        {
+            return;
+        }
+
+        try
+        {
+            _inWorld = new InWorldTerminalManager();
+            _inWorld.Initialize();
+        }
+        catch (Exception ex)
+        {
+            // Never let an experimental subsystem take the terminal down.
+            ModLog.Log.Error($"purrTTY GameMod: in-world terminal init failed: {ex.Message}");
+            _inWorld?.Dispose();
+            _inWorld = null;
         }
     }
 
@@ -757,6 +794,11 @@ public class TerminalMod
 
         try
         {
+            // Dispose in reverse construction order: the in-world subsystem (built
+            // after the controller in OnFullyLoaded) owns GPU resources and goes first.
+            _inWorld?.Dispose();
+            _inWorld = null;
+
             // Dispose components (the controller disposes its windows, whose session
             // managers handle process cleanup)
             _controller?.Dispose();
