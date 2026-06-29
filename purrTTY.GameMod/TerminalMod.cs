@@ -6,6 +6,7 @@ using purrTTY.Display.Theming;
 using StarMap.API;
 using purrTTY.Logging;
 using purrTTY.GameMod.InWorld;
+using purrTTY.GameMod.UI;
 using ModMenu;
 using float2 = Brutal.Numerics.float2;
 using float4 = Brutal.Numerics.float4;
@@ -23,8 +24,6 @@ namespace purrTTY.GameMod;
 public class TerminalMod
 {
     private const string ToggleHotkeyPopupId = "purrTTY Hot Key Settings##purrtty_toggle_hotkey_modal";
-    private const string SaveThemePopupId = "Save purrTTY Theme##purrtty_save_theme_modal";
-    private const string DeleteThemePopupId = "Delete purrTTY Theme##purrtty_delete_theme_modal";
 
     private GhosttyTerminalController? _controller;
     private InWorldTerminalManager? _inWorld;
@@ -42,13 +41,7 @@ public class TerminalMod
     private bool _toggleHotkeyModalOpenRequested;
     private bool _suppressNextTerminalKeyboardInputFrame;
 
-    private readonly ImInputString _themeNameInput = new(96);
-    private bool _saveThemeModalOpenRequested;
-    private string? _saveThemeError;
-
-    private bool _deleteThemeModalOpenRequested;
-    private string? _deleteThemeName;
-    private string? _deleteThemeError;
+    private ThemeDialog? _themeDialog;
 
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
@@ -78,8 +71,7 @@ public class TerminalMod
         try
         {
             bool modalVisible = RenderToggleHotkeyModal();
-            modalVisible |= RenderSaveThemeModal();
-            modalVisible |= RenderDeleteThemeModal();
+            modalVisible |= _themeDialog?.Render() ?? false;
 
             // Handle terminal toggle keybind (dynamic, defaults to F12). Suppressed
             // while the in-world terminal is focused so the key reaches that shell.
@@ -280,8 +272,8 @@ public class TerminalMod
             TerminalMenus.GetIsVisible = () => IsTerminalVisible;
             TerminalMenus.GetToggleHotkeyShortcut = () => _toggleHotkeyShortcut;
             TerminalMenus.OpenToggleHotkeySettings = RequestOpenToggleHotkeyModal;
-            TerminalMenus.OpenSaveThemeDialog = RequestOpenSaveThemeModal;
-            TerminalMenus.OpenDeleteThemeDialog = RequestOpenDeleteThemeModal;
+            _themeDialog = new ThemeDialog(controller);
+            TerminalMenus.OpenThemeDialog = _themeDialog.RequestOpen;
             TerminalMenus.MenuController = controller;
 
             _isInitialized = true;
@@ -346,174 +338,6 @@ public class TerminalMod
     private bool IsToggleHotkeyPressed()
     {
         return _toggleHotkey.MatchesPress(ImGui.GetIO());
-    }
-
-    private void RequestOpenSaveThemeModal()
-    {
-        if (!_isInitialized || _isDisposed || _controller == null)
-        {
-            return;
-        }
-
-        _themeNameInput.Clear();
-        _saveThemeError = null;
-        _saveThemeModalOpenRequested = true;
-    }
-
-    private bool RenderSaveThemeModal()
-    {
-        if (_saveThemeModalOpenRequested)
-        {
-            _saveThemeModalOpenRequested = false;
-            ImGui.OpenPopup(SaveThemePopupId);
-        }
-
-        bool open = true;
-        ImGui.SetNextWindowSize(new float2(560f, 0f), ImGuiCond.Appearing);
-        if (!ImGui.BeginPopupModal(SaveThemePopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize))
-        {
-            return false;
-        }
-
-        ImGui.Text("Save the focused window's colors, font, and opacity settings as a theme.");
-        ImGui.Spacing();
-
-        ImGui.Text("Name");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGui.IsWindowAppearing())
-        {
-            ImGui.SetKeyboardFocusHere();
-        }
-
-        bool submitted = ImGui.InputText("##purrtty_theme_name", _themeNameInput, ImGuiInputTextFlags.EnterReturnsTrue);
-
-        // BRUTAL's InputText only recomputes ImInputString.Length when it returns true. With
-        // EnterReturnsTrue that's *only* on Enter, never on plain typing, so Length (and thus
-        // ToString()/Value) would stay empty while the user types — leaving the Save button
-        // permanently disabled. Re-evaluate the length from the buffer ourselves every frame.
-        _themeNameInput.EvaluateLength();
-
-        string name = _themeNameInput.ToString().Trim();
-        if (name.Length > 0 && _controller?.Catalog.UserThemeExists(name) == true)
-        {
-            ImGui.TextColored(new float4(1f, 0.8f, 0.3f, 1f), $"A saved theme named '{name}' already exists and will be overwritten.");
-        }
-
-        if (_saveThemeError != null)
-        {
-            ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), _saveThemeError);
-        }
-
-        ImGui.Spacing();
-
-        float availW = ImGui.GetContentRegionAvail().X;
-        const float gap = 8f;
-        float buttonWidth = (availW - gap) / 2f;
-        bool canSave = name.Length > 0;
-
-        if (!canSave)
-        {
-            ImGui.BeginDisabled();
-        }
-
-        bool saveClicked = ImGui.Button(" Save ##purrtty_save_theme", new float2(buttonWidth, 0f));
-
-        if (!canSave)
-        {
-            ImGui.EndDisabled();
-        }
-
-        if ((saveClicked || submitted) && canSave)
-        {
-            try
-            {
-                if (_controller?.SaveFocusedWindowAsTheme(name) != null)
-                {
-                    ImGui.CloseCurrentPopup();
-                }
-                else
-                {
-                    _saveThemeError = "No terminal window to save settings from.";
-                }
-            }
-            catch (Exception ex)
-            {
-                _saveThemeError = $"Save failed: {ex.Message}";
-            }
-        }
-
-        ImGui.SameLine(0, gap);
-        if (ImGui.Button(" Cancel ##purrtty_cancel_save_theme", new float2(buttonWidth, 0f)) || !open)
-        {
-            ImGui.CloseCurrentPopup();
-        }
-
-        ImGui.EndPopup();
-        return true;
-    }
-
-    private void RequestOpenDeleteThemeModal(string themeName)
-    {
-        if (!_isInitialized || _isDisposed || _controller == null || string.IsNullOrWhiteSpace(themeName))
-        {
-            return;
-        }
-
-        _deleteThemeName = themeName;
-        _deleteThemeError = null;
-        _deleteThemeModalOpenRequested = true;
-    }
-
-    private bool RenderDeleteThemeModal()
-    {
-        if (_deleteThemeModalOpenRequested)
-        {
-            _deleteThemeModalOpenRequested = false;
-            ImGui.OpenPopup(DeleteThemePopupId);
-        }
-
-        bool open = true;
-        ImGui.SetNextWindowSize(new float2(480f, 0f), ImGuiCond.Appearing);
-        if (!ImGui.BeginPopupModal(DeleteThemePopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize))
-        {
-            return false;
-        }
-
-        ImGui.TextWrapped($"Delete the saved theme '{_deleteThemeName ?? string.Empty}'? This permanently removes its file and cannot be undone.");
-
-        if (_deleteThemeError != null)
-        {
-            ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), _deleteThemeError);
-        }
-
-        ImGui.Spacing();
-
-        float availW = ImGui.GetContentRegionAvail().X;
-        const float gap = 8f;
-        float buttonWidth = (availW - gap) / 2f;
-
-        if (ImGui.Button(" Delete ##purrtty_confirm_delete_theme", new float2(buttonWidth, 0f)))
-        {
-            try
-            {
-                _controller?.Catalog.DeleteUserTheme(_deleteThemeName ?? string.Empty);
-                ImGui.CloseCurrentPopup();
-            }
-            catch (Exception ex)
-            {
-                _deleteThemeError = $"Delete failed: {ex.Message}";
-            }
-        }
-
-        ImGui.SameLine(0, gap);
-        if (ImGui.Button(" Cancel ##purrtty_cancel_delete_theme", new float2(buttonWidth, 0f)) || !open)
-        {
-            ImGui.CloseCurrentPopup();
-        }
-
-        ImGui.EndPopup();
-        return true;
     }
 
     private void RequestOpenToggleHotkeyModal()
@@ -813,9 +637,9 @@ public class TerminalMod
             TerminalMenus.GetIsVisible = null;
             TerminalMenus.GetToggleHotkeyShortcut = null;
             TerminalMenus.OpenToggleHotkeySettings = null;
-            TerminalMenus.OpenSaveThemeDialog = null;
-            TerminalMenus.OpenDeleteThemeDialog = null;
+            TerminalMenus.OpenThemeDialog = null;
             TerminalMenus.MenuController = null;
+            _themeDialog = null;
             TerminalMenus.ToggleInWorld = null;
             TerminalMenus.OpenInWorldConfigure = null;
             TerminalMenus.IsInWorldActive = null;
