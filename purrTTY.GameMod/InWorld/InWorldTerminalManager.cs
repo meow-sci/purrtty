@@ -4,6 +4,7 @@ using KSA;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
+using purrTTY.GameMod.InWorld.Display;
 using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
@@ -15,10 +16,10 @@ namespace purrTTY.GameMod.InWorld;
 ///     drawn on a quad in 3D game space.
 ///     <para>
 ///         Built incrementally per <c>plans/GAME_SPACE_QUAD_PLAN.md</c>: the
-///         off-screen target, the secondary ImGui context + Vulkan backend, and the
-///         per-frame render loop (with a placeholder UI) are in place. The dedicated
-///         terminal session, the quad pipeline, and input/focus arrive in later
-///         phases, so this class grows phase by phase.
+///         off-screen target, the secondary ImGui context + Vulkan backend, the
+///         per-frame render loop, the dedicated terminal session, and the
+///         part-anchored world-space quad are in place. Input/focus and the launch
+///         UI arrive in later phases.
 ///     </para>
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
@@ -32,6 +33,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private OffscreenImGuiBackend? _backend;
     private PerFrameRenderer? _perFrame;
     private InWorldTerminalRenderer? _content;
+    private InWorldQuad? _quad;
     private bool _initialized;
     private bool _disposed;
 
@@ -41,8 +43,22 @@ public sealed class InWorldTerminalManager : IDisposable
     private ImTextureRef _debugTexRef;
     private bool _debugTexAdded;
 
+    /// <summary>
+    ///     Read by the <c>SuperMeshRenderSystem.RenderMainPass</c> postfix to decide
+    ///     whether to draw the quad. Flipped on the main thread (the same thread the
+    ///     postfix runs on), so no synchronization is needed; cleared before GPU
+    ///     teardown so an in-flight postfix can't dereference freed handles.
+    /// </summary>
+    public static bool Active;
+
+    /// <summary>The live manager instance the render postfix reaches the quad through.</summary>
+    public static InWorldTerminalManager? Instance { get; private set; }
+
     /// <summary>The off-screen color/depth target the terminal renders into and the quad samples.</summary>
     public OffscreenRenderTarget? Target => _target;
+
+    /// <summary>The world-space quad drawn by the render postfix (null until built).</summary>
+    public InWorldQuad? Quad => _quad;
 
     /// <summary>True once all GPU resources built successfully and the per-frame loop is live.</summary>
     public bool IsInitialized => _initialized;
@@ -114,8 +130,17 @@ public sealed class InWorldTerminalManager : IDisposable
             _content = new InWorldTerminalRenderer(config, catalog);
             _perFrame.BuildUi = _content.BuildUi;
 
+            // World-space quad sampling the off-screen texture, injected into the
+            // scene pass by the RenderMainPass postfix. Part-anchored (auto-anchors
+            // to the controlled vessel's first part until Phase 7 adds the picker).
+            _quad = new InWorldQuad(renderer, _target);
+
             _initialized = true;
-            ModLog.Log.Debug("purrTTY in-world: per-frame off-screen renderer ready (dedicated session)");
+            // Publish to the render postfix only once everything is built: Instance
+            // first, then Active (the postfix checks Active before touching Instance).
+            Instance = this;
+            Active = true;
+            ModLog.Log.Debug("purrTTY in-world: ready (dedicated session + part-anchored quad)");
         }
         catch (Exception ex)
         {
@@ -189,6 +214,13 @@ public sealed class InWorldTerminalManager : IDisposable
     {
         _initialized = false;
 
+        // Stop the render postfix BEFORE freeing GPU resources: clear Active first
+        // (the postfix early-outs on it), then drop the Instance it reaches the quad
+        // through. Same thread as the postfix, so this can't interleave with an
+        // in-flight RecordDraw.
+        Active = false;
+        Instance = null;
+
         // Remove the temporary debug texture from the MAIN backend first — it
         // references the off-screen image view we are about to destroy.
         if (_debugTexAdded)
@@ -203,6 +235,11 @@ public sealed class InWorldTerminalManager : IDisposable
         // stopped (_initialized = false above).
         _content?.Dispose();
         _content = null;
+
+        // The quad (pipeline + descriptor set referencing the off-screen image)
+        // before the target it samples. The postfix is already disabled (Active).
+        _quad?.Dispose();
+        _quad = null;
 
         // Per-frame renderer drains its fences (waiting out in-flight off-screen
         // work) then frees its command buffers + pool. Must precede the backend so

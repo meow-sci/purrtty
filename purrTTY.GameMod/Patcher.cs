@@ -5,6 +5,7 @@ using KSA;
 using purrTTY.Display.Ghostty;
 using purrTTY.GameMod;
 using purrTTY.GameMod.Patches;
+using purrTTY.GameMod.InWorld.Patches;
 using purrTTY.Logging;
 
 internal static class Patcher
@@ -27,6 +28,8 @@ internal static class Patcher
   {
     typeof(Patch02),
     typeof(ConsoleWindowPrintPatch),
+    // In-world quad draw injection (no-op unless the in-world feature is active).
+    typeof(RenderMainPassPatch),
   };
 
   public static void patch()
