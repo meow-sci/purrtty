@@ -23,7 +23,7 @@ namespace purrTTY.Display.Ghostty;
 /// <c>TerminalWindow.PerfHud.cs</c>, the lock-mode hot zone in
 /// <c>TerminalWindow.HotZone.cs</c>.
 /// </summary>
-public sealed partial class TerminalWindow : IDisposable
+public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 {
     /// <summary>Pixels around the window rect that still count as "hovering" (covers resize grips).</summary>
     private const float HoverMargin = 8f;
@@ -34,7 +34,7 @@ public sealed partial class TerminalWindow : IDisposable
     /// <summary>ImGui popup id for the grid's right-click copy/paste context menu.</summary>
     private const string GridContextMenuId = "##grid_context";
 
-    private readonly string _imguiName;
+    private string _imguiName;
 
     private TerminalTheme _engineTheme;
     private RgbaColor _selectionColor;
@@ -74,6 +74,18 @@ public sealed partial class TerminalWindow : IDisposable
     public bool HasFocus => _hasFocus;
 
     /// <summary>
+    /// Stable, unique, user-facing identity for this window in the
+    /// <see cref="TerminalTargetRegistry"/> (used by the theme picker). Auto-assigned
+    /// ("Terminal", "Terminal 2", …) at construction and editable via
+    /// <see cref="TryRename"/>. Distinct from the per-tab session <see cref="Title"/>
+    /// and from the appearance <see cref="Settings"/>.
+    /// </summary>
+    public string Name { get; private set; }
+
+    /// <inheritdoc/>
+    public TerminalKind Kind => TerminalKind.Window;
+
+    /// <summary>
     /// True while the grid's right-click context menu is open. The popup steals
     /// ImGui window focus, so the host must treat it as focus-equivalent when
     /// gating game hotkeys.
@@ -110,7 +122,8 @@ public sealed partial class TerminalWindow : IDisposable
         Id = id;
         Sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        _imguiName = $"purrTTY##purrtty_window_{id}";
+        Name = TerminalTargetRegistry.SuggestUniqueName("Terminal");
+        _imguiName = BuildImguiName();
         _hotZoneImguiName = $"##purrtty_hotzone_{id}";
 
         if (initialPosition is { } pos && initialSize is { } size)
@@ -131,6 +144,11 @@ public sealed partial class TerminalWindow : IDisposable
         // in WireSession can never race a concurrent BuildFrame (sessions are
         // created on pool threads).
         Sessions.SessionConfigurator = WireSession;
+
+        // Self-register so the window is addressable by name (theme picker, etc.).
+        // Construction is main-thread (controller.OpenWindow), matching the
+        // registry's threading contract; Dispose unregisters.
+        TerminalTargetRegistry.Register(this);
     }
 
     public void RequestFocus() => _wantFocus = true;
@@ -188,6 +206,36 @@ public sealed partial class TerminalWindow : IDisposable
     /// live window.
     /// </summary>
     public ThemeDefinition SnapshotAsTheme(string name) => Settings.ToThemeDefinition(name);
+
+    /// <summary>
+    /// 2D windows size their grid to the ImGui pane, so an explicit fixed grid size
+    /// is not applicable here — always returns false. (In-world instances override
+    /// this concept to resize their offscreen target.)
+    /// </summary>
+    public bool TrySetGridSize(int cols, int rows) => false;
+
+    /// <summary>
+    /// Renames the window if <paramref name="newName"/> is non-blank and not already
+    /// taken by another registered terminal (case-insensitive); returns false and
+    /// keeps the current name otherwise. The ImGui title updates while the stable
+    /// window id is preserved, so position/size state survives the rename.
+    /// </summary>
+    public bool TryRename(string newName)
+    {
+        string trimmed = newName.Trim();
+        if (!TerminalTargetRegistry.IsNameAvailable(trimmed, this))
+        {
+            return false;
+        }
+
+        Name = trimmed;
+        _imguiName = BuildImguiName();
+        return true;
+    }
+
+    // Visible title carries the Name; the "##purrtty_window_{Id}" suffix is the
+    // stable ImGui id (unchanged across renames) that keys window position/size.
+    private string BuildImguiName() => $"{Name}##purrtty_window_{Id}";
 
     /// <summary>
     /// Applies a cursor style/blink change to this window and pushes it to every
@@ -727,6 +775,7 @@ public sealed partial class TerminalWindow : IDisposable
 
         _disposed = true;
         IsOpen = false;
+        TerminalTargetRegistry.Unregister(this);
         _imageCache?.Dispose();
         Sessions.Dispose();
     }
