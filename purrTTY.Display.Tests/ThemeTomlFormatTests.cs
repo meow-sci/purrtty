@@ -178,6 +178,73 @@ public sealed class ThemeTomlFormatTests
     }
 
     [Test]
+    public void Settings_SnapshotThenSaveLoadApply_RoundTripsEveryDisplayField()
+    {
+        // The window-level "save current as theme" path, exercised at the testable
+        // settings layer: TerminalWindowSettings.ToThemeDefinition (what
+        // TerminalWindow.SnapshotAsTheme delegates to) → TOML → fresh settings.
+        // A display field added to TerminalWindowSettings but forgotten in
+        // ToThemeDefinition or ApplyThemeOverrides would drop silently — this guards
+        // the "a theme encompasses everything" contract end to end.
+        var original = new TerminalWindowSettings
+        {
+            Colors = SampleColors(),
+            FontFamily = "JetBrains Mono",
+            FontSize = 24f,
+            BackgroundOpacity = 0.85f,
+            ForegroundOpacity = 0.75f,
+            CellBackgroundOpacity = 0.65f,
+            CursorStyle = CursorShape.Bar,
+            CursorBlink = false,
+            BorderOnFocus = true,
+            BorderOnHover = true,
+            BorderOpacity = 0.42f,
+            LockMode = true,
+            HotZoneEnabled = false,
+            HotZonePlacement = HotZonePlacement.MiddleRight,
+            HotZoneWidth = 40f,
+            HotZoneHeight = 36f,
+            HotZoneColor = new RgbaColor(0x9A, 0xBC, 0xDE),
+            HotZoneOpacity = 0.3f,
+            HotZoneHoverOpacity = 0.7f,
+        };
+
+        string path = Path.Combine(_dir, "snapshot.toml");
+        ThemeTomlFormat.Save(path, original.ToThemeDefinition("Snapshot"));
+        var loaded = ThemeTomlFormat.Load(path, ThemeSource.UserFile);
+        Assert.That(loaded, Is.Not.Null);
+
+        // Reproduce ApplyTheme's split: colors are assigned by the window, the
+        // optional display fields by ApplyThemeOverrides.
+        var restored = new TerminalWindowSettings { Colors = loaded!.Colors.Clone() };
+        restored.ApplyThemeOverrides(loaded);
+
+        Assert.That(restored.Colors.Foreground, Is.EqualTo(original.Colors.Foreground));
+        Assert.That(restored.Colors.Background, Is.EqualTo(original.Colors.Background));
+        Assert.That(restored.Colors.Cursor, Is.EqualTo(original.Colors.Cursor));
+        Assert.That(restored.Colors.SelectionBackground, Is.EqualTo(original.Colors.SelectionBackground));
+        Assert.That(restored.Colors.Ansi, Is.EqualTo(original.Colors.Ansi));
+        Assert.That(restored.FontFamily, Is.EqualTo(original.FontFamily));
+        Assert.That(restored.FontSize, Is.EqualTo(original.FontSize).Within(0.001f));
+        Assert.That(restored.BackgroundOpacity, Is.EqualTo(original.BackgroundOpacity).Within(0.001f));
+        Assert.That(restored.ForegroundOpacity, Is.EqualTo(original.ForegroundOpacity).Within(0.001f));
+        Assert.That(restored.CellBackgroundOpacity, Is.EqualTo(original.CellBackgroundOpacity).Within(0.001f));
+        Assert.That(restored.CursorStyle, Is.EqualTo(original.CursorStyle));
+        Assert.That(restored.CursorBlink, Is.EqualTo(original.CursorBlink));
+        Assert.That(restored.BorderOnFocus, Is.EqualTo(original.BorderOnFocus));
+        Assert.That(restored.BorderOnHover, Is.EqualTo(original.BorderOnHover));
+        Assert.That(restored.BorderOpacity, Is.EqualTo(original.BorderOpacity).Within(0.001f));
+        Assert.That(restored.LockMode, Is.EqualTo(original.LockMode));
+        Assert.That(restored.HotZoneEnabled, Is.EqualTo(original.HotZoneEnabled));
+        Assert.That(restored.HotZonePlacement, Is.EqualTo(original.HotZonePlacement));
+        Assert.That(restored.HotZoneWidth, Is.EqualTo(original.HotZoneWidth).Within(0.001f));
+        Assert.That(restored.HotZoneHeight, Is.EqualTo(original.HotZoneHeight).Within(0.001f));
+        Assert.That(restored.HotZoneColor, Is.EqualTo(original.HotZoneColor));
+        Assert.That(restored.HotZoneOpacity, Is.EqualTo(original.HotZoneOpacity).Within(0.001f));
+        Assert.That(restored.HotZoneHoverOpacity, Is.EqualTo(original.HotZoneHoverOpacity).Within(0.001f));
+    }
+
+    [Test]
     public void ApplyThemeOverrides_ClampsOutOfRangeValues()
     {
         var settings = new TerminalWindowSettings();

@@ -1,6 +1,7 @@
 using Brutal.ImGuiApi;
 using KSA;
 using purrTTY.GameMod.InWorld.Settings;
+using purrTTY.GameMod.UI;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.GameMod.InWorld.UI;
@@ -18,6 +19,7 @@ public sealed class InWorldLaunchUI
     private const string PopupId = "In-World Terminal##purrtty_inworld_launch";
 
     private readonly InWorldTerminalManager _manager;
+    private readonly ImInputString _partFilter = new(64);
     private bool _openRequested;
     private Stage _stage = Stage.ModeSelect;
 
@@ -167,35 +169,35 @@ public sealed class InWorldLaunchUI
         }
     }
 
-    private static void DrawPartCombo(InWorldSettings s)
+    private void DrawPartCombo(InWorldSettings s)
     {
         var vehicle = Program.ControlledVehicle;
         string current = string.IsNullOrEmpty(s.TargetPartId) ? "(auto: first part)" : s.TargetPartId;
 
+        // Build the selectable list fresh each frame: the "(auto)" sentinel (empty
+        // key) plus every top-level part and its sub-parts. Part ids can repeat
+        // across instances of a template; FilterCombo disambiguates the ImGui id by
+        // row index, and selecting any row with a given id sets that id (same
+        // semantics as before — TargetPartId is a plain string id).
+        var items = new List<(string Key, string Label)> { ("", "(auto: first part)") };
+        if (vehicle != null)
+        {
+            foreach (Part p in vehicle.Parts.Parts)
+            {
+                items.Add((p.Id, PartLabel(p)));
+                foreach (Part sub in p.SubParts)
+                {
+                    items.Add((sub.Id, PartLabel(sub)));
+                }
+            }
+        }
+
         ImGui.Text("Anchor Part");
         ImGui.SameLine();
         ImGui.SetNextItemWidth(-1f);
-        if (ImGui.BeginCombo("##inworld_part", current))
+        if (ImGuiWidgets.FilterCombo("##inworld_part", current, _partFilter, items, out string? picked) && picked != null)
         {
-            if (ImGui.Selectable("(auto: first part)", string.IsNullOrEmpty(s.TargetPartId)))
-            {
-                s.TargetPartId = "";
-            }
-
-            if (vehicle != null)
-            {
-                int index = 0;
-                foreach (Part p in vehicle.Parts.Parts)
-                {
-                    DrawPartSelectable(s, p, ref index);
-                    foreach (Part sub in p.SubParts)
-                    {
-                        DrawPartSelectable(s, sub, ref index);
-                    }
-                }
-            }
-
-            ImGui.EndCombo();
+            s.TargetPartId = picked;
         }
 
         if (vehicle == null)
@@ -204,18 +206,8 @@ public sealed class InWorldLaunchUI
         }
     }
 
-    private static void DrawPartSelectable(InWorldSettings s, Part p, ref int index)
-    {
-        string id = p.Id;
-        string display = string.IsNullOrEmpty(p.DisplayName) ? id : $"{p.DisplayName} ({id})";
-        // Disambiguate the ImGui id so parts sharing a template Id never collide.
-        if (ImGui.Selectable($"{display}##inworld_part_{index}", s.TargetPartId == id))
-        {
-            s.TargetPartId = id;
-        }
-
-        index++;
-    }
+    private static string PartLabel(Part p)
+        => string.IsNullOrEmpty(p.DisplayName) ? p.Id : $"{p.DisplayName} ({p.Id})";
 
     private static void DragRow(string label, string id, float value, float speed, float min, float max, Action<float> set)
     {

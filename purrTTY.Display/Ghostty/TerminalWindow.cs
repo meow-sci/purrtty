@@ -181,31 +181,13 @@ public sealed partial class TerminalWindow : IDisposable
         ApplyCursorStyleToSessions();
     }
 
-    /// <summary>Snapshots the window's current settings as a named theme definition.</summary>
-    public ThemeDefinition SnapshotAsTheme(string name) => new()
-    {
-        Name = name,
-        Source = ThemeSource.UserFile,
-        Colors = Settings.Colors.Clone(),
-        FontFamily = Settings.FontFamily,
-        FontSize = Settings.FontSize,
-        BackgroundOpacity = Settings.BackgroundOpacity,
-        ForegroundOpacity = Settings.ForegroundOpacity,
-        CellBackgroundOpacity = Settings.CellBackgroundOpacity,
-        CursorStyle = Settings.CursorStyle,
-        CursorBlink = Settings.CursorBlink,
-        BorderOnFocus = Settings.BorderOnFocus,
-        BorderOnHover = Settings.BorderOnHover,
-        BorderOpacity = Settings.BorderOpacity,
-        LockMode = Settings.LockMode,
-        HotZoneEnabled = Settings.HotZoneEnabled,
-        HotZonePlacement = Settings.HotZonePlacement,
-        HotZoneWidth = Settings.HotZoneWidth,
-        HotZoneHeight = Settings.HotZoneHeight,
-        HotZoneColor = Settings.HotZoneColor,
-        HotZoneOpacity = Settings.HotZoneOpacity,
-        HotZoneHoverOpacity = Settings.HotZoneHoverOpacity,
-    };
+    /// <summary>
+    /// Snapshots the window's current settings as a named theme definition. The
+    /// field mapping lives on <see cref="TerminalWindowSettings.ToThemeDefinition"/>
+    /// (pure + unit-tested) so the full-bundle round-trip is verifiable without a
+    /// live window.
+    /// </summary>
+    public ThemeDefinition SnapshotAsTheme(string name) => Settings.ToThemeDefinition(name);
 
     /// <summary>
     /// Applies a cursor style/blink change to this window and pushes it to every

@@ -156,4 +156,38 @@ public sealed class TerminalWindowSettings
             HotZoneHoverOpacity = Math.Clamp(hotZoneHoverOpacity, 0f, 1f);
         }
     }
+
+    /// <summary>
+    /// Snapshots these settings as a complete, named theme bundle: a clone of the
+    /// colors plus <b>every</b> optional display field. This is the inverse of
+    /// <see cref="ApplyThemeOverrides"/> (which restores the display fields) plus
+    /// the colors the applying window assigns separately — so a definition produced
+    /// here, saved, reloaded, and applied to fresh settings reproduces this exact
+    /// appearance. Keeping it next to <see cref="ApplyThemeOverrides"/> makes the
+    /// "a theme encompasses everything" round-trip unit-testable without ImGui.
+    /// </summary>
+    public ThemeDefinition ToThemeDefinition(string name) => new()
+    {
+        Name = name,
+        Source = ThemeSource.UserFile,
+        Colors = Colors.Clone(),
+        FontFamily = FontFamily,
+        FontSize = FontSize,
+        BackgroundOpacity = BackgroundOpacity,
+        ForegroundOpacity = ForegroundOpacity,
+        CellBackgroundOpacity = CellBackgroundOpacity,
+        CursorStyle = CursorStyle,
+        CursorBlink = CursorBlink,
+        BorderOnFocus = BorderOnFocus,
+        BorderOnHover = BorderOnHover,
+        BorderOpacity = BorderOpacity,
+        LockMode = LockMode,
+        HotZoneEnabled = HotZoneEnabled,
+        HotZonePlacement = HotZonePlacement,
+        HotZoneWidth = HotZoneWidth,
+        HotZoneHeight = HotZoneHeight,
+        HotZoneColor = HotZoneColor,
+        HotZoneOpacity = HotZoneOpacity,
+        HotZoneHoverOpacity = HotZoneHoverOpacity,
+    };
 }
