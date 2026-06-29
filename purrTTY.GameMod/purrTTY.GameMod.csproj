@@ -11,7 +11,9 @@
         <Copyright>Copyright © meow sci</Copyright>
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <ModNamespace>purrTTY.GameMod</ModNamespace>
-        <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+        <!-- The in-world quad (InWorld/) does low-level Vulkan setup + ImGui
+             context-pointer identity checks that require unsafe blocks. -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
         <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
         <DistDir>$(SelectedDistModDir)purrTTY\</DistDir>

@@ -1,3 +1,4 @@
+using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using KSA;
 using purrTTY.Logging;
@@ -23,6 +24,8 @@ public sealed class InWorldTerminalManager : IDisposable
     private const int DefaultTextureSize = 1024;
 
     private OffscreenRenderTarget? _target;
+    private OffscreenImGuiContext? _ctx;
+    private OffscreenImGuiBackend? _backend;
     private bool _disposed;
 
     /// <summary>The off-screen color/depth target the terminal renders into and the quad samples.</summary>
@@ -64,6 +67,34 @@ public sealed class InWorldTerminalManager : IDisposable
                 $"purrTTY in-world: off-screen target {DefaultTextureSize}x{DefaultTextureSize} created " +
                 $"(colorView present={_target.ColorImageView.VkHandle != 0}, " +
                 $"framebuffer present={_target.Framebuffer.VkHandle != 0})");
+
+            // Secondary ImGui context (shares the main font atlas) + a second Vulkan
+            // ImGui backend bound to the off-screen render pass. The backend's ctor
+            // mutates the *current* context's IO + main viewport, so it must be
+            // constructed with the secondary context current — hence the With(...).
+            // MinImageCount/ImageCount = 2 matches MaxFramesInFlight and satisfies
+            // the backend's MinImageCount >= 2 assertion; DescriptorPoolSize = 256
+            // is KSA's hard floor.
+            _ctx = new OffscreenImGuiContext(DefaultTextureSize, DefaultTextureSize);
+            _ctx.With(() =>
+            {
+                _backend = new OffscreenImGuiBackend(
+                    renderer,
+                    _target.RenderPass,
+                    minImageCount: 2,
+                    imageCount: 2,
+                    descriptorPoolSize: 256);
+
+                // Phase 2 smoke test: drive one trivial frame on the secondary
+                // context to confirm NewFrame/Render produce valid draw data with no
+                // ImGui/Vulkan validation errors. The real terminal draw + GPU
+                // submission into the off-screen target arrives in Phase 3.
+                ImGui.NewFrame();
+                ImGui.Render();
+                _ = ImGui.GetDrawData();
+            });
+
+            ModLog.Log.Debug("purrTTY in-world: secondary ImGui context + backend constructed; trivial frame driven OK");
         }
         catch (Exception ex)
         {
@@ -81,6 +112,26 @@ public sealed class InWorldTerminalManager : IDisposable
 
     private void DisposeInternal()
     {
+        // Reverse construction order. The ImGui backend's teardown mutates the
+        // secondary context's IO, so it must run with that context current and
+        // before the context itself is destroyed.
+        if (_backend != null)
+        {
+            var backend = _backend;
+            _backend = null;
+            if (_ctx != null)
+            {
+                _ctx.With(backend.Dispose);
+            }
+            else
+            {
+                backend.Dispose();
+            }
+        }
+
+        _ctx?.Dispose();
+        _ctx = null;
+
         _target?.Dispose();
         _target = null;
     }
