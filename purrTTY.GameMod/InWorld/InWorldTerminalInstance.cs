@@ -70,7 +70,8 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         }
     }
 
-    public InWorldTerminalInstance(ThemeConfiguration config, ThemeCatalog catalog, InWorldTerminalRecord record)
+    public InWorldTerminalInstance(
+        ThemeConfiguration config, ThemeCatalog catalog, InWorldTerminalRecord record, SharedQuadResource sharedQuad)
     {
         _record = record;
 
@@ -110,8 +111,9 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
             _perFrame.BuildUi = _content.BuildUi;
 
             // World-space quad sampling the texture; reads the record live (so launch-
-            // UI placement edits update it instantly).
-            _quad = new InWorldQuad(renderer, _target, _record);
+            // UI placement edits update it instantly). Draws through the shared
+            // pipeline/geometry, owning only its descriptor set.
+            _quad = new InWorldQuad(renderer, _target, _record, sharedQuad);
         }
         catch
         {

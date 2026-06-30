@@ -4,6 +4,7 @@ using KSA;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
+using purrTTY.GameMod.InWorld.Display;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.GameMod.InWorld.UI;
 using purrTTY.Logging;
@@ -38,6 +39,7 @@ public sealed class InWorldTerminalManager : IDisposable
     private ThemeConfiguration? _config;
     private ThemeCatalog? _catalog;
     private InWorldManagerUI? _ui;
+    private SharedQuadResource? _sharedQuad;
     private InWorldTerminalInstance? _focused;
     private bool _pendingDefault;
     private bool _disposed;
@@ -109,12 +111,34 @@ public sealed class InWorldTerminalManager : IDisposable
             return null;
         }
 
+        // Build the shared quad pipeline/geometry once (identical across instances);
+        // kept for the coordinator's lifetime and reused by every instance.
+        if (_sharedQuad == null)
+        {
+            var renderer = Program.GetRenderer();
+            if (renderer == null)
+            {
+                ModLog.Log.Error("purrTTY in-world: Program.GetRenderer() returned null; cannot create");
+                return null;
+            }
+
+            try
+            {
+                _sharedQuad = new SharedQuadResource(renderer);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Log.Error($"purrTTY in-world: shared quad build failed ({ex.Message})");
+                return null;
+            }
+        }
+
         record.Name = TerminalTargetRegistry.SuggestUniqueName(
             string.IsNullOrWhiteSpace(record.Name) ? "In-World" : record.Name);
 
         try
         {
-            var instance = new InWorldTerminalInstance(_config, _catalog, record);
+            var instance = new InWorldTerminalInstance(_config, _catalog, record, _sharedQuad);
             _instances.Add(instance);
             Active = true;
             ModLog.Log.Debug($"purrTTY in-world: created '{record.Name}' ({record.Mode}, {record.Cols}x{record.Rows})");
@@ -399,6 +423,11 @@ public sealed class InWorldTerminalManager : IDisposable
         }
 
         _pendingTeardown.Clear();
+
+        // The shared quad pipeline/geometry outlives every instance (their RecordDraw
+        // referenced it); free it last, after all instances are gone.
+        _sharedQuad?.Dispose();
+        _sharedQuad = null;
     }
 
     // Dev convenience: auto-create one default in-world terminal on load when
