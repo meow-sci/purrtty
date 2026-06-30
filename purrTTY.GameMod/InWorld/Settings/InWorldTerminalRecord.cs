@@ -71,4 +71,30 @@ public sealed class InWorldTerminalRecord
 
     /// <summary>True when <see cref="Mode"/> selects the camera-billboard anchor.</summary>
     public bool IsBillboard => string.Equals(Mode, ModeBillboard, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A field-by-field copy — used to recreate an instance with a changed size/shell.</summary>
+    public InWorldTerminalRecord Clone() => new()
+    {
+        Name = Name,
+        Cols = Cols,
+        Rows = Rows,
+        Launch = Launch,
+        ThemeName = ThemeName,
+        Mode = Mode,
+        TargetPartId = TargetPartId,
+        PartOffsetX = PartOffsetX,
+        PartOffsetY = PartOffsetY,
+        PartOffsetZ = PartOffsetZ,
+        PartRotationX = PartRotationX,
+        PartRotationY = PartRotationY,
+        PartRotationZ = PartRotationZ,
+        PartWidthMeters = PartWidthMeters,
+        PartHeightMeters = PartHeightMeters,
+        BillboardDistance = BillboardDistance,
+        BillboardOffsetX = BillboardOffsetX,
+        BillboardOffsetY = BillboardOffsetY,
+        BillboardWidthMeters = BillboardWidthMeters,
+        BillboardHeightMeters = BillboardHeightMeters,
+        BillboardAlwaysOnTop = BillboardAlwaysOnTop,
+    };
 }

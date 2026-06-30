@@ -71,7 +71,10 @@ public class TerminalMod
         try
         {
             bool modalVisible = RenderToggleHotkeyModal();
-            modalVisible |= _themeDialog?.Render() ?? false;
+
+            // The theme + in-world manager are non-modal windows now (drawn here / in
+            // the in-world coordinator); they do not block the toggle hotkey.
+            _themeDialog?.Render();
 
             // Handle terminal toggle keybind (dynamic, defaults to F12). Suppressed
             // while the in-world terminal is focused so the key reaches that shell.

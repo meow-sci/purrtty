@@ -5,26 +5,22 @@ using purrTTY.Display.Theming;
 using PurrTTY.Terminal.Rendering;
 using float2 = Brutal.Numerics.float2;
 using float3 = Brutal.Numerics.float3;
-using float4 = Brutal.Numerics.float4;
 
 namespace purrTTY.GameMod.UI;
 
 /// <summary>
 ///     The per-terminal theme manager dialog: pick a target terminal (any registered
-///     2D window — and, once they register, in-world instances — defaulting to the
-///     focused one) and edit its complete appearance bundle: palette, font family/
-///     size, the three opacities, and the advanced cursor/border/lock/hot-zone
-///     settings. Also renames the target and saves/loads/deletes named themes.
-///     Replaces the old scattered Theme/Font/Focus menus and the Window-menu opacity
-///     sliders; all edits apply to the <b>selected</b> target (not just the focused
-///     one) and persist as the new-window defaults via the controller.
+///     2D window or in-world instance, defaulting to the focused one) and edit its
+///     complete appearance bundle — palette, font family/size, the three opacities,
+///     and advanced cursor/border/lock/hot-zone settings — plus rename it and
+///     save/load/delete named themes. All edits apply to the <b>selected</b> target
+///     and persist as the new-window defaults via the controller. Fixed-width modal
+///     with table-based label/widget rows (KSA mod layout conventions).
 /// </summary>
 public sealed class ThemeDialog
 {
     private const string PopupId = "purrTTY Theme##purrtty_theme_dialog";
-
-    private static readonly float4 WarnColor = new(1f, 0.8f, 0.3f, 1f);
-    private static readonly float4 ErrorColor = new(1f, 0.4f, 0.4f, 1f);
+    private const float DialogWidth = 580f;
 
     private static readonly (string Label, HotZonePlacement Placement)[] HotZonePlacements =
     {
@@ -54,8 +50,9 @@ public sealed class ThemeDialog
     private readonly ImInputString _renameInput = new(64);
     private readonly ImInputString _saveNameInput = new(96);
 
-    private bool _openRequested;
-    private string? _selectedName; // the chosen target's Name; re-resolved each frame
+    private bool _visible;
+    private bool _requestFocus;
+    private string? _selectedName;
     private bool _showAdvanced;
     private string? _renameError;
     private string? _saveError;
@@ -63,13 +60,11 @@ public sealed class ThemeDialog
 
     public ThemeDialog(GhosttyTerminalController controller) => _controller = controller;
 
-    /// <summary>Requests the dialog open on the next <see cref="Render"/>, targeting the focused terminal.</summary>
+    /// <summary>Shows (and brings to front) the dialog window, targeting the focused terminal.</summary>
     public void RequestOpen()
     {
-        _openRequested = true;
-        // The dialog modal itself takes ImGui focus, so registry.Focused is null
-        // while it is open; seed from the controller's focused-or-last-or-first
-        // window so the default target is the terminal the user was last using.
+        _visible = true;
+        _requestFocus = true;
         _selectedName = _controller.FocusTarget?.Name ?? TerminalTargetRegistry.Focused?.Name;
         _renameError = null;
         _saveError = null;
@@ -77,20 +72,32 @@ public sealed class ThemeDialog
         _saveNameInput.Clear();
     }
 
-    /// <summary>Draws the dialog. Returns true while the modal is open (so the host suppresses the toggle hotkey).</summary>
-    public bool Render()
+    /// <summary>
+    ///     Draws the dialog as a non-modal, movable window (the game stays interactive
+    ///     behind it). A no-op while hidden.
+    /// </summary>
+    public void Render()
     {
-        if (_openRequested)
+        if (!_visible)
         {
-            _openRequested = false;
-            ImGui.OpenPopup(PopupId);
+            return;
         }
 
-        ImGui.SetNextWindowSize(new float2(580f, 0f), ImGuiCond.Appearing);
-        bool open = true;
-        if (!ImGui.BeginPopupModal(PopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize))
+        if (_requestFocus)
         {
-            return false;
+            _requestFocus = false;
+            ImGui.SetNextWindowFocus();
+        }
+
+        ImGui.SetNextWindowSize(new float2(DialogWidth, 640f), ImGuiCond.FirstUseEver);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(16f, 16f));
+        bool visible = ImGui.Begin(PopupId, ref _visible, ImGuiWindowFlags.None);
+        ImGui.PopStyleVar();
+
+        if (!visible)
+        {
+            ImGui.End();
+            return;
         }
 
         var target = ResolveTarget();
@@ -100,36 +107,30 @@ public sealed class ThemeDialog
         }
         else
         {
-            DrawTargetRow(target);
+            DrawTargetSection(target);
 
             if (target is TerminalWindow window)
             {
-                ImGui.Separator();
-                DrawPalette(window);
-                ImGui.Separator();
-                DrawFont(window);
-                ImGui.Separator();
-                DrawOpacity(window);
-                ImGui.Separator();
-                DrawAdvancedToggle(window);
+                DrawPaletteSection(window);
+                DrawFontSection(window);
+                DrawOpacitySection(window);
+                DrawAdvancedSection(window);
             }
             else
             {
-                // Non-window targets (in-world instances) support applying a complete
-                // saved theme, but not the 2D-window granular font/opacity editor.
-                ImGui.Separator();
+                ImGui.SeparatorText("Theme");
                 DrawPaletteApply(target);
             }
         }
 
+        ImGui.Spacing();
         ImGui.Separator();
-        if (ImGui.Button("Close", new float2(-1f, 0f)) || !open)
+        if (ImGui.Button(" Close ##theme_close", new float2(-1f, 0f)))
         {
-            ImGui.CloseCurrentPopup();
+            _visible = false;
         }
 
-        ImGui.EndPopup();
-        return true;
+        ImGui.End();
     }
 
     private INamedTerminal? ResolveTarget()
@@ -145,8 +146,10 @@ public sealed class ThemeDialog
         return selected;
     }
 
-    private void DrawTargetRow(INamedTerminal target)
+    private void DrawTargetSection(INamedTerminal target)
     {
+        ImGui.SeparatorText("Terminal");
+
         var items = new List<(string Key, string Label)>();
         var all = TerminalTargetRegistry.All;
         for (int i = 0; i < all.Count; i++)
@@ -156,27 +159,29 @@ public sealed class ThemeDialog
             items.Add((t.Name, $"{t.Name}  ({KindLabel(t.Kind)}){star}"));
         }
 
-        ImGui.Text("Terminal");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGuiWidgets.FilterCombo("##theme_target", $"{target.Name}  ({KindLabel(target.Kind)})",
-                _targetFilter, items, out string? picked) && picked != null)
+        if (ImGuiWidgets.BeginFormTable("##theme_target"))
         {
-            _selectedName = picked;
+            ImGuiWidgets.FormRow("Target");
+            if (ImGuiWidgets.FilterCombo("##theme_target_combo", $"{target.Name}  ({KindLabel(target.Kind)})",
+                    _targetFilter, items, out string? picked) && picked != null)
+            {
+                _selectedName = picked;
+            }
+
+            ImGuiWidgets.FormRow("Rename to");
+            ImGui.InputText("##theme_rename", _renameInput, ImGuiInputTextFlags.None);
+            _renameInput.EvaluateLength();
+
+            ImGuiWidgets.EndFormTable();
         }
 
-        if (ImGui.Button("Use focused terminal", new float2(-1f, 0f)))
+        if (ImGui.Button(" Use focused terminal ##theme_usefocus"))
         {
             _selectedName = _controller.FocusTarget?.Name ?? TerminalTargetRegistry.Focused?.Name;
         }
 
-        ImGui.Text("Rename to");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("##theme_rename", _renameInput, ImGuiInputTextFlags.None);
-        _renameInput.EvaluateLength();
-
-        if (ImGui.Button("Rename", new float2(-1f, 0f)))
+        ImGui.SameLine(0, 8);
+        if (ImGui.Button(" Rename ##theme_renamebtn"))
         {
             string newName = _renameInput.ToString().Trim();
             if (target.TryRename(newName))
@@ -191,45 +196,61 @@ public sealed class ThemeDialog
             }
         }
 
-        if (_renameError != null)
+        if (!string.IsNullOrEmpty(_renameError))
         {
-            ImGui.TextColored(WarnColor, _renameError);
+            ImGui.Spacing();
+            ImGui.TextColored(ImGuiWidgets.WarningColor, _renameError);
         }
     }
 
-    private void DrawPalette(TerminalWindow window)
+    private void DrawPaletteSection(TerminalWindow window)
     {
-        ImGui.TextDisabled("Theme");
+        ImGui.SeparatorText("Theme");
 
-        var items = new List<(string Key, string Label)>();
-        foreach (var theme in _controller.Catalog.BuiltInThemes)
-        {
-            items.Add((theme.Name, theme.Name));
-        }
-
-        foreach (var theme in _controller.Catalog.UserThemes)
-        {
-            items.Add((theme.Name, $"{theme.Name}  (saved)"));
-        }
-
-        ImGui.Text("Palette");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGuiWidgets.FilterCombo("##theme_palette", window.Settings.ThemeName, _paletteFilter, items, out string? pickedTheme)
-            && pickedTheme != null
-            && _controller.Catalog.Find(pickedTheme) is { } def)
-        {
-            window.ApplyTheme(def);
-            _controller.PersistDisplayDefaults(window);
-        }
-
-        // Save the selected window's full appearance as a named user theme.
-        ImGui.Text("Save as");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        ImGui.InputText("##theme_saveas", _saveNameInput, ImGuiInputTextFlags.None);
-        _saveNameInput.EvaluateLength();
+        var items = BuildThemeItems();
         string saveName = _saveNameInput.ToString().Trim();
+
+        if (ImGuiWidgets.BeginFormTable("##theme_palette"))
+        {
+            ImGuiWidgets.FormRow("Palette");
+            if (ImGuiWidgets.FilterCombo("##theme_palette_combo", window.Settings.ThemeName, _paletteFilter, items, out string? pickedTheme)
+                && pickedTheme != null
+                && _controller.Catalog.Find(pickedTheme) is { } def)
+            {
+                window.ApplyTheme(def);
+                _controller.PersistDisplayDefaults(window);
+            }
+
+            ImGuiWidgets.FormRow("Save as");
+            ImGui.InputText("##theme_saveas", _saveNameInput, ImGuiInputTextFlags.None);
+            _saveNameInput.EvaluateLength();
+
+            if (_controller.Catalog.UserThemes.Count > 0)
+            {
+                var delItems = new List<(string Key, string Label)>();
+                foreach (var theme in _controller.Catalog.UserThemes)
+                {
+                    delItems.Add((theme.Name, theme.Name));
+                }
+
+                ImGuiWidgets.FormRow("Delete saved");
+                if (ImGuiWidgets.FilterCombo("##theme_delete", "Pick a saved theme...", _deleteFilter, delItems, out string? delName)
+                    && delName != null)
+                {
+                    try
+                    {
+                        _controller.Catalog.DeleteUserTheme(delName);
+                        _saveError = null;
+                    }
+                    catch (Exception ex)
+                    {
+                        _saveError = $"Delete failed: {ex.Message}";
+                    }
+                }
+            }
+
+            ImGuiWidgets.EndFormTable();
+        }
 
         bool canSave = saveName.Length > 0;
         if (!canSave)
@@ -237,7 +258,7 @@ public sealed class ThemeDialog
             ImGui.BeginDisabled();
         }
 
-        if (ImGui.Button("Save current settings as theme", new float2(-1f, 0f)) && canSave)
+        if (ImGui.Button(" Save current settings as theme ##theme_save") && canSave)
         {
             try
             {
@@ -258,53 +279,44 @@ public sealed class ThemeDialog
             ImGui.EndDisabled();
         }
 
-        if (canSave && _controller.Catalog.UserThemeExists(saveName))
-        {
-            ImGui.TextColored(WarnColor, $"A saved theme named '{saveName}' will be overwritten.");
-        }
-
-        if (_saveError != null)
-        {
-            ImGui.TextColored(ErrorColor, _saveError);
-        }
-
-        // Delete a saved theme (built-ins cannot be deleted).
-        if (_controller.Catalog.UserThemes.Count > 0)
-        {
-            var delItems = new List<(string Key, string Label)>();
-            foreach (var theme in _controller.Catalog.UserThemes)
-            {
-                delItems.Add((theme.Name, theme.Name));
-            }
-
-            ImGui.Text("Delete saved");
-            ImGui.SameLine();
-            ImGui.SetNextItemWidth(-1f);
-            if (ImGuiWidgets.FilterCombo("##theme_delete", "Pick a saved theme to delete...", _deleteFilter, delItems, out string? delName)
-                && delName != null)
-            {
-                try
-                {
-                    _controller.Catalog.DeleteUserTheme(delName);
-                    _saveError = null;
-                }
-                catch (Exception ex)
-                {
-                    _saveError = $"Delete failed: {ex.Message}";
-                }
-            }
-        }
-
-        if (ImGui.Button("Refresh themes from disk", new float2(-1f, 0f)))
+        ImGui.SameLine(0, 8);
+        if (ImGui.Button(" Refresh ##theme_refresh"))
         {
             _controller.Catalog.Refresh();
+        }
+
+        if (canSave && _controller.Catalog.UserThemeExists(saveName))
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(ImGuiWidgets.WarningColor, $"A saved theme named '{saveName}' will be overwritten.");
+        }
+
+        if (!string.IsNullOrEmpty(_saveError))
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(ImGuiWidgets.ErrorColor, _saveError);
         }
     }
 
     private void DrawPaletteApply(INamedTerminal target)
     {
-        ImGui.TextDisabled("Theme");
+        var items = BuildThemeItems();
+        if (ImGuiWidgets.BeginFormTable("##theme_apply"))
+        {
+            ImGuiWidgets.FormRow("Apply theme");
+            if (ImGuiWidgets.FilterCombo("##theme_apply_combo", "Pick a saved theme to apply...", _paletteFilter, items, out string? picked)
+                && picked != null
+                && _controller.Catalog.Find(picked) is { } def)
+            {
+                target.ApplyTheme(def);
+            }
 
+            ImGuiWidgets.EndFormTable();
+        }
+    }
+
+    private List<(string Key, string Label)> BuildThemeItems()
+    {
         var items = new List<(string Key, string Label)>();
         foreach (var theme in _controller.Catalog.BuiltInThemes)
         {
@@ -316,20 +328,12 @@ public sealed class ThemeDialog
             items.Add((theme.Name, $"{theme.Name}  (saved)"));
         }
 
-        ImGui.Text("Apply theme");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGuiWidgets.FilterCombo("##theme_palette_apply", "Pick a saved theme to apply...", _paletteFilter, items, out string? picked)
-            && picked != null
-            && _controller.Catalog.Find(picked) is { } def)
-        {
-            target.ApplyTheme(def);
-        }
+        return items;
     }
 
-    private void DrawFont(TerminalWindow window)
+    private void DrawFontSection(TerminalWindow window)
     {
-        ImGui.TextDisabled("Font");
+        ImGui.SeparatorText("Font");
 
         var families = new List<(string Key, string Label)>();
         foreach (var family in PurrTTYFontManager.GetAvailableFontFamilies())
@@ -337,47 +341,52 @@ public sealed class ThemeDialog
             families.Add((family, family));
         }
 
-        ImGui.Text("Family");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGuiWidgets.FilterCombo("##theme_fontfamily", window.Settings.FontFamily, _fontFilter, families, out string? pickedFont)
-            && pickedFont != null)
+        if (ImGuiWidgets.BeginFormTable("##theme_font"))
         {
-            window.Settings.FontFamily = pickedFont;
-            _controller.PersistDisplayDefaults(window);
-        }
+            ImGuiWidgets.FormRow("Family");
+            if (ImGuiWidgets.FilterCombo("##theme_fontfamily", window.Settings.FontFamily, _fontFilter, families, out string? pickedFont)
+                && pickedFont != null)
+            {
+                window.Settings.FontFamily = pickedFont;
+                _controller.PersistDisplayDefaults(window);
+            }
 
-        int fontSize = (int)window.Settings.FontSize;
-        ImGui.Text("Size");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        // DragInt (not SliderInt) so the value supports both click-drag and
-        // double-click-to-type an exact size.
-        if (ImGui.DragInt("##theme_fontsize", ref fontSize, 0.25f, 4, 72, "%d px"))
-        {
-            window.Settings.FontSize = Math.Clamp(fontSize, 4, 72);
-        }
+            ImGuiWidgets.FormRow("Size");
+            int fontSize = (int)window.Settings.FontSize;
+            if (ImGui.DragInt("##theme_fontsize", ref fontSize, 0.25f, 4, 72, "%d px"))
+            {
+                window.Settings.FontSize = Math.Clamp(fontSize, 4, 72);
+            }
 
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            _controller.PersistDisplayDefaults(window);
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                _controller.PersistDisplayDefaults(window);
+            }
+
+            ImGuiWidgets.EndFormTable();
         }
     }
 
-    private void DrawOpacity(TerminalWindow window)
+    private void DrawOpacitySection(TerminalWindow window)
     {
-        ImGui.TextDisabled("Opacity");
-        OpacitySlider(window, "Foreground", "##theme_fg_opacity",
-            static s => s.ForegroundOpacity, static (s, v) => s.ForegroundOpacity = v);
-        OpacitySlider(window, "Background", "##theme_bg_opacity",
-            static s => s.BackgroundOpacity, static (s, v) => s.BackgroundOpacity = v);
-        OpacitySlider(window, "Cell background", "##theme_cellbg_opacity",
-            static s => s.CellBackgroundOpacity, static (s, v) => s.CellBackgroundOpacity = v);
+        ImGui.SeparatorText("Opacity");
+
+        if (ImGuiWidgets.BeginFormTable("##theme_opacity"))
+        {
+            OpacitySlider(window, "Foreground", "##theme_fg_opacity",
+                static s => s.ForegroundOpacity, static (s, v) => s.ForegroundOpacity = v);
+            OpacitySlider(window, "Background", "##theme_bg_opacity",
+                static s => s.BackgroundOpacity, static (s, v) => s.BackgroundOpacity = v);
+            OpacitySlider(window, "Cell background", "##theme_cellbg_opacity",
+                static s => s.CellBackgroundOpacity, static (s, v) => s.CellBackgroundOpacity = v);
+            ImGuiWidgets.EndFormTable();
+        }
     }
 
-    private void DrawAdvancedToggle(TerminalWindow window)
+    private void DrawAdvancedSection(TerminalWindow window)
     {
-        if (ImGui.Button(_showAdvanced ? "Advanced settings  (hide)" : "Advanced settings  (show)", new float2(-1f, 0f)))
+        ImGui.Spacing();
+        if (ImGui.Button(_showAdvanced ? " Hide advanced settings ##theme_adv" : " Advanced settings ##theme_adv", new float2(-1f, 0f)))
         {
             _showAdvanced = !_showAdvanced;
         }
@@ -388,15 +397,13 @@ public sealed class ThemeDialog
         }
 
         DrawCursor(window);
-        ImGui.Separator();
         DrawBorder(window);
-        ImGui.Separator();
         DrawLock(window);
     }
 
     private void DrawCursor(TerminalWindow window)
     {
-        ImGui.TextDisabled("Cursor");
+        ImGui.SeparatorText("Cursor");
 
         int styleIndex = window.Settings.CursorStyle switch
         {
@@ -405,21 +412,24 @@ public sealed class ThemeDialog
             _ => 0,
         };
 
-        ImGui.Text("Style");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGui.BeginCombo("##theme_cursor_style", CursorStyles[styleIndex].Label))
+        if (ImGuiWidgets.BeginFormTable("##theme_cursor"))
         {
-            for (int i = 0; i < CursorStyles.Length; i++)
+            ImGuiWidgets.FormRow("Style");
+            if (ImGui.BeginCombo("##theme_cursor_style", CursorStyles[styleIndex].Label))
             {
-                if (ImGui.Selectable(CursorStyles[i].Label, i == styleIndex))
+                for (int i = 0; i < CursorStyles.Length; i++)
                 {
-                    window.SetCursorStyle(CursorStyles[i].Shape, window.Settings.CursorBlink);
-                    _controller.PersistDisplayDefaults(window);
+                    if (ImGui.Selectable(CursorStyles[i].Label, i == styleIndex))
+                    {
+                        window.SetCursorStyle(CursorStyles[i].Shape, window.Settings.CursorBlink);
+                        _controller.PersistDisplayDefaults(window);
+                    }
                 }
+
+                ImGui.EndCombo();
             }
 
-            ImGui.EndCombo();
+            ImGuiWidgets.EndFormTable();
         }
 
         bool blink = window.Settings.CursorBlink;
@@ -432,7 +442,7 @@ public sealed class ThemeDialog
 
     private void DrawBorder(TerminalWindow window)
     {
-        ImGui.TextDisabled("Window border");
+        ImGui.SeparatorText("Window border");
 
         var settings = window.Settings;
 
@@ -450,13 +460,17 @@ public sealed class ThemeDialog
             _controller.PersistDisplayDefaults(window);
         }
 
-        OpacitySlider(window, "Border opacity", "##theme_border_opacity",
-            static s => s.BorderOpacity, static (s, v) => s.BorderOpacity = v);
+        if (ImGuiWidgets.BeginFormTable("##theme_border"))
+        {
+            OpacitySlider(window, "Border opacity", "##theme_border_opacity",
+                static s => s.BorderOpacity, static (s, v) => s.BorderOpacity = v);
+            ImGuiWidgets.EndFormTable();
+        }
     }
 
     private void DrawLock(TerminalWindow window)
     {
-        ImGui.TextDisabled("Lock mode");
+        ImGui.SeparatorText("Lock mode");
 
         var settings = window.Settings;
 
@@ -489,57 +503,59 @@ public sealed class ThemeDialog
             }
         }
 
-        ImGui.Text("Hot zone position");
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
-        if (ImGui.BeginCombo("##theme_hotzone_pos", HotZonePlacements[placementIndex].Label))
+        if (ImGuiWidgets.BeginFormTable("##theme_lock"))
         {
-            for (int i = 0; i < HotZonePlacements.Length; i++)
+            ImGuiWidgets.FormRow("Hot zone position");
+            if (ImGui.BeginCombo("##theme_hotzone_pos", HotZonePlacements[placementIndex].Label))
             {
-                if (ImGui.Selectable(HotZonePlacements[i].Label, i == placementIndex))
+                for (int i = 0; i < HotZonePlacements.Length; i++)
                 {
-                    settings.HotZonePlacement = HotZonePlacements[i].Placement;
-                    _controller.PersistDisplayDefaults(window);
+                    if (ImGui.Selectable(HotZonePlacements[i].Label, i == placementIndex))
+                    {
+                        settings.HotZonePlacement = HotZonePlacements[i].Placement;
+                        _controller.PersistDisplayDefaults(window);
+                    }
                 }
+
+                ImGui.EndCombo();
             }
 
-            ImGui.EndCombo();
+            HotZoneSizeSlider(window, "Hot zone width", "##theme_hotzone_w",
+                static s => s.HotZoneWidth, static (s, v) => s.HotZoneWidth = v);
+            HotZoneSizeSlider(window, "Hot zone height", "##theme_hotzone_h",
+                static s => s.HotZoneHeight, static (s, v) => s.HotZoneHeight = v);
+
+            ImGuiWidgets.FormRow("Hot zone color");
+            var zoneColor = settings.HotZoneColor;
+            var rgb = new float3(zoneColor.R / 255f, zoneColor.G / 255f, zoneColor.B / 255f);
+            if (ImGui.ColorEdit3("##theme_hotzone_color", ref rgb, ImGuiColorEditFlags.NoInputs))
+            {
+                settings.HotZoneColor = new RgbaColor(
+                    (byte)Math.Clamp(rgb.X * 255f, 0f, 255f),
+                    (byte)Math.Clamp(rgb.Y * 255f, 0f, 255f),
+                    (byte)Math.Clamp(rgb.Z * 255f, 0f, 255f));
+                _hotZoneColorDirty = true;
+            }
+
+            // The swatch picker is a popup, so the item never reports deactivated-after-
+            // edit; persist once the mouse is released (the open popup keeps this drawing).
+            if (_hotZoneColorDirty && !ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                _hotZoneColorDirty = false;
+                _controller.PersistDisplayDefaults(window);
+            }
+
+            OpacitySlider(window, "Hot zone opacity", "##theme_hotzone_opacity",
+                static s => s.HotZoneOpacity, static (s, v) => s.HotZoneOpacity = v);
+            OpacitySlider(window, "Hot zone hover opacity", "##theme_hotzone_hover_opacity",
+                static s => s.HotZoneHoverOpacity, static (s, v) => s.HotZoneHoverOpacity = v);
+
+            ImGuiWidgets.EndFormTable();
         }
-
-        HotZoneSizeSlider(window, "Hot zone width", "##theme_hotzone_w",
-            static s => s.HotZoneWidth, static (s, v) => s.HotZoneWidth = v);
-        HotZoneSizeSlider(window, "Hot zone height", "##theme_hotzone_h",
-            static s => s.HotZoneHeight, static (s, v) => s.HotZoneHeight = v);
-
-        var zoneColor = settings.HotZoneColor;
-        var rgb = new float3(zoneColor.R / 255f, zoneColor.G / 255f, zoneColor.B / 255f);
-        ImGui.Text("Hot zone color");
-        ImGui.SameLine();
-        if (ImGui.ColorEdit3("##theme_hotzone_color", ref rgb, ImGuiColorEditFlags.NoInputs))
-        {
-            settings.HotZoneColor = new RgbaColor(
-                (byte)Math.Clamp(rgb.X * 255f, 0f, 255f),
-                (byte)Math.Clamp(rgb.Y * 255f, 0f, 255f),
-                (byte)Math.Clamp(rgb.Z * 255f, 0f, 255f));
-            _hotZoneColorDirty = true;
-        }
-
-        // The swatch picker is a popup, so the item never reports deactivated-after-
-        // edit; persist once the mouse is released (the open popup keeps this drawing).
-        if (_hotZoneColorDirty && !ImGui.IsMouseDown(ImGuiMouseButton.Left))
-        {
-            _hotZoneColorDirty = false;
-            _controller.PersistDisplayDefaults(window);
-        }
-
-        OpacitySlider(window, "Hot zone opacity", "##theme_hotzone_opacity",
-            static s => s.HotZoneOpacity, static (s, v) => s.HotZoneOpacity = v);
-        OpacitySlider(window, "Hot zone hover opacity", "##theme_hotzone_hover_opacity",
-            static s => s.HotZoneHoverOpacity, static (s, v) => s.HotZoneHoverOpacity = v);
     }
 
-    // Slider helpers take static (non-capturing) accessor lambdas over the settings
-    // object — the compiler caches them, so drawing allocates nothing per slider.
+    // Slider helpers assume they run inside a BeginFormTable; they emit a FormRow then
+    // the slider. Static (non-capturing) accessor lambdas — cached by the compiler.
     private void OpacitySlider(
         TerminalWindow window,
         string label,
@@ -547,10 +563,8 @@ public sealed class ThemeDialog
         Func<TerminalWindowSettings, float> get,
         Action<TerminalWindowSettings, float> set)
     {
+        ImGuiWidgets.FormRow(label);
         int percent = (int)MathF.Round(get(window.Settings) * 100f);
-        ImGui.Text(label);
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
         if (ImGui.SliderInt(id, ref percent, 0, 100, "%d%%"))
         {
             set(window.Settings, Math.Clamp(percent, 0, 100) / 100f);
@@ -569,10 +583,8 @@ public sealed class ThemeDialog
         Func<TerminalWindowSettings, float> get,
         Action<TerminalWindowSettings, float> set)
     {
+        ImGuiWidgets.FormRow(label);
         int pixels = (int)MathF.Round(get(window.Settings));
-        ImGui.Text(label);
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(-1f);
         if (ImGui.DragInt(id, ref pixels, 1f, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize, "%d px"))
         {
             set(window.Settings, Math.Clamp(pixels, (int)TerminalWindow.MinHotZoneSize, (int)TerminalWindow.MaxHotZoneSize));

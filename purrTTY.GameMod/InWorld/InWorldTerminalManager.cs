@@ -184,6 +184,33 @@ public sealed class InWorldTerminalManager : IDisposable
     public void Focus(InWorldTerminalInstance? instance) => _focused = instance;
 
     /// <summary>
+    ///     Replaces an existing in-world terminal with one rebuilt from
+    ///     <paramref name="newRecord"/> — used when a change needs the off-screen
+    ///     texture regenerated (a different grid size, font, or shell). The name and
+    ///     focus carry over; the shell session restarts. The old instance's GPU
+    ///     resources are released via the deferred-teardown path.
+    /// </summary>
+    public InWorldTerminalInstance? Recreate(InWorldTerminalInstance old, InWorldTerminalRecord newRecord)
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        newRecord.Name = old.Name; // preserve identity (Create re-uses the freed name)
+        bool wasFocused = ReferenceEquals(_focused, old);
+
+        Remove(old); // unregisters the old name now; defers the old GPU free
+        var created = Create(newRecord);
+        if (created != null && wasFocused)
+        {
+            _focused = created;
+        }
+
+        return created;
+    }
+
+    /// <summary>
     ///     Appends every live instance's quad draw to the scene-pass command buffer.
     ///     A per-instance draw failure retires only that instance (the coordinator
     ///     prunes it next frame) rather than disabling all. Called from the render
