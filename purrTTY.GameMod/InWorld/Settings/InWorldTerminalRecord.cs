@@ -45,7 +45,10 @@ public sealed class InWorldTerminalRecord
 
     // --- Part-anchored mode ---
 
-    /// <summary>Id of the anchor Part/SubPart. Empty = the controlled vessel's first part.</summary>
+    /// <summary>Id of the anchor vehicle. Empty = follow the controlled vehicle.</summary>
+    public string TargetVehicleId { get; set; } = "";
+
+    /// <summary>Id of the anchor Part/SubPart within the target vehicle. Empty = its first part.</summary>
     public string TargetPartId { get; set; } = "";
 
     public float PartOffsetX { get; set; }
@@ -81,6 +84,7 @@ public sealed class InWorldTerminalRecord
         Launch = Launch,
         ThemeName = ThemeName,
         Mode = Mode,
+        TargetVehicleId = TargetVehicleId,
         TargetPartId = TargetPartId,
         PartOffsetX = PartOffsetX,
         PartOffsetY = PartOffsetY,

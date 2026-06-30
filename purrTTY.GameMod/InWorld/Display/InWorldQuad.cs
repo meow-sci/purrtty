@@ -237,7 +237,7 @@ public sealed class InWorldQuad : IDisposable
     {
         model = float4x4.Identity;
 
-        Vehicle? vehicle = Program.ControlledVehicle;
+        Vehicle? vehicle = VehicleLookup.Resolve(_settings.TargetVehicleId);
         if (vehicle == null) return false;
 
         Part? part = ResolvePart(vehicle);

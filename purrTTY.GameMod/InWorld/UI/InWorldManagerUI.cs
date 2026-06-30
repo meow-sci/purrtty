@@ -28,6 +28,7 @@ public sealed class InWorldManagerUI
     private readonly ImInputString _nameInput = new(64);
     private readonly ImInputString _shellFilter = new(64);
     private readonly ImInputString _themeFilter = new(64);
+    private readonly ImInputString _vehicleFilter = new(64);
     private readonly ImInputString _partFilter = new(64);
 
     private bool _visible;
@@ -35,6 +36,8 @@ public sealed class InWorldManagerUI
     private int _draftCols = 100;
     private int _draftRows = 30;
     private string _draftMode = InWorldTerminalRecord.ModePart;
+    private string _draftVehicleId = "";
+    private string _draftPartId = "";
     private (string Label, ProcessLaunchOptions Options)? _draftShell;
     private string? _draftThemeName;
     private string? _createError;
@@ -191,16 +194,23 @@ public sealed class InWorldManagerUI
 
         ImGui.AlignTextToFramePadding();
         ImGui.Text("Anchor");
-        ImGui.SameLine(0, 8);
-        if (ImGui.Button(_draftMode == InWorldTerminalRecord.ModePart ? " [Part] ##iw_part" : " Part ##iw_part"))
+        ImGui.SameLine(0, 12);
+        if (ImGui.RadioButton("Vehicle Part##iw_mode_part", _draftMode == InWorldTerminalRecord.ModePart))
         {
             _draftMode = InWorldTerminalRecord.ModePart;
         }
 
-        ImGui.SameLine(0, 8);
-        if (ImGui.Button(_draftMode == InWorldTerminalRecord.ModeBillboard ? " [Billboard] ##iw_bb" : " Billboard ##iw_bb"))
+        ImGui.SameLine(0, 16);
+        if (ImGui.RadioButton("Camera Billboard##iw_mode_bb", _draftMode == InWorldTerminalRecord.ModeBillboard))
         {
             _draftMode = InWorldTerminalRecord.ModeBillboard;
+        }
+
+        // Part mode: pick the anchor vehicle + part at creation time.
+        if (_draftMode == InWorldTerminalRecord.ModePart && ImGuiWidgets.BeginFormTable("##iw_create_anchor"))
+        {
+            DrawVehiclePartPicker(_draftVehicleId, _draftPartId, v => _draftVehicleId = v, p => _draftPartId = p);
+            ImGuiWidgets.EndFormTable();
         }
 
         ImGui.Spacing();
@@ -315,6 +325,8 @@ public sealed class InWorldManagerUI
             Cols = Math.Clamp(_draftCols, 8, 400),
             Rows = Math.Clamp(_draftRows, 4, 200),
             Mode = _draftMode,
+            TargetVehicleId = _draftVehicleId,
+            TargetPartId = _draftPartId,
             Launch = _draftShell?.Options,
             ThemeName = _draftThemeName,
         };
@@ -328,14 +340,16 @@ public sealed class InWorldManagerUI
         _nameInput.Clear();
         _draftShell = null;
         _draftThemeName = null;
+        _draftVehicleId = "";
+        _draftPartId = "";
         _createError = null;
     }
 
     private void DrawPartForm(InWorldTerminalRecord s)
     {
-        DrawPartCombo(s);
         if (ImGuiWidgets.BeginFormTable("##iw_part_form"))
         {
+            DrawVehiclePartPicker(s.TargetVehicleId, s.TargetPartId, v => s.TargetVehicleId = v, p => s.TargetPartId = p);
             DragRow("Offset X (m)", "##px", s.PartOffsetX, 0.05f, -200f, 200f, v => s.PartOffsetX = v);
             DragRow("Offset Y (m)", "##py", s.PartOffsetY, 0.05f, -200f, 200f, v => s.PartOffsetY = v);
             DragRow("Offset Z (m)", "##pz", s.PartOffsetZ, 0.05f, -200f, 200f, v => s.PartOffsetZ = v);
@@ -367,38 +381,48 @@ public sealed class InWorldManagerUI
         }
     }
 
-    private void DrawPartCombo(InWorldTerminalRecord s)
+    // Tiered Vehicle → Part selection (both filtered combos). Assumes it runs inside a
+    // BeginFormTable; emits a Vehicle FormRow then a Part FormRow. Changing the vehicle
+    // resets the part (the part list is vehicle-specific). An empty vehicle id means
+    // "the controlled vehicle" (the anchor follows the player); an empty part id means
+    // that vehicle's first part.
+    private void DrawVehiclePartPicker(string vehicleId, string partId, Action<string> setVehicle, Action<string> setPart)
     {
-        var vehicle = Program.ControlledVehicle;
-        string current = string.IsNullOrEmpty(s.TargetPartId) ? "(auto: first part)" : s.TargetPartId;
+        var vehicles = VehicleLookup.GetAll();
 
-        var items = new List<(string Key, string Label)> { ("", "(auto: first part)") };
-        if (vehicle != null)
+        var vItems = new List<(string Key, string Label)> { ("", "(controlled vehicle)") };
+        foreach (var v in vehicles)
         {
-            foreach (Part p in vehicle.Parts.Parts)
+            vItems.Add((v.Id, v.Id));
+        }
+
+        ImGuiWidgets.FormRow("Vehicle");
+        string vPreview = string.IsNullOrEmpty(vehicleId) ? "(controlled vehicle)" : vehicleId;
+        if (ImGuiWidgets.FilterCombo("##iw_vehicle", vPreview, _vehicleFilter, vItems, out string? pickedV) && pickedV != null)
+        {
+            setVehicle(pickedV);
+            setPart(string.Empty);
+        }
+
+        var resolved = VehicleLookup.Resolve(vehicleId);
+        var pItems = new List<(string Key, string Label)> { ("", "(auto: first part)") };
+        if (resolved != null)
+        {
+            foreach (Part p in resolved.Parts.Parts)
             {
-                items.Add((p.Id, PartLabel(p)));
+                pItems.Add((p.Id, PartLabel(p)));
                 foreach (Part sub in p.SubParts)
                 {
-                    items.Add((sub.Id, PartLabel(sub)));
+                    pItems.Add((sub.Id, PartLabel(sub)));
                 }
             }
         }
 
-        if (ImGuiWidgets.BeginFormTable("##iw_part_combo"))
+        ImGuiWidgets.FormRow("Part");
+        string pPreview = string.IsNullOrEmpty(partId) ? "(auto: first part)" : partId;
+        if (ImGuiWidgets.FilterCombo("##iw_part", pPreview, _partFilter, pItems, out string? pickedP) && pickedP != null)
         {
-            ImGuiWidgets.FormRow("Anchor Part");
-            if (ImGuiWidgets.FilterCombo("##iw_part", current, _partFilter, items, out string? picked) && picked != null)
-            {
-                s.TargetPartId = picked;
-            }
-
-            ImGuiWidgets.EndFormTable();
-        }
-
-        if (vehicle == null)
-        {
-            ImGui.TextDisabled("No controlled vessel — anchor resolves when you take control.");
+            setPart(pickedP);
         }
     }
 
