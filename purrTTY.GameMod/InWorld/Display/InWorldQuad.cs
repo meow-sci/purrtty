@@ -124,7 +124,7 @@ public sealed class InWorldQuad : IDisposable
             ? model * camera.MVP.projection
             : model * camera.MVP.viewProjection;
 
-        VkPipeline pipeline = useNoDepth ? _shared.PipelineNoDepth : _shared.PipelineDepthWrite;
+        VkPipeline pipeline = useNoDepth ? _shared.PipelineNoDepth : _shared.PipelineDepthTest;
 
         cmd.BindPipeline(VkPipelineBindPoint.Graphics, pipeline);
         VkDescriptorSet descSetCopy = _descriptorSet;

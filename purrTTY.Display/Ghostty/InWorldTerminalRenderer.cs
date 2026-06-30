@@ -161,9 +161,14 @@ public sealed class InWorldTerminalRenderer : IDisposable
             return;
         }
 
-        // Paint the terminal background (the render-pass clear is black; the theme
-        // background usually is not). Opaque — the quad applies its own opacity.
-        var bg = _settings.Colors.Background.WithAlpha(0xFF);
+        // Paint the terminal background at the theme's BackgroundOpacity. The off-screen
+        // target clears to fully transparent, so this rect carries BackgroundOpacity into
+        // the texture's alpha (premultiplied by the ImGui blend); the world-space quad
+        // composites that per-pixel opacity over the 3D scene, exactly like a 2D window's
+        // translucent WindowBg. ForegroundOpacity / CellBackgroundOpacity are applied
+        // per-cell below by FrameGridRenderer, so all three opacities are faithful.
+        byte bgAlpha = (byte)Math.Clamp(_settings.BackgroundOpacity * 255f, 0f, 255f);
+        var bg = _settings.Colors.Background.WithAlpha(bgAlpha);
         drawList.AddRectFilled(canvasPos, canvasPos + avail, FrameGridRenderer.ToU32(bg));
 
         var session = _sessions.ActiveSession;
@@ -258,6 +263,34 @@ public sealed class InWorldTerminalRenderer : IDisposable
         var session = _sessions.ActiveSession;
         session?.Surface.SetTheme(_engineTheme);
         session?.Surface.SetCursorStyle(_settings.CursorStyle, _settings.CursorBlink);
+    }
+
+    /// <summary>Live in-world background opacity (0..1) — drives the quad's see-through.</summary>
+    public float BackgroundOpacity => _settings.BackgroundOpacity;
+
+    /// <summary>Live in-world foreground (text) opacity (0..1).</summary>
+    public float ForegroundOpacity => _settings.ForegroundOpacity;
+
+    /// <summary>Live in-world cell-background opacity (0..1).</summary>
+    public float CellBackgroundOpacity => _settings.CellBackgroundOpacity;
+
+    /// <summary>
+    ///     Sets the three live opacities (each clamped 0..1) used by the off-screen
+    ///     render: the background-rect alpha plus the foreground/cell-background
+    ///     multipliers passed to <see cref="FrameGridRenderer"/>. The next off-screen
+    ///     frame reflects them; no texture rebuild or session re-theme is needed.
+    ///     Session-only (not persisted). Tick thread.
+    /// </summary>
+    public void SetOpacities(float background, float foreground, float cellBackground)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _settings.BackgroundOpacity = Math.Clamp(background, 0f, 1f);
+        _settings.ForegroundOpacity = Math.Clamp(foreground, 0f, 1f);
+        _settings.CellBackgroundOpacity = Math.Clamp(cellBackground, 0f, 1f);
     }
 
     private static TerminalWindowSettings BuildSettings(ThemeConfiguration config, ThemeCatalog catalog, string? themeName = null)

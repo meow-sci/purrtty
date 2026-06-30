@@ -178,6 +178,14 @@
             <HintPath>$(KSAFolder)/Brutal.Vulkan.Vma.dll</HintPath>
             <Private>false</Private>
         </Reference>
+
+        <!-- Brutal.ShaderC: the bundled shaderc compiler. Needed to runtime-compile the
+             in-world quad's custom fragment shader (RenderCore.ShaderModuleUtils.FromString,
+             whose CompileOptions parameter type lives here). Game-provided — do not deploy. -->
+        <Reference Include="Brutal.ShaderC" Condition="Exists('$(KSAFolder)/Brutal.ShaderC.dll')">
+            <HintPath>$(KSAFolder)/Brutal.ShaderC.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
     </ItemGroup>
 
 </Project>

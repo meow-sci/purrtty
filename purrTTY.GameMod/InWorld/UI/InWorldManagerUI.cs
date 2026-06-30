@@ -295,6 +295,50 @@ public sealed class InWorldManagerUI
             ImGui.EndDisabled();
         }
 
+        // Opacity: live, per-pixel transparency baked into the off-screen texture and
+        // composited by the quad over the 3D scene. Reuses the theme's three opacities
+        // (Background drives the see-through; Foreground/Cell dim text/cell backgrounds).
+        // Session-only — not persisted unless captured into a named theme via "Theme…".
+        ImGui.SeparatorText("Opacity");
+        if (ImGuiWidgets.BeginFormTable("##iw_cfg_opacity"))
+        {
+            float bg = instance.BackgroundOpacity;
+            float fg = instance.ForegroundOpacity;
+            float cell = instance.CellBackgroundOpacity;
+            bool changed = false;
+
+            ImGuiWidgets.FormRow("Background");
+            int bgPct = (int)MathF.Round(bg * 100f);
+            if (ImGui.SliderInt("##iw_cfg_op_bg", ref bgPct, 0, 100, "%d%%"))
+            {
+                bg = Math.Clamp(bgPct, 0, 100) / 100f;
+                changed = true;
+            }
+
+            ImGuiWidgets.FormRow("Foreground");
+            int fgPct = (int)MathF.Round(fg * 100f);
+            if (ImGui.SliderInt("##iw_cfg_op_fg", ref fgPct, 0, 100, "%d%%"))
+            {
+                fg = Math.Clamp(fgPct, 0, 100) / 100f;
+                changed = true;
+            }
+
+            ImGuiWidgets.FormRow("Cell background");
+            int cellPct = (int)MathF.Round(cell * 100f);
+            if (ImGui.SliderInt("##iw_cfg_op_cell", ref cellPct, 0, 100, "%d%%"))
+            {
+                cell = Math.Clamp(cellPct, 0, 100) / 100f;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                instance.SetOpacities(bg, fg, cell);
+            }
+
+            ImGuiWidgets.EndFormTable();
+        }
+
         // Placement: live (the quad reads the record each frame).
         ImGui.SeparatorText("Placement");
         if (r.IsBillboard)

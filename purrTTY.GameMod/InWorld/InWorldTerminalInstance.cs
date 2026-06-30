@@ -145,6 +145,19 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         _content?.ApplyTheme(theme);
     }
 
+    /// <summary>Live in-world background opacity (0..1); drives the quad's transparency.</summary>
+    public float BackgroundOpacity => _content?.BackgroundOpacity ?? 1f;
+
+    /// <summary>Live in-world foreground (text) opacity (0..1).</summary>
+    public float ForegroundOpacity => _content?.ForegroundOpacity ?? 1f;
+
+    /// <summary>Live in-world cell-background opacity (0..1).</summary>
+    public float CellBackgroundOpacity => _content?.CellBackgroundOpacity ?? 1f;
+
+    /// <summary>Sets the three live opacities (0..1), forwarded to the content renderer. Session-only.</summary>
+    public void SetOpacities(float background, float foreground, float cellBackground)
+        => _content?.SetOpacities(background, foreground, cellBackground);
+
     /// <summary>
     ///     A live grid resize needs the off-screen texture rebuilt; not yet supported
     ///     (the size is fixed at creation). Returns false so callers fall back.

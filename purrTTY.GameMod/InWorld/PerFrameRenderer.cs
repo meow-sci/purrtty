@@ -198,7 +198,11 @@ public sealed class PerFrameRenderer : IDisposable
         VkClearValue* clearValues = stackalloc VkClearValue[2];
         clearValues[0] = new VkClearValue
         {
-            Color = new VkClearColorValue { Float32 = new Brutal.Numerics.float4(0f, 0f, 0f, 1f) },
+            // Fully transparent (alpha 0). The terminal background rect is drawn at the
+            // theme's BackgroundOpacity, so untouched/translucent regions keep a sub-1
+            // alpha in the R8G8B8A8 texture — the world-space quad composites that
+            // per-pixel coverage over the 3D scene (premultiplied-alpha).
+            Color = new VkClearColorValue { Float32 = new Brutal.Numerics.float4(0f, 0f, 0f, 0f) },
         };
         clearValues[1] = new VkClearValue
         {

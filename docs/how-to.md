@@ -51,6 +51,19 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
 - Lifecycle rules when extending this: respect the deferred GPU teardown (gotcha 25), the
   no-device-touch-at-shutdown rule (gotcha 26), and the per-instance cost (gotcha 27).
 
+## Making an in-world terminal see-through
+- The quad honors the theme's **three opacities** so the 3D world shows through, like a 2D window.
+  Lower any of **Background** / **Foreground** / **Cell background** opacity below 100%:
+  - **Live**, per instance: the **Configure** panel in "In-World Terminals…" has an **Opacity**
+    section (three % sliders). Edits apply instantly and are **session-only** (not persisted).
+  - **Via a theme**: apply (or save) a theme whose `[window]` table sets `background_opacity` etc.;
+    applying it to the in-world target carries the values in. `BackgroundOpacity` is the dominant
+    "how see-through is the whole panel" knob.
+- It works by reusing the existing per-cell opacity render (no second path): the off-screen target
+  clears transparent, the background rect carries `BackgroundOpacity`, and the quad's custom
+  premultiplied-alpha frag composites the result over the scene. To change/extend the compositing,
+  read **gotcha 28** first — straight-alpha or skipping the un-premultiply both regress it.
+
 ## Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.
    `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed

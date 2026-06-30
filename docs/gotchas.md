@@ -325,6 +325,28 @@
     `PerFrameRenderer` (its own command pool/buffers/fences and **one extra queue submit** on the
     shared graphics queue), and shell session. Only the identical quad state (pipelines/layout/vertex
     input/unit-quad VB-IB) is shared via `SharedQuadResource`. Bound N sensibly in the manager UI;
-    don't silently allow dozens. The off-screen target is **`R8G8B8A8Unorm`, not SRGB**: `UnlitMesh.frag`
-    applies `gammaToLinear()` to the sampled texel and expects gamma-encoded bytes — an SRGB target
-    double-decodes and renders the in-world terminal noticeably dark.
+    don't silently allow dozens. The off-screen target is **`R8G8B8A8Unorm`, not SRGB**: the quad's
+    fragment shader applies `gammaToLinear()` (`pow(2.2)`) to the sampled texel and expects
+    gamma-encoded bytes — an SRGB target double-decodes and renders the in-world terminal noticeably
+    dark.
+
+28. **In-world quad transparency is premultiplied-alpha, and faithful to the theme's three opacities.**
+    The quad honors `BackgroundOpacity` / `ForegroundOpacity` / `CellBackgroundOpacity` so the 3D world
+    shows through, exactly like a 2D window. The mechanism reuses the existing `FrameGridRenderer`
+    output rather than a second path: (a) `PerFrameRenderer` clears the off-screen color attachment to
+    **`(0,0,0,0)`** (fully transparent); (b) `InWorldTerminalRenderer.DrawContent` draws the terminal
+    background rect at `BackgroundOpacity` (not forced opaque) — `Foreground`/`CellBackground` opacities
+    are already multiplied per-cell by `FrameGridRenderer.ToU32(color, opacity)`; (c) KSA's ImGui
+    backend blend (`SrcAlpha`/`OneMinusSrcAlpha` color, `One`/`OneMinusSrcAlpha` alpha, writes A)
+    accumulates coverage into the texture alpha — leaving the texture **premultiplied-alpha**; (d) the
+    quad uses purrtty's **own** runtime-compiled fragment shader (`SharedQuadResource.QuadFragGlsl`,
+    compiled via `RenderCore.ShaderModuleUtils.FromString` — our first owned shader module; the stock
+    `UnlitMesh.frag` discards alpha and forces `1.0`) which **un-premultiplies before the gamma decode,
+    then re-premultiplies**, and a **premultiplied blend** (`One`/`OneMinusSrcAlpha`, built inline — no
+    KSA preset matches) composites it over the scene. Don't "simplify" to straight-alpha blending or
+    drop the un-premultiply: straight alpha gives dark fringes at glyph edges, and skipping the
+    un-premultiply makes translucent backgrounds render too dark (≈`0.21` instead of `0.5`). With all
+    opacities at `1.0` the texture alpha is `1` everywhere and the result is pixel-identical to the old
+    opaque `BlendNone` quad. The blended part-mode pipeline depth-**tests** but does **not write**
+    (`ReverseZDepthStencil.DepthTestNoWrite`) so translucent fragments don't occlude each other via the
+    depth buffer.

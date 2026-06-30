@@ -75,6 +75,12 @@ and the render-postfix statics `Active`/`Instance`/`IsInputFocused`) over `InWor
 in-world lifecycle gotchas in [docs/gotchas.md](docs/gotchas.md) (deferred GPU teardown mid-session
 vs. no-device-touch at shutdown).
 
+In-world quads honor the theme's **three opacities** (faithful per-pixel transparency over the 3D
+scene, like a 2D window): the off-screen target clears transparent, the background rect carries
+`BackgroundOpacity`, and the quad composites premultiplied-alpha through purrtty's **only custom
+shader** (`SharedQuadResource.QuadFragGlsl`, runtime-compiled via `RenderCore.ShaderModuleUtils`).
+See gotcha 28 before touching the compositing.
+
 ## Build and Test Commands
 
 ```bash
@@ -101,7 +107,7 @@ Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sl
 |------|----------|
 | [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
 | [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem |
-| [docs/gotchas.md](docs/gotchas.md) | 27 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, etc.) |
+| [docs/gotchas.md](docs/gotchas.md) | 28 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, etc.) |
 | [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, deploy |
 
 Other reference:
