@@ -132,7 +132,7 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
     /// <summary>Appends this instance's quad draw to the scene-pass command buffer.</summary>
     public void RecordDraw(CommandBuffer commandBuffer) => _quad!.RecordDraw(commandBuffer);
 
-    /// <summary>Ray-tests the quad in part mode; see <see cref="InWorldQuad.TryRaycast"/>.</summary>
+    /// <summary>Ego-space ray-tests the quad (part mode, or a click-to-focus billboard); see <see cref="InWorldQuad.TryRaycast"/>.</summary>
     public bool TryRaycast(Ray ray, out double t, out float2 uv) => _quad!.TryRaycast(ray, out t, out uv);
 
     /// <summary>Retires this instance after a GPU draw/frame failure; the coordinator prunes + disposes it.</summary>

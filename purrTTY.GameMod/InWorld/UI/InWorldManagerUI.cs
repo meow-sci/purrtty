@@ -10,18 +10,45 @@ using float2 = Brutal.Numerics.float2;
 namespace purrTTY.GameMod.InWorld.UI;
 
 /// <summary>
-///     The in-world terminal manager: a fixed-width modal that lists the live in-world
-///     terminals (per-instance focus / configure / close), a create form (name, shell,
-///     grid size, anchor mode, theme), and a configure form for an existing instance
-///     (live theme + placement, plus a recreate-based grid resize). Renders in the
-///     <b>main</b> ImGui context; placement and theme edits are live, a size change
-///     rebuilds the off-screen texture (restarting the shell). Table-based label/widget
-///     layout per the KSA mod conventions.
+///     The in-world terminal manager: a movable window listing the live in-world
+///     terminals in a table (name / size / Focus / Config / Destroy) under a
+///     collapsible header, plus a collapsible create form (name, shell, grid size,
+///     anchor, theme). "Config" opens a <b>separate</b> per-terminal window (so several
+///     can be edited at once) carrying the live theme/opacity edits, a recreate-based
+///     grid resize, a rename, and the live placement form. Renders in the <b>main</b>
+///     ImGui context; placement, theme, opacity, and rename edits are live, while a
+///     size change rebuilds the off-screen texture (restarting the shell). Table-based
+///     label/widget layout per the KSA mod conventions.
 /// </summary>
 public sealed class InWorldManagerUI
 {
     private const string PopupId = "In-World Terminals##purrtty_inworld_manager";
     private const float DialogWidth = 600f;
+
+    // Label sets used to size each window's fixed label column so sections share one
+    // content-fitted gutter (see ImGuiWidgets.MeasureLabelWidth / BeginFormTableFixed).
+    private static readonly string[] CreateLabels =
+    {
+        "Name", "Shell", "Startup command", "Columns", "Rows", "Theme", "Anchor",
+        "Vehicle", "Part", "Sub-part",
+    };
+
+    private static readonly string[] ConfigureLabels =
+    {
+        "Name", "Theme", "Columns", "Rows", "Background", "Foreground", "Cell background",
+    };
+
+    private static readonly string[] PartPlacementLabels =
+    {
+        "Vehicle", "Part", "Sub-part", "Offset X (m)", "Offset Y (m)", "Offset Z (m)",
+        "Rotation X (deg)", "Rotation Y (deg)", "Rotation Z (deg)", "Width (m)", "Height (m)",
+    };
+
+    private static readonly string[] BillboardPlacementLabels =
+    {
+        "Distance (m)", "Screen Offset X (m)", "Screen Offset Y (m)", "Width (m)", "Height (m)",
+        "Rotation X (deg)", "Rotation Y (deg)", "Rotation Z (deg)",
+    };
 
     private readonly InWorldTerminalManager _manager;
 
@@ -45,10 +72,9 @@ public sealed class InWorldManagerUI
     private string? _draftThemeName;
     private string? _createError;
 
-    // Configure-an-existing-instance state.
-    private InWorldTerminalInstance? _configuring;
-    private int _resizeCols;
-    private int _resizeRows;
+    // One open configure window per terminal (multiple can be edited simultaneously).
+    private readonly List<ConfigWindow> _configWindows = new();
+    private int _nextConfigId = 1;
 
     public InWorldManagerUI(InWorldTerminalManager manager) => _manager = manager;
 
@@ -57,15 +83,21 @@ public sealed class InWorldManagerUI
     {
         _visible = true;
         _requestFocus = true;
-        _configuring = null;
         _createError = null;
     }
 
     /// <summary>
-    ///     Draws the manager as a non-modal, movable window (the game stays interactive
-    ///     behind it). Call every frame from the main context; a no-op while hidden.
+    ///     Draws the manager (a non-modal, movable window) and any open per-terminal
+    ///     configure windows every frame from the main context. The configure windows are
+    ///     independent of the manager's visibility, so closing the manager leaves them up.
     /// </summary>
     public void Draw()
+    {
+        DrawManagerWindow();
+        DrawConfigWindows();
+    }
+
+    private void DrawManagerWindow()
     {
         if (!_visible)
         {
@@ -89,19 +121,15 @@ public sealed class InWorldManagerUI
             return;
         }
 
-        DrawInstanceList();
-
-        // Drop a stale placement reference if that instance was closed or retired.
-        if (_configuring != null && (_configuring.IsFailed || !InstanceIsLive(_configuring)))
+        var instances = _manager.Instances;
+        if (ImGui.CollapsingHeader($"In-World Terminals ( {instances.Count} )##iw_list_hdr", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            _configuring = null;
+            DrawInstanceList();
         }
 
-        if (_configuring != null)
-        {
-            DrawConfigure(_configuring);
-        }
-        else
+        ImGui.Spacing();
+
+        if (ImGui.CollapsingHeader("New Terminal##iw_new_hdr", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawCreateForm();
         }
@@ -119,47 +147,70 @@ public sealed class InWorldManagerUI
     private void DrawInstanceList()
     {
         var instances = _manager.Instances;
-        ImGui.SeparatorText($"In-World Terminals ( {instances.Count} )");
-
         if (instances.Count == 0)
         {
             ImGui.TextDisabled("None yet — create one below.");
             return;
         }
 
-        for (int i = 0; i < instances.Count; i++)
+        // Destroying mutates the live instance list; capture and apply after EndTable.
+        InWorldTerminalInstance? destroy = null;
+
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoPadOuterX;
+        if (ImGui.BeginTable("##iw_list", 5, flags))
         {
-            var instance = instances[i];
-            var r = instance.Record;
-            string focus = instance.HasFocus ? "  [focused]" : string.Empty;
-            ImGui.Text($"{instance.Name}  ({(r.IsBillboard ? "billboard" : "part")}, {r.Cols}x{r.Rows}){focus}");
+            ImGui.TableSetupColumn("##name", ImGuiTableColumnFlags.WidthStretch, 1f);
+            ImGui.TableSetupColumn("##size", ImGuiTableColumnFlags.WidthFixed);
+            ImGui.TableSetupColumn("##focus", ImGuiTableColumnFlags.WidthFixed);
+            ImGui.TableSetupColumn("##config", ImGuiTableColumnFlags.WidthFixed);
+            ImGui.TableSetupColumn("##destroy", ImGuiTableColumnFlags.WidthFixed);
 
-            if (ImGui.Button($" Focus ##iw_focus_{i}"))
+            for (int i = 0; i < instances.Count; i++)
             {
-                _manager.Focus(instance);
+                var instance = instances[i];
+                var r = instance.Record;
+                ImGui.TableNextRow();
+
+                // Name (a trailing "*" marks the focused terminal).
+                ImGui.TableNextColumn();
+                ImGui.AlignTextToFramePadding();
+                ImGui.Text(instance.HasFocus ? $"{instance.Name} *" : instance.Name);
+
+                // Grid size, e.g. "80 x 24".
+                ImGui.TableNextColumn();
+                ImGui.AlignTextToFramePadding();
+                ImGui.Text($"{r.Cols} x {r.Rows}");
+
+                ImGui.TableNextColumn();
+                if (ImGui.Button($" Focus ##iw_focus_{i}"))
+                {
+                    _manager.Focus(instance);
+                }
+
+                ImGui.TableNextColumn();
+                if (ImGui.Button($" Config ##iw_cfg_{i}"))
+                {
+                    OpenConfig(instance);
+                }
+
+                ImGui.TableNextColumn();
+                if (ImGuiWidgets.DestructiveButton($" Destroy ##iw_remove_{i}"))
+                {
+                    destroy = instance;
+                }
             }
 
-            ImGui.SameLine(0, 8);
-            if (ImGui.Button($" Configure ##iw_cfg_{i}"))
-            {
-                BeginConfigure(instance);
-            }
+            ImGui.EndTable();
+        }
 
-            ImGui.SameLine(0, 8);
-            if (ImGuiWidgets.DestructiveButton($" Destroy ##iw_remove_{i}"))
-            {
-                _manager.Remove(instance);
-                return; // the list changed under us; resume next frame
-            }
-
-            ImGui.Spacing();
+        if (destroy != null)
+        {
+            _manager.Remove(destroy);
         }
     }
 
     private void DrawCreateForm()
     {
-        ImGui.SeparatorText("New terminal");
-
         var shells = BuildShellList();
         var shellItems = new List<(string Key, string Label)>(shells.Count);
         for (int i = 0; i < shells.Count; i++)
@@ -167,14 +218,13 @@ public sealed class InWorldManagerUI
             shellItems.Add((i.ToString(), shells[i].Label));
         }
 
-        string name = _nameInput.ToString();
+        float labelWidth = ImGuiWidgets.MeasureLabelWidth(CreateLabels);
 
-        if (ImGuiWidgets.BeginFormTable("##iw_create"))
+        if (ImGuiWidgets.BeginFormTableFixed("##iw_create", labelWidth))
         {
             ImGuiWidgets.FormRow("Name");
             ImGui.InputText("##iw_name", _nameInput, ImGuiInputTextFlags.None);
             _nameInput.EvaluateLength();
-            name = _nameInput.ToString().Trim();
 
             ImGuiWidgets.FormRow("Shell");
             if (ImGuiWidgets.FilterCombo("##iw_shell", _draftShell?.Label ?? "Default Shell", _shellFilter, shellItems, out string? shellKey)
@@ -196,30 +246,30 @@ public sealed class InWorldManagerUI
             ImGuiWidgets.FormRow("Theme");
             DrawThemePicker("##iw_create_theme", ref _draftThemeName);
 
+            // Anchor radios live in the widget column to share the section's label gutter.
+            ImGuiWidgets.FormRow("Anchor");
+            if (ImGui.RadioButton("Part##iw_mode_part", _draftMode == InWorldTerminalRecord.ModePart))
+            {
+                _draftMode = InWorldTerminalRecord.ModePart;
+            }
+
+            ImGui.SameLine(0, 16);
+            if (ImGui.RadioButton("Screen##iw_mode_bb", _draftMode == InWorldTerminalRecord.ModeBillboard))
+            {
+                _draftMode = InWorldTerminalRecord.ModeBillboard;
+            }
+
+            // Part mode: pick the anchor vehicle + part at creation time (same table → same gutter).
+            if (_draftMode == InWorldTerminalRecord.ModePart)
+            {
+                DrawVehiclePartPicker(_draftVehicleId, _draftPartId, _draftSubPartId,
+                    v => _draftVehicleId = v, p => _draftPartId = p, sp => _draftSubPartId = sp);
+            }
+
             ImGuiWidgets.EndFormTable();
         }
 
-        ImGui.AlignTextToFramePadding();
-        ImGui.Text("Anchor");
-        ImGui.SameLine(0, 12);
-        if (ImGui.RadioButton("Vehicle Part##iw_mode_part", _draftMode == InWorldTerminalRecord.ModePart))
-        {
-            _draftMode = InWorldTerminalRecord.ModePart;
-        }
-
-        ImGui.SameLine(0, 16);
-        if (ImGui.RadioButton("Camera Billboard##iw_mode_bb", _draftMode == InWorldTerminalRecord.ModeBillboard))
-        {
-            _draftMode = InWorldTerminalRecord.ModeBillboard;
-        }
-
-        // Part mode: pick the anchor vehicle + part at creation time.
-        if (_draftMode == InWorldTerminalRecord.ModePart && ImGuiWidgets.BeginFormTable("##iw_create_anchor"))
-        {
-            DrawVehiclePartPicker(_draftVehicleId, _draftPartId, _draftSubPartId,
-                v => _draftVehicleId = v, p => _draftPartId = p, sp => _draftSubPartId = sp);
-            ImGuiWidgets.EndFormTable();
-        }
+        string name = _nameInput.ToString().Trim();
 
         ImGui.Spacing();
 
@@ -252,61 +302,150 @@ public sealed class InWorldManagerUI
         }
     }
 
-    private void DrawConfigure(InWorldTerminalInstance instance)
-    {
-        var r = instance.Record;
-        ImGui.SeparatorText($"Configure — {instance.Name}");
+    // ---- Per-terminal configure windows ----
 
-        // Theme: applied live (colors + font reflow within the current texture).
-        if (ImGuiWidgets.BeginFormTable("##iw_cfg_theme"))
+    /// <summary>Opens (or re-focuses) the configure window for an instance.</summary>
+    private void OpenConfig(InWorldTerminalInstance instance)
+    {
+        for (int i = 0; i < _configWindows.Count; i++)
         {
+            if (ReferenceEquals(_configWindows[i].Instance, instance))
+            {
+                _configWindows[i].RequestFocus = true;
+                return;
+            }
+        }
+
+        _configWindows.Add(new ConfigWindow(instance, _nextConfigId++));
+    }
+
+    private void DrawConfigWindows()
+    {
+        // Drop windows the user closed, or whose instance was destroyed/retired.
+        for (int i = _configWindows.Count - 1; i >= 0; i--)
+        {
+            var w = _configWindows[i];
+            if (!w.Open || w.Instance.IsFailed || !InstanceIsLive(w.Instance))
+            {
+                _configWindows.RemoveAt(i);
+            }
+        }
+
+        for (int i = 0; i < _configWindows.Count; i++)
+        {
+            DrawConfigWindow(_configWindows[i]);
+        }
+    }
+
+    private void DrawConfigWindow(ConfigWindow w)
+    {
+        var instance = w.Instance;
+        var r = instance.Record;
+
+        if (w.RequestFocus)
+        {
+            w.RequestFocus = false;
+            ImGui.SetNextWindowFocus();
+        }
+
+        // Cascade new windows so several configure windows don't stack exactly.
+        float cascade = (w.Id % 6) * 28f;
+        ImGui.SetNextWindowPos(new float2(140f + cascade, 120f + cascade), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new float2(420f, 600f), ImGuiCond.FirstUseEver);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(16f, 16f));
+        bool open = ImGui.Begin($"Configure — {instance.Name}##iw_cfg_win_{w.Id}", ref w.Open, ImGuiWindowFlags.None);
+        ImGui.PopStyleVar();
+
+        if (!open)
+        {
+            ImGui.End();
+            return;
+        }
+
+        // One label gutter shared across both sections (covers the widest label of either).
+        float labelWidth = Math.Max(
+            ImGuiWidgets.MeasureLabelWidth(ConfigureLabels),
+            ImGuiWidgets.MeasureLabelWidth(r.IsBillboard ? BillboardPlacementLabels : PartPlacementLabels));
+
+        if (ImGui.CollapsingHeader("Configure##iw_cfg_cfg_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawConfigureSection(w, labelWidth);
+        }
+
+        ImGui.Spacing();
+
+        if (ImGui.CollapsingHeader("Placement##iw_cfg_place_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            if (r.IsBillboard)
+            {
+                DrawBillboardForm(r, labelWidth);
+            }
+            else
+            {
+                DrawPartForm(r, labelWidth);
+            }
+        }
+
+        // Footer: Done | Destroy, half-width each (the destroy is red).
+        ImGui.Spacing();
+        ImGui.Separator();
+        float avail = ImGui.GetContentRegionAvail().X;
+        const float gap = 8f;
+        float buttonWidth = (avail - gap) / 2f;
+
+        if (ImGui.Button($" Done ##iw_cfg_done_{w.Id}", new float2(buttonWidth, 0f)))
+        {
+            w.Open = false;
+        }
+
+        ImGui.SameLine(0, gap);
+        if (ImGuiWidgets.DestructiveButton($" Destroy ##iw_cfg_destroy_{w.Id}", new float2(buttonWidth, 0f)))
+        {
+            _manager.Remove(instance);
+            w.Open = false;
+        }
+
+        ImGui.End();
+    }
+
+    // Configure section: rename + theme + grid size + the three live opacities, plus the
+    // recreate-based "Apply size" action (size is fixed at build time).
+    private void DrawConfigureSection(ConfigWindow w, float labelWidth)
+    {
+        var instance = w.Instance;
+        var r = instance.Record;
+
+        if (ImGuiWidgets.BeginFormTableFixed($"##iw_cfg_form_{w.Id}", labelWidth))
+        {
+            // Name: applied on commit (Enter / focus loss); reverts on collision.
+            ImGuiWidgets.FormRow("Name");
+            ImGui.InputText($"##iw_cfg_name_{w.Id}", w.NameInput, ImGuiInputTextFlags.None);
+            w.NameInput.EvaluateLength();
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                CommitRename(w);
+            }
+
+            // Theme: applied live (colors + font reflow within the current texture).
             ImGuiWidgets.FormRow("Theme");
             string? themeName = r.ThemeName;
-            if (DrawThemePicker("##iw_cfg_theme_combo", ref themeName) && themeName != null
+            if (DrawThemePicker($"##iw_cfg_theme_{w.Id}", ref themeName) && themeName != null
                 && _manager.Catalog?.Find(themeName) is { } def)
             {
                 instance.ApplyTheme(def);
             }
 
+            // Grid size: a draft; "Apply size" below recreates the texture (restarts the shell).
             ImGuiWidgets.FormRow("Columns");
-            ImGui.DragInt("##iw_cfg_cols", ref _resizeCols, 0.5f, 8, 400, "%d");
+            ImGui.DragInt($"##iw_cfg_cols_{w.Id}", ref w.ResizeCols, 0.5f, 8, 400, "%d");
 
             ImGuiWidgets.FormRow("Rows");
-            ImGui.DragInt("##iw_cfg_rows", ref _resizeRows, 0.5f, 4, 200, "%d");
+            ImGui.DragInt($"##iw_cfg_rows_{w.Id}", ref w.ResizeRows, 0.5f, 4, 200, "%d");
 
-            ImGuiWidgets.EndFormTable();
-        }
-
-        bool sizeChanged = _resizeCols != r.Cols || _resizeRows != r.Rows;
-        if (!sizeChanged)
-        {
-            ImGui.BeginDisabled();
-        }
-
-        if (ImGui.Button(" Apply size (restarts shell) ##iw_resize") && sizeChanged)
-        {
-            var newRecord = r.Clone();
-            newRecord.Cols = Math.Clamp(_resizeCols, 8, 400);
-            newRecord.Rows = Math.Clamp(_resizeRows, 4, 200);
-            var created = _manager.Recreate(instance, newRecord);
-            if (created != null)
-            {
-                BeginConfigure(created);
-            }
-        }
-
-        if (!sizeChanged)
-        {
-            ImGui.EndDisabled();
-        }
-
-        // Opacity: live, per-pixel transparency baked into the off-screen texture and
-        // composited by the quad over the 3D scene. Reuses the theme's three opacities
-        // (Background drives the see-through; Foreground/Cell dim text/cell backgrounds).
-        // Session-only — not persisted unless captured into a named theme via "Theme…".
-        ImGui.SeparatorText("Opacity");
-        if (ImGuiWidgets.BeginFormTable("##iw_cfg_opacity"))
-        {
+            // Opacity: live, per-pixel transparency baked into the off-screen texture and
+            // composited by the quad over the 3D scene. Reuses the theme's three opacities
+            // (Background drives the see-through; Foreground/Cell dim text/cell backgrounds).
+            // Session-only — not persisted unless captured into a named theme via "Theme…".
             float bg = instance.BackgroundOpacity;
             float fg = instance.ForegroundOpacity;
             float cell = instance.CellBackgroundOpacity;
@@ -314,7 +453,7 @@ public sealed class InWorldManagerUI
 
             ImGuiWidgets.FormRow("Background");
             int bgPct = (int)MathF.Round(bg * 100f);
-            if (ImGui.SliderInt("##iw_cfg_op_bg", ref bgPct, 0, 100, "%d%%"))
+            if (ImGui.SliderInt($"##iw_cfg_op_bg_{w.Id}", ref bgPct, 0, 100, "%d%%"))
             {
                 bg = Math.Clamp(bgPct, 0, 100) / 100f;
                 changed = true;
@@ -322,7 +461,7 @@ public sealed class InWorldManagerUI
 
             ImGuiWidgets.FormRow("Foreground");
             int fgPct = (int)MathF.Round(fg * 100f);
-            if (ImGui.SliderInt("##iw_cfg_op_fg", ref fgPct, 0, 100, "%d%%"))
+            if (ImGui.SliderInt($"##iw_cfg_op_fg_{w.Id}", ref fgPct, 0, 100, "%d%%"))
             {
                 fg = Math.Clamp(fgPct, 0, 100) / 100f;
                 changed = true;
@@ -330,7 +469,7 @@ public sealed class InWorldManagerUI
 
             ImGuiWidgets.FormRow("Cell background");
             int cellPct = (int)MathF.Round(cell * 100f);
-            if (ImGui.SliderInt("##iw_cfg_op_cell", ref cellPct, 0, 100, "%d%%"))
+            if (ImGui.SliderInt($"##iw_cfg_op_cell_{w.Id}", ref cellPct, 0, 100, "%d%%"))
             {
                 cell = Math.Clamp(cellPct, 0, 100) / 100f;
                 changed = true;
@@ -344,29 +483,62 @@ public sealed class InWorldManagerUI
             ImGuiWidgets.EndFormTable();
         }
 
-        // Placement: live (the quad reads the record each frame).
-        ImGui.SeparatorText("Placement");
-        if (r.IsBillboard)
+        bool sizeChanged = w.ResizeCols != r.Cols || w.ResizeRows != r.Rows;
+        if (!sizeChanged)
         {
-            DrawBillboardForm(r);
-        }
-        else
-        {
-            DrawPartForm(r);
+            ImGui.BeginDisabled();
         }
 
-        ImGui.Spacing();
-        if (ImGui.Button(" Done ##iw_cfg_done", new float2(-1f, 0f)))
+        if (ImGui.Button($" Apply size (restarts shell) ##iw_cfg_resize_{w.Id}") && sizeChanged)
         {
-            _configuring = null;
+            var newRecord = r.Clone();
+            newRecord.Cols = Math.Clamp(w.ResizeCols, 8, 400);
+            newRecord.Rows = Math.Clamp(w.ResizeRows, 4, 200);
+            var created = _manager.Recreate(instance, newRecord);
+            if (created != null)
+            {
+                w.Rebind(created);
+            }
+        }
+
+        if (!sizeChanged)
+        {
+            ImGui.EndDisabled();
+        }
+
+        if (w.NameError != null)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(ImGuiWidgets.WarningColor, w.NameError);
         }
     }
 
-    private void BeginConfigure(InWorldTerminalInstance instance)
+    // Commits the configure window's edited name to its instance (live rename). Blank or
+    // colliding names revert the buffer and surface a warning; a no-op match clears it.
+    private static void CommitRename(ConfigWindow w)
     {
-        _configuring = instance;
-        _resizeCols = instance.Record.Cols;
-        _resizeRows = instance.Record.Rows;
+        string newName = w.NameInput.ToString().Trim();
+        if (newName.Length == 0)
+        {
+            w.NameError = "Name cannot be blank.";
+            w.NameInput.SetValue(w.Instance.Name);
+            return;
+        }
+
+        if (newName.Equals(w.Instance.Name, StringComparison.Ordinal))
+        {
+            w.NameError = null;
+            return;
+        }
+
+        if (!w.Instance.TryRename(newName))
+        {
+            w.NameError = $"A terminal named '{newName}' already exists.";
+            w.NameInput.SetValue(w.Instance.Name);
+            return;
+        }
+
+        w.NameError = null;
     }
 
     private void CreateFromDraft(string name)
@@ -410,9 +582,9 @@ public sealed class InWorldManagerUI
         _createError = null;
     }
 
-    private void DrawPartForm(InWorldTerminalRecord s)
+    private void DrawPartForm(InWorldTerminalRecord s, float labelWidth)
     {
-        if (ImGuiWidgets.BeginFormTable("##iw_part_form"))
+        if (ImGuiWidgets.BeginFormTableFixed("##iw_part_form", labelWidth))
         {
             DrawVehiclePartPicker(s.TargetVehicleId, s.TargetPartId, s.TargetSubPartId,
                 v => s.TargetVehicleId = v, p => s.TargetPartId = p, sp => s.TargetSubPartId = sp);
@@ -428,9 +600,9 @@ public sealed class InWorldManagerUI
         }
     }
 
-    private void DrawBillboardForm(InWorldTerminalRecord s)
+    private void DrawBillboardForm(InWorldTerminalRecord s, float labelWidth)
     {
-        if (ImGuiWidgets.BeginFormTable("##iw_bb_form"))
+        if (ImGuiWidgets.BeginFormTableFixed("##iw_bb_form", labelWidth))
         {
             DragRow("Distance (m)", "##bd", s.BillboardDistance, 0.05f, 0.2f, 200f, v => s.BillboardDistance = v);
             DragRow("Screen Offset X (m)", "##bx", s.BillboardOffsetX, 0.02f, -100f, 100f, v => s.BillboardOffsetX = v);
@@ -447,6 +619,13 @@ public sealed class InWorldManagerUI
         if (ImGui.Checkbox("Always on top (ignore depth)", ref alwaysOnTop))
         {
             s.BillboardAlwaysOnTop = alwaysOnTop;
+        }
+
+        // Opt a billboard into ego-space click-to-focus (it is menu-only by default).
+        bool clickToFocus = s.BillboardClickToFocus;
+        if (ImGui.Checkbox("Click to focus (ray-pick)", ref clickToFocus))
+        {
+            s.BillboardClickToFocus = clickToFocus;
         }
     }
 
@@ -665,6 +844,42 @@ public sealed class InWorldManagerUI
         if (ImGui.DragFloat(id, ref v, speed, min, max, "%.2f"))
         {
             set(v);
+        }
+    }
+
+    // One open configure window: its target instance, a stable id (for ImGui window
+    // identity + position cascade), and the per-window edit buffers (name + draft grid
+    // size). Re-pointed at the rebuilt instance after an "Apply size" recreate.
+    private sealed class ConfigWindow
+    {
+        public ConfigWindow(InWorldTerminalInstance instance, int id)
+        {
+            Instance = instance;
+            Id = id;
+            NameInput.SetValue(instance.Name);
+            ResizeCols = instance.Record.Cols;
+            ResizeRows = instance.Record.Rows;
+        }
+
+        public InWorldTerminalInstance Instance { get; private set; }
+        public int Id { get; }
+        public ImInputString NameInput { get; } = new(64);
+
+        // Fields (not properties): passed by ref to ImGui widgets.
+        public int ResizeCols;
+        public int ResizeRows;
+        public bool Open = true;
+        public bool RequestFocus = true;
+        public string? NameError;
+
+        // Re-target this window at the rebuilt instance after a grid-size recreate.
+        public void Rebind(InWorldTerminalInstance instance)
+        {
+            Instance = instance;
+            ResizeCols = instance.Record.Cols;
+            ResizeRows = instance.Record.Rows;
+            NameInput.SetValue(instance.Name);
+            NameError = null;
         }
     }
 }

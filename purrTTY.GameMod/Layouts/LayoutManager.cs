@@ -240,6 +240,7 @@ public sealed class LayoutManager
         BillboardRotationY = r.BillboardRotationY,
         BillboardRotationZ = r.BillboardRotationZ,
         BillboardAlwaysOnTop = r.BillboardAlwaysOnTop,
+        BillboardClickToFocus = r.BillboardClickToFocus,
     };
 
     private static TerminalEntry FromWindow(WindowLayoutRecord w) => new()
@@ -284,6 +285,7 @@ public sealed class LayoutManager
         BillboardRotationY = e.BillboardRotationY ?? 0f,
         BillboardRotationZ = e.BillboardRotationZ ?? 0f,
         BillboardAlwaysOnTop = e.BillboardAlwaysOnTop ?? true,
+        BillboardClickToFocus = e.BillboardClickToFocus ?? false,
     };
 
     private static WindowLayoutRecord ToWindowRecord(TerminalEntry e, string name) => new()

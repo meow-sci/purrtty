@@ -161,16 +161,17 @@ public sealed class InWorldQuad : IDisposable
     }
 
     /// <summary>
-    ///     Ego-space ray vs. quad pick (click-to-focus). Valid in part mode (ego-space
-    ///     model + ego-space <c>Cursor.InputRay</c>); billboard picking is menu-driven.
-    ///     The local corners MUST match the shared vertex buffer.
+    ///     Ego-space ray vs. quad pick (click-to-focus + app-mouse mapping). Works in both
+    ///     anchor modes: part mode is already ego-space; billboard mode composes its
+    ///     view-space model and folds the inverse-view rotation (<c>VPInv.view</c>) so the
+    ///     panel is tested in the same ego space as <c>Cursor.InputRay</c>. The local
+    ///     corners MUST match the shared vertex buffer.
     /// </summary>
     public bool TryRaycast(Ray ray, out double t, out float2 uv)
     {
         t = double.MaxValue;
         uv = default;
-        if (_settings.IsBillboard) return false;
-        if (!TryComputeModel(out float4x4 modelEgo, out _)) return false;
+        if (!TryComputeEgoModel(out float4x4 modelEgo)) return false;
 
         float3 v0Local = new float3(-0.5f, -0.5f, 0f);
         float3 v1Local = new float3( 0.5f, -0.5f, 0f);
@@ -241,6 +242,35 @@ public sealed class InWorldQuad : IDisposable
 
         // Part mode always depth-writes (it lives in the scene and should occlude).
         return TryComputePartModel(camera, out model);
+    }
+
+    /// <summary>
+    ///     Composes the model matrix in <b>ego</b> space for both anchor modes, for
+    ///     ray-picking against the ego-space <c>Cursor.InputRay</c>. Part mode is already
+    ///     ego-space; billboard mode builds its view-space model and right-multiplies the
+    ///     inverse-view rotation (<c>VPInv.view</c>, view→ego) — exact because the view
+    ///     matrix is a pure rotation about the ego origin. Returns false when no model can
+    ///     be composed this frame.
+    /// </summary>
+    private bool TryComputeEgoModel(out float4x4 modelEgo)
+    {
+        modelEgo = float4x4.Identity;
+        if (_disposed) return false;
+
+        var camera = Program.GetMainCamera();
+        if (camera == null) return false;
+
+        if (_settings.IsBillboard)
+        {
+            if (!TryComputeBillboardModel(out float4x4 modelView, out _)) return false;
+
+            // model maps local→view; VPInv.view maps view→ego. Row-vector convention, so
+            // chain local→view→ego is model * VPInv.view (matches RecordDraw's basis).
+            modelEgo = modelView * camera.VPInv.view;
+            return true;
+        }
+
+        return TryComputePartModel(camera, out modelEgo);
     }
 
     private bool TryComputePartModel(Camera camera, out float4x4 model)

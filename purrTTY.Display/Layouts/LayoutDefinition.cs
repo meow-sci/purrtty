@@ -69,6 +69,7 @@ public sealed class TerminalEntry
     public float? BillboardRotationY { get; set; }
     public float? BillboardRotationZ { get; set; }
     public bool? BillboardAlwaysOnTop { get; set; }
+    public bool? BillboardClickToFocus { get; set; }
 
     /// <summary>Shell + startup command for this terminal.</summary>
     public ShellSpec Shell { get; set; } = new();

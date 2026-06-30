@@ -107,6 +107,7 @@ internal static class LayoutTomlFormat
             BillboardRotationY = GetFloat(t, "billboard_rotation_y"),
             BillboardRotationZ = GetFloat(t, "billboard_rotation_z"),
             BillboardAlwaysOnTop = GetBool(t, "billboard_always_on_top"),
+            BillboardClickToFocus = GetBool(t, "billboard_click_to_focus"),
         };
 
         if (GetTable(t, "shell") is { } shell)
@@ -178,6 +179,7 @@ internal static class LayoutTomlFormat
             AppendNum(sb, "billboard_rotation_y", e.BillboardRotationY);
             AppendNum(sb, "billboard_rotation_z", e.BillboardRotationZ);
             AppendBool(sb, "billboard_always_on_top", e.BillboardAlwaysOnTop);
+            AppendBool(sb, "billboard_click_to_focus", e.BillboardClickToFocus);
 
             // Shell sub-table LAST (TOML requires a table's scalars before its sub-tables).
             sb.Append("\n[terminal.shell]\n");

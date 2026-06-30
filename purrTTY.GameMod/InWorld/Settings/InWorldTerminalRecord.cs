@@ -84,6 +84,14 @@ public sealed class InWorldTerminalRecord
     /// <summary>When true the billboard ignores depth (always-on-top HUD); otherwise it is occluded.</summary>
     public bool BillboardAlwaysOnTop { get; set; } = true;
 
+    /// <summary>
+    ///     When true a camera billboard can be focused by clicking its quad (an ego-space
+    ///     ray pick, like a part-anchored terminal), and forwards app-mouse to its shell;
+    ///     when false (default) the billboard is focus-from-menu only. No effect in part
+    ///     mode (those always click-to-focus).
+    /// </summary>
+    public bool BillboardClickToFocus { get; set; }
+
     /// <summary>True when <see cref="Mode"/> selects the camera-billboard anchor.</summary>
     public bool IsBillboard => string.Equals(Mode, ModeBillboard, StringComparison.OrdinalIgnoreCase);
 
@@ -116,5 +124,6 @@ public sealed class InWorldTerminalRecord
         BillboardRotationY = BillboardRotationY,
         BillboardRotationZ = BillboardRotationZ,
         BillboardAlwaysOnTop = BillboardAlwaysOnTop,
+        BillboardClickToFocus = BillboardClickToFocus,
     };
 }

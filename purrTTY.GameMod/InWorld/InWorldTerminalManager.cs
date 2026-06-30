@@ -286,8 +286,9 @@ public sealed class InWorldTerminalManager : IDisposable
         }
 
         // App-mouse: map the cursor's quad hit to a cell and forward press/drag/wheel
-        // so in-world TUIs (vim, htop) respond to clicks. Part mode only.
-        if (focused != null && !focused.IsBillboard)
+        // so in-world TUIs (vim, htop) respond to clicks. Part mode, plus billboards that
+        // opted into click-to-focus (both are ego-space ray-pickable).
+        if (focused != null && IsClickPickable(focused))
         {
             float2? hitUv = null;
             if (focused.TryRaycast(Cursor.InputRay, out _, out float2 uv))
@@ -325,10 +326,12 @@ public sealed class InWorldTerminalManager : IDisposable
     }
 
     /// <summary>
-    ///     Click-to-focus over all part-mode quads: ray-tests each, focuses the nearest
+    ///     Click-to-focus over the pickable quads: ray-tests each, focuses the nearest
     ///     hit; a click in empty world space (not over an ImGui widget) clears focus.
-    ///     Billboard instances have no ego-space ray and are focused from the manager
-    ///     list. Escape is deliberately NOT a release key — it must reach the shell.
+    ///     Part-mode quads are always pickable; a billboard participates only when its
+    ///     <see cref="InWorldTerminalRecord.BillboardClickToFocus"/> toggle is on (else it
+    ///     is focus-from-menu only). Escape is deliberately NOT a release key — it must
+    ///     reach the shell.
     /// </summary>
     private void TickPicker()
     {
@@ -342,7 +345,7 @@ public sealed class InWorldTerminalManager : IDisposable
         for (int i = 0; i < _instances.Count; i++)
         {
             var instance = _instances[i];
-            if (instance.IsBillboard || instance.IsFailed)
+            if (instance.IsFailed || !IsClickPickable(instance))
             {
                 continue;
             }
@@ -363,6 +366,11 @@ public sealed class InWorldTerminalManager : IDisposable
             _focused = null;
         }
     }
+
+    // Whether an instance participates in ego-space ray picking (click-to-focus +
+    // app-mouse forwarding): part mode always; a billboard only when it opted in.
+    private static bool IsClickPickable(InWorldTerminalInstance instance)
+        => !instance.IsBillboard || instance.Record.BillboardClickToFocus;
 
     private void PruneFailed()
     {

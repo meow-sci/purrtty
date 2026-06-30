@@ -40,22 +40,34 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
 
 ## Creating an in-world (render-to-texture) terminal
 - Open via **"In-World Terminals…"** (`InWorldManagerUI`, `purrTTY.GameMod/InWorld/UI/InWorldManagerUI.cs`).
-- Create form: a unique **name**, a **shell** (`FilterCombo` over `ShellMenuCache.Current` +
-  `CustomShellRegistry` — every registered shell appears automatically), fixed **cols×rows**, an
-  **anchor mode** (radio): *Vehicle Part* (tiered Vehicle→Part→optional SubPart pickers, resolved by
-  `VehicleLookup`) or *Camera Billboard*, and a **theme**. Create → `InWorldTerminalManager.Create(record)`
-  builds the GPU graph + shell and registers the instance in the target registry.
-- Instances are **session-only** (never persisted). They are listed with per-instance focus /
-  configure / red **Destroy**; configuring lets you live-edit theme + placement and recreate-resize the
-  grid. Set `PURRTTY_INWORLD=1` to auto-create one default instance on load (dev convenience).
+- The manager window has two **collapsible** sections: the instance **list** and a **New Terminal**
+  create form.
+- Create form (fixed-width label gutter): a unique **name**, a **shell** (`FilterCombo` over
+  `ShellMenuCache.Current` + `CustomShellRegistry` — every registered shell appears automatically),
+  fixed **cols×rows**, an **anchor mode** (radio, in the widget column): *Part* (tiered
+  Vehicle→Part→optional SubPart pickers, resolved by `VehicleLookup`) or *Screen* (camera billboard),
+  and a **theme**. Create → `InWorldTerminalManager.Create(record)` builds the GPU graph + shell and
+  registers the instance in the target registry.
+- Instances are **session-only** (never persisted). The list is an ImGui **table** (name with a
+  trailing `*` when focused / `cols x rows` / **Focus** / **Config** / red **Destroy**). **Config**
+  opens a **separate per-terminal window** (several can be open at once), independent of the manager's
+  visibility: a **Configure** section (live rename + theme + the three **opacity** sliders, plus a
+  recreate-based grid resize) and a **Placement** section, both collapsible, with a footer of
+  half-width **Done** / red **Destroy** buttons. Set `PURRTTY_INWORLD=1` to auto-create one default
+  instance on load (dev convenience).
+- **Focusing:** a *Part* terminal is focused (and forwards app-mouse) by **clicking its quad**
+  (nearest ego-space ray hit wins). A *Screen* billboard is **focus-from-menu** (the list's **Focus**
+  button) by default; tick **Click to focus (ray-pick)** in its **Placement** section to also let it be
+  clicked like a part. The toggle round-trips through saved layouts (`BillboardClickToFocus`).
 - Lifecycle rules when extending this: respect the deferred GPU teardown (gotcha 25), the
   no-device-touch-at-shutdown rule (gotcha 26), and the per-instance cost (gotcha 27).
 
 ## Making an in-world terminal see-through
 - The quad honors the theme's **three opacities** so the 3D world shows through, like a 2D window.
   Lower any of **Background** / **Foreground** / **Cell background** opacity below 100%:
-  - **Live**, per instance: the **Configure** panel in "In-World Terminals…" has an **Opacity**
-    section (three % sliders). Edits apply instantly and are **session-only** (not persisted).
+  - **Live**, per instance: the **Configure** section of a terminal's **Config** window (opened from
+    "In-World Terminals…") has three opacity % sliders. Edits apply instantly and are **session-only**
+    (not persisted).
   - **Via a theme**: apply (or save) a theme whose `[window]` table sets `background_opacity` etc.;
     applying it to the in-world target carries the values in. `BackgroundOpacity` is the dominant
     "how see-through is the whole panel" knob.
