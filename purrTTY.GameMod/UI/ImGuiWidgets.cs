@@ -73,6 +73,24 @@ public static class ImGuiWidgets
     }
 
     /// <summary>
+    ///     A red, clearly-destructive button (KSA "Destroy"-style). Returns true when
+    ///     clicked. Must run with an active ImGui frame (uses the style alpha).
+    /// </summary>
+    public static bool DestructiveButton(string label)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Button, ImGui.GetColorU32(new float4(0.70f, 0.18f, 0.18f, 1f)));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImGui.GetColorU32(new float4(0.85f, 0.25f, 0.25f, 1f)));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImGui.GetColorU32(new float4(0.60f, 0.12f, 0.12f, 1f)));
+        ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(new float4(0.97f, 0.97f, 0.97f, 1f)));
+        bool clicked = ImGui.Button(label);
+        ImGui.PopStyleColor();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleColor();
+        return clicked;
+    }
+
+    /// <summary>
     ///     A combo box whose first row is a live text filter: type to narrow the list
     ///     by case-insensitive substring of each item's label. Returns <c>true</c> on
     ///     the frame an item is chosen (with <paramref name="selectedKey"/> set to that

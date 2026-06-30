@@ -30,6 +30,7 @@ public sealed class InWorldManagerUI
     private readonly ImInputString _themeFilter = new(64);
     private readonly ImInputString _vehicleFilter = new(64);
     private readonly ImInputString _partFilter = new(64);
+    private readonly ImInputString _subPartFilter = new(64);
 
     private bool _visible;
     private bool _requestFocus;
@@ -38,6 +39,7 @@ public sealed class InWorldManagerUI
     private string _draftMode = InWorldTerminalRecord.ModePart;
     private string _draftVehicleId = "";
     private string _draftPartId = "";
+    private string _draftSubPartId = "";
     private (string Label, ProcessLaunchOptions Options)? _draftShell;
     private string? _draftThemeName;
     private string? _createError;
@@ -143,7 +145,7 @@ public sealed class InWorldManagerUI
             }
 
             ImGui.SameLine(0, 8);
-            if (ImGui.Button($" Close ##iw_remove_{i}"))
+            if (ImGuiWidgets.DestructiveButton($" Destroy ##iw_remove_{i}"))
             {
                 _manager.Remove(instance);
                 return; // the list changed under us; resume next frame
@@ -209,7 +211,8 @@ public sealed class InWorldManagerUI
         // Part mode: pick the anchor vehicle + part at creation time.
         if (_draftMode == InWorldTerminalRecord.ModePart && ImGuiWidgets.BeginFormTable("##iw_create_anchor"))
         {
-            DrawVehiclePartPicker(_draftVehicleId, _draftPartId, v => _draftVehicleId = v, p => _draftPartId = p);
+            DrawVehiclePartPicker(_draftVehicleId, _draftPartId, _draftSubPartId,
+                v => _draftVehicleId = v, p => _draftPartId = p, sp => _draftSubPartId = sp);
             ImGuiWidgets.EndFormTable();
         }
 
@@ -327,6 +330,7 @@ public sealed class InWorldManagerUI
             Mode = _draftMode,
             TargetVehicleId = _draftVehicleId,
             TargetPartId = _draftPartId,
+            TargetSubPartId = _draftSubPartId,
             Launch = _draftShell?.Options,
             ThemeName = _draftThemeName,
         };
@@ -342,6 +346,7 @@ public sealed class InWorldManagerUI
         _draftThemeName = null;
         _draftVehicleId = "";
         _draftPartId = "";
+        _draftSubPartId = "";
         _createError = null;
     }
 
@@ -349,7 +354,8 @@ public sealed class InWorldManagerUI
     {
         if (ImGuiWidgets.BeginFormTable("##iw_part_form"))
         {
-            DrawVehiclePartPicker(s.TargetVehicleId, s.TargetPartId, v => s.TargetVehicleId = v, p => s.TargetPartId = p);
+            DrawVehiclePartPicker(s.TargetVehicleId, s.TargetPartId, s.TargetSubPartId,
+                v => s.TargetVehicleId = v, p => s.TargetPartId = p, sp => s.TargetSubPartId = sp);
             DragRow("Offset X (m)", "##px", s.PartOffsetX, 0.05f, -200f, 200f, v => s.PartOffsetX = v);
             DragRow("Offset Y (m)", "##py", s.PartOffsetY, 0.05f, -200f, 200f, v => s.PartOffsetY = v);
             DragRow("Offset Z (m)", "##pz", s.PartOffsetZ, 0.05f, -200f, 200f, v => s.PartOffsetZ = v);
@@ -381,12 +387,16 @@ public sealed class InWorldManagerUI
         }
     }
 
-    // Tiered Vehicle → Part selection (both filtered combos). Assumes it runs inside a
-    // BeginFormTable; emits a Vehicle FormRow then a Part FormRow. Changing the vehicle
-    // resets the part (the part list is vehicle-specific). An empty vehicle id means
-    // "the controlled vehicle" (the anchor follows the player); an empty part id means
-    // that vehicle's first part.
-    private void DrawVehiclePartPicker(string vehicleId, string partId, Action<string> setVehicle, Action<string> setPart)
+    // Tiered Vehicle → Part → Sub-part selection (all filtered combos). Assumes it
+    // runs inside a BeginFormTable. Changing the vehicle resets part + sub-part;
+    // changing the part resets the sub-part. The Part combo lists only top-level parts;
+    // selecting a part is enough to anchor to it, and its sub-parts populate the
+    // separate Sub-part combo — picking "(none)" there de-selects (anchors to the part).
+    // Empty vehicle id = the controlled vehicle (the anchor follows the player); empty
+    // part id = that vehicle's first part.
+    private void DrawVehiclePartPicker(
+        string vehicleId, string partId, string subPartId,
+        Action<string> setVehicle, Action<string> setPart, Action<string> setSubPart)
     {
         var vehicles = VehicleLookup.GetAll();
 
@@ -402,19 +412,18 @@ public sealed class InWorldManagerUI
         {
             setVehicle(pickedV);
             setPart(string.Empty);
+            setSubPart(string.Empty);
         }
 
         var resolved = VehicleLookup.Resolve(vehicleId);
+
+        // Part: top-level parts only (sub-parts go in their own combo below).
         var pItems = new List<(string Key, string Label)> { ("", "(auto: first part)") };
         if (resolved != null)
         {
             foreach (Part p in resolved.Parts.Parts)
             {
                 pItems.Add((p.Id, PartLabel(p)));
-                foreach (Part sub in p.SubParts)
-                {
-                    pItems.Add((sub.Id, PartLabel(sub)));
-                }
             }
         }
 
@@ -423,7 +432,56 @@ public sealed class InWorldManagerUI
         if (ImGuiWidgets.FilterCombo("##iw_part", pPreview, _partFilter, pItems, out string? pickedP) && pickedP != null)
         {
             setPart(pickedP);
+            setSubPart(string.Empty);
         }
+
+        // Sub-part: children of the selected top-level part. "(none)" de-selects
+        // (anchors to the part itself); disabled until a specific part is picked.
+        Part? selectedPart = FindTopLevelPart(resolved, partId);
+        var spItems = new List<(string Key, string Label)> { ("", "(none: the part itself)") };
+        if (selectedPart != null)
+        {
+            foreach (Part sub in selectedPart.SubParts)
+            {
+                spItems.Add((sub.Id, PartLabel(sub)));
+            }
+        }
+
+        ImGuiWidgets.FormRow("Sub-part");
+        bool noPart = selectedPart == null;
+        if (noPart)
+        {
+            ImGui.BeginDisabled();
+        }
+
+        string spPreview = string.IsNullOrEmpty(subPartId) ? "(none: the part itself)" : subPartId;
+        if (ImGuiWidgets.FilterCombo("##iw_subpart", spPreview, _subPartFilter, spItems, out string? pickedSP) && pickedSP != null)
+        {
+            setSubPart(pickedSP);
+        }
+
+        if (noPart)
+        {
+            ImGui.EndDisabled();
+        }
+    }
+
+    private static Part? FindTopLevelPart(Vehicle? vehicle, string partId)
+    {
+        if (vehicle == null || string.IsNullOrEmpty(partId))
+        {
+            return null;
+        }
+
+        foreach (Part p in vehicle.Parts.Parts)
+        {
+            if (p.Id == partId)
+            {
+                return p;
+            }
+        }
+
+        return null;
     }
 
     // Returns true (with the picked name) when a theme is chosen this frame. Draws a

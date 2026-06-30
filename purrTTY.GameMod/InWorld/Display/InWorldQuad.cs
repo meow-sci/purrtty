@@ -288,30 +288,44 @@ public sealed class InWorldQuad : IDisposable
 
     private Part? ResolvePart(Vehicle vehicle)
     {
-        if (!string.IsNullOrEmpty(_settings.TargetPartId))
+        Part? topLevel = ResolveTopLevelPart(vehicle);
+        if (topLevel == null)
         {
-            return FindPart(vehicle, _settings.TargetPartId);
+            return null;
         }
 
-        // Fallback: anchor to the first top-level part so the quad is visible even
-        // before a target is picked.
+        // A selected sub-part anchors to it instead of the whole part.
+        if (!string.IsNullOrEmpty(_settings.TargetSubPartId))
+        {
+            foreach (Part sub in topLevel.SubParts)
+            {
+                if (sub.Id == _settings.TargetSubPartId)
+                {
+                    return sub;
+                }
+            }
+        }
+
+        return topLevel;
+    }
+
+    private Part? ResolveTopLevelPart(Vehicle vehicle)
+    {
+        if (!string.IsNullOrEmpty(_settings.TargetPartId))
+        {
+            foreach (Part p in vehicle.Parts.Parts)
+            {
+                if (p.Id == _settings.TargetPartId)
+                {
+                    return p;
+                }
+            }
+        }
+
+        // Fallback: the first top-level part so the quad is visible before a pick.
         foreach (Part p in vehicle.Parts.Parts)
         {
             return p;
-        }
-
-        return null;
-    }
-
-    private static Part? FindPart(Vehicle vehicle, string id)
-    {
-        foreach (Part p in vehicle.Parts.Parts)
-        {
-            if (p.Id == id) return p;
-            foreach (Part sub in p.SubParts)
-            {
-                if (sub.Id == id) return sub;
-            }
         }
 
         return null;

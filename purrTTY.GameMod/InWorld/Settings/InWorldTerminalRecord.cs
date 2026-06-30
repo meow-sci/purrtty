@@ -48,8 +48,11 @@ public sealed class InWorldTerminalRecord
     /// <summary>Id of the anchor vehicle. Empty = follow the controlled vehicle.</summary>
     public string TargetVehicleId { get; set; } = "";
 
-    /// <summary>Id of the anchor Part/SubPart within the target vehicle. Empty = its first part.</summary>
+    /// <summary>Id of the anchor top-level Part within the target vehicle. Empty = its first part.</summary>
     public string TargetPartId { get; set; } = "";
+
+    /// <summary>Id of a SubPart of <see cref="TargetPartId"/> to anchor to instead. Empty = the part itself.</summary>
+    public string TargetSubPartId { get; set; } = "";
 
     public float PartOffsetX { get; set; }
     public float PartOffsetY { get; set; }
@@ -86,6 +89,7 @@ public sealed class InWorldTerminalRecord
         Mode = Mode,
         TargetVehicleId = TargetVehicleId,
         TargetPartId = TargetPartId,
+        TargetSubPartId = TargetSubPartId,
         PartOffsetX = PartOffsetX,
         PartOffsetY = PartOffsetY,
         PartOffsetZ = PartOffsetZ,
