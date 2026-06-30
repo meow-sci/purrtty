@@ -178,7 +178,16 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         }
     }
 
-    public void Dispose()
+    public void Dispose() => Dispose(freeGpu: true);
+
+    /// <summary>
+    ///     Disposes the instance. <paramref name="freeGpu"/> = false skips the Vulkan
+    ///     resource frees — used only at game shutdown, where the game has already
+    ///     destroyed the device and touching it faults (an uncatchable
+    ///     AccessViolationException); the process exit reclaims the VRAM. The shell
+    ///     session (device-free) is still closed either way.
+    /// </summary>
+    public void Dispose(bool freeGpu)
     {
         if (_disposed)
         {
@@ -186,9 +195,18 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         }
 
         _disposed = true;
-
         UnregisterNow();
-        Teardown();
+
+        if (freeGpu)
+        {
+            Teardown();
+            return;
+        }
+
+        // Shutdown: close the shell (no device involved) but leave the GPU graph for
+        // the OS to reclaim — the device is gone.
+        try { _content?.Dispose(); } catch { /* best-effort */ }
+        _content = null;
     }
 
     private void Teardown()

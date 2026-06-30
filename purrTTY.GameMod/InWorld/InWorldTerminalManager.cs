@@ -427,33 +427,33 @@ public sealed class InWorldTerminalManager : IDisposable
 
         _disposed = true;
 
-        // Stop the postfix BEFORE freeing GPU resources.
         Active = false;
         _focused = null;
         Instance = null;
 
-        // Wait the device idle so freeing can't race any final in-flight frame, then
-        // free both live and pending-teardown instances (each drains its fences and
-        // frees its GPU graph + shell, and unregisters from the target registry).
-        WaitDeviceIdle();
-
+        // The mod only unloads at game shutdown, by which point the game has already
+        // destroyed the Vulkan device — calling WaitIdle / Destroy* on it faults with
+        // an AccessViolationException (a corrupted-state exception that managed
+        // try/catch cannot trap). So we do NOT free GPU resources here: the process is
+        // exiting and the driver/OS reclaims the VRAM. We still close each shell
+        // session (device-free) to avoid orphaned child processes. The mid-session
+        // Close/resize path (ProcessPendingTeardown) keeps its WaitIdle — the device
+        // is alive there.
         for (int i = 0; i < _instances.Count; i++)
         {
-            _instances[i].Dispose();
+            _instances[i].Dispose(freeGpu: false);
         }
 
         _instances.Clear();
 
         for (int i = 0; i < _pendingTeardown.Count; i++)
         {
-            _pendingTeardown[i].Instance.Dispose();
+            _pendingTeardown[i].Instance.Dispose(freeGpu: false);
         }
 
         _pendingTeardown.Clear();
 
-        // The shared quad pipeline/geometry outlives every instance (their RecordDraw
-        // referenced it); free it last, after all instances are gone.
-        _sharedQuad?.Dispose();
+        // Drop the shared quad without touching the dead device.
         _sharedQuad = null;
     }
 
