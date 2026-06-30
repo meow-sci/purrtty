@@ -115,7 +115,7 @@ Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sl
 |------|----------|
 | [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
 | [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem, layouts |
-| [docs/gotchas.md](docs/gotchas.md) | 30 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, etc.) |
+| [docs/gotchas.md](docs/gotchas.md) | 31 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, in-world part-follow tracking, etc.) |
 | [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, deploy |
 
 Other reference:

@@ -376,3 +376,18 @@
     (in-game only). Don't reintroduce `TomlSerializer.Serialize(poco)` or `ModLog.Log.*` into
     `purrTTY.Display/Layouts/` — the layout round-trip tests in `purrTTY.Display.Tests` would then fail
     to load ObjectPool.
+
+31. **In-world part anchors follow a decoupled/docked part by object identity (within a session).**
+    A part-mode anchor persists `(vehicleId, partId, subPartId)` (best-effort — plans/TERM_MANAGER_PLAN.md
+    §3.5), but at runtime `InWorldQuad` resolves that **once** to a live `Part` and then **follows the
+    Part object** instead of re-resolving "part-id within vehicle-id" every frame. KSA decoupling/docking
+    **moves the same `Part` instance** into the new vehicle (`Decoupler.Decouple` → `Vehicle.Split` →
+    `PartTree.TransferPart` re-points `part.Tree`; `Part.InstanceId` is never reassigned), so
+    `VehicleLookup.FindContaining(part)` — a reference-identity search across `Universe.CurrentSystem`
+    vehicles (and sub-parts) — relocates the part in whatever vessel now owns it, and the transform flows
+    through that current vehicle. Caveats baked into the code: identity is **session-only** (the `Part`
+    object / `InstanceId` are per-run and NOT persisted — a new run re-resolves from the persisted ids);
+    the cache is **invalidated when the target ids change** (a live Configure-panel edit); and only a
+    **specifically-targeted** part is followed — the empty-target "first part" default keeps re-resolving
+    so it stays with the controlled/target vehicle rather than chasing a decoupled chunk. A tracked part
+    that vanishes from every vehicle (destroyed) drops the cache and re-resolves.

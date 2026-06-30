@@ -46,6 +46,16 @@ public sealed class InWorldQuad : IDisposable
 
     private bool _disposed;
 
+    // Part-follow tracking: once a specifically-targeted part resolves, hold the Part
+    // object and follow it by identity so the anchor survives a vessel decouple/dock —
+    // KSA moves the same Part instance into the new vehicle. Session-only (the object is
+    // per-run; a fresh run re-resolves from the persisted vehicle/part id), and invalidated
+    // when the target ids change (live edit in the Configure panel). See gotcha 31.
+    private Part? _anchoredPart;
+    private string? _anchoredForVehicleId;
+    private string? _anchoredForPartId;
+    private string? _anchoredForSubPartId;
+
     /// <summary>
     ///     True when the live model matrix can be composed this frame. Billboard mode
     ///     needs only a camera; part mode also needs a controlled vessel and a
@@ -237,15 +247,58 @@ public sealed class InWorldQuad : IDisposable
     {
         model = float4x4.Identity;
 
+        // A live edit of the anchor (Configure panel) must take effect: drop a stale tracked
+        // part when any target id changed since it was cached.
+        if (_anchoredPart != null && (
+                !string.Equals(_anchoredForVehicleId, _settings.TargetVehicleId, StringComparison.Ordinal) ||
+                !string.Equals(_anchoredForPartId, _settings.TargetPartId, StringComparison.Ordinal) ||
+                !string.Equals(_anchoredForSubPartId, _settings.TargetSubPartId, StringComparison.Ordinal)))
+        {
+            _anchoredPart = null;
+        }
+
+        // Follow a specifically-targeted part by object identity so the anchor tracks it
+        // when its vessel decouples/docks (KSA moves the same Part into the new vehicle).
+        // The current owning vehicle (found by the search) drives the transform below, so a
+        // decoupled part is placed in its new vessel's frame automatically.
+        if (_anchoredPart != null && !string.IsNullOrEmpty(_settings.TargetPartId))
+        {
+            Vehicle? owner = VehicleLookup.FindContaining(_anchoredPart);
+            if (owner != null)
+            {
+                return ComputePartTransform(camera, owner, _anchoredPart, out model);
+            }
+
+            // The tracked part is gone from every vehicle (destroyed) — drop it, re-resolve.
+            _anchoredPart = null;
+        }
+
         Vehicle? vehicle = VehicleLookup.Resolve(_settings.TargetVehicleId);
         if (vehicle == null) return false;
 
         Part? part = ResolvePart(vehicle);
         if (part == null) return false;
 
+        // Cache for follow-tracking only when a specific part was targeted; the empty-target
+        // "first part" default keeps re-resolving so it stays with the controlled/target
+        // vehicle rather than chasing a decoupled chunk.
+        if (!string.IsNullOrEmpty(_settings.TargetPartId))
+        {
+            _anchoredPart = part;
+            _anchoredForVehicleId = _settings.TargetVehicleId;
+            _anchoredForPartId = _settings.TargetPartId;
+            _anchoredForSubPartId = _settings.TargetSubPartId;
+        }
+
+        return ComputePartTransform(camera, vehicle, part, out model);
+    }
+
+    private bool ComputePartTransform(Camera camera, Vehicle vehicle, Part part, out float4x4 model)
+    {
         // Pull the part's ego-space rotation + position separately rather than its
         // combined MatrixAsmb2Ego: the combined matrix bakes in the part's own scale,
-        // which we exclude so Width/Height are the sole size source.
+        // which we exclude so Width/Height are the sole size source. The transform flows
+        // through whichever vehicle currently owns the part.
         double4x4 vehMat    = vehicle.GetMatrixAsmb2Ego(camera);
         double3   partPos   = part.PositionEgo(in vehMat);
         doubleQuat partRotD = part.Asmb2Ego(vehicle.Asmb2Ego);

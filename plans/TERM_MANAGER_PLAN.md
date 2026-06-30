@@ -178,6 +178,16 @@ so those terminals always restore exactly. We also store the part's display name
 alongside the id, purely so the user can recognize and re-pick it if a restore lands on the wrong
 part.
 
+**Implemented refinement — within-session split survival.** At runtime the anchor resolves the
+persisted ids to a live `Part` **once**, then **follows that `Part` object by identity**
+(`VehicleLookup.FindContaining` + the cache in `InWorldQuad`), so a part that decouples/docks into a
+different vessel keeps its overlay: KSA *moves* the same `Part` instance into the new vehicle (it does
+not rebuild it) and never reassigns `Part.InstanceId`. This is **session-only** — the object/InstanceId
+are per-run and not persisted, so a fresh run re-resolves from `(vehicleId, partId)`; the persisted
+identity stays best-effort first-match as above. Only a specifically-targeted part is followed (the
+empty-target "first part" default keeps re-resolving so it stays with the controlled/target vehicle).
+See gotcha 31.
+
 ### 3.6 2D vs in-world asymmetry
 
 - **In-world**: `Cols × Rows` are **authoritative** (they size the off-screen texture);

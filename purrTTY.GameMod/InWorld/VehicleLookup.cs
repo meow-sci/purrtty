@@ -42,4 +42,43 @@ public static class VehicleLookup
 
         return Program.ControlledVehicle;
     }
+
+    /// <summary>
+    ///     Finds the vehicle that currently contains <paramref name="part"/> (a top-level
+    ///     part or a sub-part), matched by <b>object identity</b>, or null if the part is
+    ///     no longer attached to any vehicle (e.g. destroyed). Used to follow a
+    ///     specifically-anchored part across a vessel split/dock: KSA moves the same
+    ///     <see cref="Part"/> instance into the new vehicle (it does not rebuild it), so a
+    ///     reference match tracks it. Identity is session-only (the running id / object is
+    ///     per-run), so a persisted anchor still re-resolves from vehicle + part id on load.
+    /// </summary>
+    public static Vehicle? FindContaining(Part part)
+    {
+        var system = Universe.CurrentSystem;
+        if (system == null)
+        {
+            return null;
+        }
+
+        foreach (var vehicle in system.All.UnsafeAsList().OfType<Vehicle>())
+        {
+            foreach (Part p in vehicle.Parts.Parts)
+            {
+                if (ReferenceEquals(p, part))
+                {
+                    return vehicle;
+                }
+
+                foreach (Part sub in p.SubParts)
+                {
+                    if (ReferenceEquals(sub, part))
+                    {
+                        return vehicle;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
 }
