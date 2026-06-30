@@ -127,6 +127,54 @@ public sealed class LayoutManager
         return new LayoutApplyResult(created.Count, skipped);
     }
 
+    /// <summary>
+    /// Tears down every terminal a previously-applied layout created and is still live.
+    /// Terminals the user already closed/destroyed are skipped (no double-teardown).
+    /// In-world instances go through the manager's safe deferred GPU teardown; 2D windows
+    /// are closed immediately. Returns how many terminals were actually torn down.
+    /// </summary>
+    public int TeardownSet(string layoutName)
+    {
+        if (!_loaded.TryGetValue(layoutName, out var terminals))
+        {
+            return 0;
+        }
+
+        int removed = 0;
+        foreach (var terminal in terminals)
+        {
+            // Skip anything the user already closed (it unregistered itself).
+            if (!TerminalTargetRegistry.All.Contains(terminal))
+            {
+                continue;
+            }
+
+            switch (terminal)
+            {
+                case TerminalWindow window:
+                    _controller.CloseWindow(window);
+                    removed++;
+                    break;
+                case InWorldTerminalInstance instance:
+                    _inWorld?.Remove(instance);
+                    removed++;
+                    break;
+            }
+        }
+
+        _loaded.Remove(layoutName);
+        return removed;
+    }
+
+    /// <summary>Tears down every currently-loaded layout set.</summary>
+    public void TeardownAllLoaded()
+    {
+        foreach (var name in _loaded.Keys.ToList())
+        {
+            TeardownSet(name);
+        }
+    }
+
     private static InWorldTerminalRecord ToInWorldRecord(TerminalEntry e, string name) => new()
     {
         Name = name,
