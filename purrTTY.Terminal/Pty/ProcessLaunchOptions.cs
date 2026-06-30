@@ -90,6 +90,14 @@ public class ProcessLaunchOptions
     public int InitialHeight { get; set; } = 24;
 
     /// <summary>
+    ///     Optional command typed into the shell (as stdin, followed by a newline) once it
+    ///     has started — used to auto-launch a TUI/program on connect. Works for every shell
+    ///     type, including the gatOS SSH custom shell, because the interactive login PTY is
+    ///     already up with its env and size. Null/empty means nothing is sent.
+    /// </summary>
+    public string? StartupCommand { get; set; }
+
+    /// <summary>
     ///     Creates a copy with independent argument/environment collections.
     ///     Session managers clone before stamping per-session dimensions so a
     ///     shared default (or caller-cached) instance is never mutated.
@@ -104,6 +112,7 @@ public class ProcessLaunchOptions
         EnvironmentVariables = new Dictionary<string, string>(EnvironmentVariables),
         InitialWidth = InitialWidth,
         InitialHeight = InitialHeight,
+        StartupCommand = StartupCommand,
     };
 
     /// <summary>

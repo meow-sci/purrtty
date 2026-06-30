@@ -90,6 +90,40 @@ public sealed class TerminalSessionWiringTests
     }
 
     [Test]
+    public async Task StartupCommand_IsTypedToPty_AfterStart()
+    {
+        var (session, pty) = NewSession();
+        using (session)
+        {
+            var options = ProcessLaunchOptions.CreateDefault();
+            options.StartupCommand = "echo hi";
+            await session.InitializeAsync(options);
+
+            // Written to the PTY as stdin with a trailing newline once the shell started.
+            Assert.That(Encoding.UTF8.GetString(pty.Written.ToArray()), Is.EqualTo("echo hi\n"));
+        }
+    }
+
+    [Test]
+    public async Task StartupCommand_Null_WritesNothing()
+    {
+        var (session, pty) = NewSession();
+        using (session)
+        {
+            await session.InitializeAsync(ProcessLaunchOptions.CreateDefault()); // no StartupCommand
+            Assert.That(pty.Written, Is.Empty);
+        }
+    }
+
+    [Test]
+    public void Clone_CopiesStartupCommand()
+    {
+        var options = ProcessLaunchOptions.CreateDefault();
+        options.StartupCommand = "run-me";
+        Assert.That(options.Clone().StartupCommand, Is.EqualTo("run-me"));
+    }
+
+    [Test]
     public async Task ProcessExit_RaisesSessionEvent()
     {
         var (session, pty) = NewSession();

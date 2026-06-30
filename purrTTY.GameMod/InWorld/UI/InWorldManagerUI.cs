@@ -26,6 +26,7 @@ public sealed class InWorldManagerUI
     private readonly InWorldTerminalManager _manager;
 
     private readonly ImInputString _nameInput = new(64);
+    private readonly ImInputString _startupCommandInput = new(512);
     private readonly ImInputString _shellFilter = new(64);
     private readonly ImInputString _themeFilter = new(64);
     private readonly ImInputString _vehicleFilter = new(64);
@@ -181,6 +182,10 @@ public sealed class InWorldManagerUI
             {
                 _draftShell = shells[shellIdx];
             }
+
+            // Optional command auto-run as stdin once the shell starts (e.g. a gatOS flight-computer TUI).
+            ImGuiWidgets.FormRow("Startup command");
+            ImGui.InputText("##iw_startup", _startupCommandInput, ImGuiInputTextFlags.None);
 
             ImGuiWidgets.FormRow("Columns");
             ImGui.DragInt("##iw_cols", ref _draftCols, 0.5f, 8, 400, "%d");
@@ -366,6 +371,16 @@ public sealed class InWorldManagerUI
 
     private void CreateFromDraft(string name)
     {
+        // Attach an optional startup command to the chosen shell (or the default shell when
+        // none was picked). Clone so the per-frame shell-list instance is never mutated.
+        var launch = _draftShell?.Options;
+        string startupCommand = _startupCommandInput.ToString().Trim();
+        if (!string.IsNullOrEmpty(startupCommand))
+        {
+            launch = (launch ?? ProcessLaunchOptions.CreateDefault()).Clone();
+            launch.StartupCommand = startupCommand;
+        }
+
         var record = new InWorldTerminalRecord
         {
             Name = name,
@@ -375,7 +390,7 @@ public sealed class InWorldManagerUI
             TargetVehicleId = _draftVehicleId,
             TargetPartId = _draftPartId,
             TargetSubPartId = _draftSubPartId,
-            Launch = _draftShell?.Options,
+            Launch = launch,
             ThemeName = _draftThemeName,
         };
 
@@ -386,6 +401,7 @@ public sealed class InWorldManagerUI
         }
 
         _nameInput.Clear();
+        _startupCommandInput.Clear();
         _draftShell = null;
         _draftThemeName = null;
         _draftVehicleId = "";

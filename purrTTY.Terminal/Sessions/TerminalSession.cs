@@ -88,6 +88,19 @@ public sealed class TerminalSession : IDisposable
         try
         {
             await ProcessManager.StartAsync(launchOptions, cancellationToken);
+
+            // Auto-run command: type it as stdin once the shell is up. The PTY line
+            // discipline buffers the bytes until the shell reads them, so no readiness
+            // wait/sleep is needed; for a remote (gatOS) shell the interactive login PTY
+            // is already established with its env. Newline-terminated so it executes.
+            if (!string.IsNullOrEmpty(launchOptions.StartupCommand))
+            {
+                ProcessManager.Write(
+                    launchOptions.StartupCommand.EndsWith('\n')
+                        ? launchOptions.StartupCommand
+                        : launchOptions.StartupCommand + "\n");
+            }
+
             ChangeState(SessionState.Active);
             LastActiveAt = DateTime.UtcNow;
         }
