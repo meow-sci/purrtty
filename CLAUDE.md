@@ -52,6 +52,29 @@ purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; Sta
 > `purrTTY.Terminal/Pty/` (its types keep the `purrTTY.Core.Terminal` namespace, which is shared
 > with `CustomShellContract`). There is no longer a `purrTTY.Core` project.
 
+### Named terminals, per-target theming, and N in-world terminals
+
+Every terminal — a 2D `TerminalWindow` **or** an in-world render-to-texture instance — is an
+`INamedTerminal` (`purrTTY.Display/Ghostty/TerminalTargetRegistry.cs`) with a unique, case-insensitive
+name in one process-wide `TerminalTargetRegistry`. Names are how the UI addresses terminals:
+
+- **Theme dialog** (`purrTTY.GameMod/UI/ThemeDialog.cs`, menu **"Theme…"**) — a filtering target
+  picker (defaulting to the focused terminal) selects which terminal each appearance edit applies to.
+  A theme is a **complete bundle** (`ThemeDefinition`): palette + font family/size + the three
+  opacities + cursor/border/lock/hot-zone. This replaced the old scattered theme/font/opacity menus.
+- **In-world manager** (`purrTTY.GameMod/InWorld/UI/InWorldManagerUI.cs`, menu **"In-World
+  Terminals…"**) — creates/lists/configures **N** independent in-world terminals, each with a name,
+  shell, fixed cols×rows, anchor (vehicle Part/SubPart or camera billboard), and theme.
+
+The in-world subsystem is a **thin coordinator + per-instance objects**: `InWorldTerminalManager`
+(coordinator; owns `List<InWorldTerminalInstance>`, focus arbitration, the deferred-teardown queue,
+and the render-postfix statics `Active`/`Instance`/`IsInputFocused`) over `InWorldTerminalInstance`
+(one off-screen GPU graph + dedicated shell + world-space quad each). The identical GPU state
+(pipelines/layout/geometry) is hoisted into one shared `SharedQuadResource`. In-world terminals are
+**session-only** — created fresh via the dialog, never persisted (no `purrtty-inworld.toml`). See the
+in-world lifecycle gotchas in [docs/gotchas.md](docs/gotchas.md) (deferred GPU teardown mid-session
+vs. no-device-touch at shutdown).
+
 ## Build and Test Commands
 
 ```bash
@@ -77,9 +100,9 @@ Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sl
 | File | Contents |
 |------|----------|
 | [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
-| [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells |
-| [docs/gotchas.md](docs/gotchas.md) | 23 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, etc.) |
-| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, deploy |
+| [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem |
+| [docs/gotchas.md](docs/gotchas.md) | 27 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, etc.) |
+| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, deploy |
 
 Other reference:
 - Solution: `purrtty.slnx`

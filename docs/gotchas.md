@@ -286,3 +286,45 @@
     (logged once), so a missing texture just means that image doesn't draw — never a crash. Known
     gaps (`KITTY_PLAN.md`): virtual Unicode-placeholder placements (Phase 2) and same-id
     re-transmit / animation + pixel-exact non-cell sizing + source-rect crop (Phase 3).
+
+24. **`FilterCombo`/required-name fields must `EvaluateLength()` every frame.** The BRUTAL
+    `ImInputString` only refreshes its `.Length` on a **true** `InputText` return, so a live read of
+    the typed text reads empty while the user types unless you (a) do **not** pass `EnterReturnsTrue`
+    **and** (b) call `filter.EvaluateLength()` each frame before `.ToString()`. `ImGuiWidgets.FilterCombo`
+    (`purrTTY.GameMod/UI/ImGuiWidgets.cs`) does both; the in-world manager's name field and the theme
+    dialog's rename/save fields follow the same rule. Skip it and the filter never narrows / the name
+    validation never sees the typed text. Memory `iminputstring-enterreturns-true`. Selectable rows are
+    id-disambiguated with `##{index}` so duplicate labels (parts sharing a template id) never collide.
+
+25. **Closing an in-world terminal: detach synchronously, free the GPU two frames later.** The render
+    postfix (`RenderMainPassPatch`) records each live instance's quad into the game's scene command
+    buffer **on the same main thread** that drives the coordinator. So `InWorldTerminalManager.Remove`
+    must, in order: remove the instance from `_instances` (the postfix stops drawing it at once),
+    unregister it from the target registry, clear focus if it was focused, then **defer** the GPU free
+    onto `_pendingTeardown` (`TeardownDelayFrames = 2`). Freeing immediately is a use-after-free
+    (`VK_ERROR_DEVICE_LOST`) — the scene command buffer recorded that frame still references the quad's
+    descriptor set + sampled image. `ProcessPendingTeardown` (start of `OnAfterGui`) counts the delay
+    down, then does a device `WaitIdle()` (the recording frame has completed) before
+    `instance.Dispose()`. `Active` is re-derived (cleared only when the list empties), so an in-flight
+    postfix never touches freed handles. A grid/font/shell change is a **`Recreate`** (Remove + Create
+    preserving name + focus) — there is no in-place texture resize (`TrySetGridSize` returns false), so
+    a resize routes through this same deferred-free path; the shell restarts.
+
+26. **Shutdown is the opposite rule: never touch the Vulkan device.** The mod only unloads at game
+    shutdown, by which point the game has already destroyed the Vulkan device. Calling `WaitIdle` /
+    `Destroy*` on it faults with an `AccessViolationException` — a **corrupted-state exception that
+    managed try/catch cannot trap**. So the coordinator's `Dispose` and `InWorldTerminalInstance.Dispose(freeGpu: false)`
+    skip every GPU free (the process is exiting; the driver/OS reclaims the VRAM) and only close each
+    shell session (device-free) to avoid orphaned child processes. The mid-session Close/resize path
+    (gotcha 25) keeps its `WaitIdle` — the device is alive there. Do **not** "fix" the shutdown by
+    wrapping the device calls in try/catch; an AVE is uncatchable and the only correct move is not to
+    make the call.
+
+27. **Each in-world instance is one extra off-screen pass + queue submit per frame.** Every
+    `InWorldTerminalInstance` owns its own `OffscreenRenderTarget` (~4 MB color at 1024²),
+    `PerFrameRenderer` (its own command pool/buffers/fences and **one extra queue submit** on the
+    shared graphics queue), and shell session. Only the identical quad state (pipelines/layout/vertex
+    input/unit-quad VB-IB) is shared via `SharedQuadResource`. Bound N sensibly in the manager UI;
+    don't silently allow dozens. The off-screen target is **`R8G8B8A8Unorm`, not SRGB**: `UnlitMesh.frag`
+    applies `gammaToLinear()` to the sampled texel and expects gamma-encoded bytes — an SRGB target
+    double-decodes and renders the in-world terminal noticeably dark.

@@ -1,8 +1,16 @@
 # TERMINAL_MANAGEMENT_REFACTOR_PLAN — Named terminals, per-target theming, and N in-world instances
 
-> Status: **PLAN** (not yet implemented). Phase-by-phase, each phase builds clean + is
-> in-game testable before proceeding, matching the cadence of
+> Status: **COMPLETE** (Phases 0–9 implemented, in-game tested, and documented). Phase-by-phase,
+> each phase built clean + was in-game testable before proceeding, matching the cadence of
 > [GAME_SPACE_QUAD_PLAN.md](GAME_SPACE_QUAD_PLAN.md).
+>
+> Deviations from the plan as written: the in-world singleton kept the name
+> `InWorldTerminalManager` (the plan proposed `InWorldTerminalCoordinator`) to reduce churn — it is
+> the thin-coordinator role regardless; its statics are `Active`/`Instance`/`IsInputFocused`
+> (rather than `HasDrawableInstances`/`FocusedId`/`IsAnyInputFocused`). In-world grid/font/shell
+> changes are a `Recreate` (Remove + Create, deferred GPU free) rather than an in-place
+> `TrySetGridSize` (which returns false). See [../docs/gotchas.md](../docs/gotchas.md) gotchas 24–27
+> and [../CLAUDE.md](../CLAUDE.md) for the as-built behavior.
 
 ## 0. Goal & scope (what we are building)
 
@@ -464,6 +472,8 @@ No new files. No migrations (in-world persistence is dropped, not migrated).
 
 > Cadence matches the prior feature: implement a phase, `dotnet build purrtty.slnx` +
 > `dotnet test`, then the user tests in-game before the next phase.
+>
+> **All phases below (0–9) are ✅ done, in-game tested, and documented.**
 
 - **Phase 0 — Theme bundle is complete.** Make `SnapshotAsTheme` capture font + all opacities +
   cursor/border/lock; ensure apply sets every non-null field; verify `ThemeTomlFormat` round-trips

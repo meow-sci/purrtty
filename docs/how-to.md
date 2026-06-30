@@ -27,6 +27,30 @@ at mod init — registration probe-instantiates and disposes one instance, so th
 be trivial and Dispose safe on a never-started instance — and the shell appears in the New Tab /
 New Window menus automatically (live registry enumeration, no purrTTY change needed).
 
+## Theming a specific terminal (the Theme dialog)
+- Open via the **"Theme…"** menu item (`ThemeDialog`, `purrTTY.GameMod/UI/ThemeDialog.cs`).
+- The **target picker** (a `FilterCombo` over `TerminalTargetRegistry.All`, defaulting to the focused
+  terminal) chooses which terminal — 2D window **or** in-world instance — every edit below applies to.
+- A theme is the whole appearance **bundle** (`ThemeDefinition`): palette + font family/size + the
+  three opacities + cursor/border/lock/hot-zone. "Save Current As…" snapshots the full bundle into a
+  user theme TOML; applying a palette/font/opacity edit calls `target.ApplyTheme(...)`.
+- 2D edits also persist as the new-window defaults (via the controller); in-world edits are live-only
+  (session). To add appearance state to the bundle, extend `ThemeDefinition` + `ThemeTomlFormat` and
+  set it in `TerminalWindow.SnapshotAsTheme`/`ApplyThemeOverrides`.
+
+## Creating an in-world (render-to-texture) terminal
+- Open via **"In-World Terminals…"** (`InWorldManagerUI`, `purrTTY.GameMod/InWorld/UI/InWorldManagerUI.cs`).
+- Create form: a unique **name**, a **shell** (`FilterCombo` over `ShellMenuCache.Current` +
+  `CustomShellRegistry` — every registered shell appears automatically), fixed **cols×rows**, an
+  **anchor mode** (radio): *Vehicle Part* (tiered Vehicle→Part→optional SubPart pickers, resolved by
+  `VehicleLookup`) or *Camera Billboard*, and a **theme**. Create → `InWorldTerminalManager.Create(record)`
+  builds the GPU graph + shell and registers the instance in the target registry.
+- Instances are **session-only** (never persisted). They are listed with per-instance focus /
+  configure / red **Destroy**; configuring lets you live-edit theme + placement and recreate-resize the
+  grid. Set `PURRTTY_INWORLD=1` to auto-create one default instance on load (dev convenience).
+- Lifecycle rules when extending this: respect the deferred GPU teardown (gotcha 25), the
+  no-device-touch-at-shutdown rule (gotcha 26), and the per-instance cost (gotcha 27).
+
 ## Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.
    `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed
