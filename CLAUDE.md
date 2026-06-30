@@ -65,15 +65,23 @@ name in one process-wide `TerminalTargetRegistry`. Names are how the UI addresse
 - **In-world manager** (`purrTTY.GameMod/InWorld/UI/InWorldManagerUI.cs`, menu **"In-World
   Terminals…"**) — creates/lists/configures **N** independent in-world terminals, each with a name,
   shell, fixed cols×rows, anchor (vehicle Part/SubPart or camera billboard), and theme.
+- **Layouts manager** (`purrTTY.GameMod/Layouts/UI/LayoutManagerUI.cs`, menu **"Layouts…"**) —
+  saves/loads/edits/tears-down named **sets** of terminals (2D **and** in-world) as TOML files in
+  `<config>/.purrTTY/layouts/`. Apply is **always user-initiated** (no auto-apply on game start); a
+  terminal whose name collides with a live one is logged and skipped. Each terminal may carry a
+  **startup command** (`ProcessLaunchOptions.StartupCommand`) typed into its shell on start — e.g. a
+  gatOS flight-computer TUI. The data model + catalog live in `purrTTY.Display/Layouts/`; the
+  orchestrator (`LayoutManager`) + dialog live in `purrTTY.GameMod/Layouts/`.
 
 The in-world subsystem is a **thin coordinator + per-instance objects**: `InWorldTerminalManager`
 (coordinator; owns `List<InWorldTerminalInstance>`, focus arbitration, the deferred-teardown queue,
 and the render-postfix statics `Active`/`Instance`/`IsInputFocused`) over `InWorldTerminalInstance`
 (one off-screen GPU graph + dedicated shell + world-space quad each). The identical GPU state
 (pipelines/layout/geometry) is hoisted into one shared `SharedQuadResource`. In-world terminals are
-**session-only** — created fresh via the dialog, never persisted (no `purrtty-inworld.toml`). See the
-in-world lifecycle gotchas in [docs/gotchas.md](docs/gotchas.md) (deferred GPU teardown mid-session
-vs. no-device-touch at shutdown).
+**session-only** — created fresh via the dialog, never persisted as singletons (no `purrtty-inworld.toml`)
+— though a **set** of terminals (2D and in-world) can be saved as a named **layout** and re-created
+later via the Layouts manager (above). See the in-world lifecycle gotchas in
+[docs/gotchas.md](docs/gotchas.md) (deferred GPU teardown mid-session vs. no-device-touch at shutdown).
 
 In-world quads honor the theme's **three opacities** (faithful per-pixel transparency over the 3D
 scene, like a 2D window): the off-screen target clears transparent, the background rect carries
@@ -106,9 +114,9 @@ Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sl
 | File | Contents |
 |------|----------|
 | [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
-| [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem |
-| [docs/gotchas.md](docs/gotchas.md) | 28 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, etc.) |
-| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, deploy |
+| [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem, layouts |
+| [docs/gotchas.md](docs/gotchas.md) | 30 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, etc.) |
+| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, deploy |
 
 Other reference:
 - Solution: `purrtty.slnx`

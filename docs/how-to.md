@@ -64,6 +64,34 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
   premultiplied-alpha frag composites the result over the scene. To change/extend the compositing,
   read **gotcha 28** first — straight-alpha or skipping the un-premultiply both regress it.
 
+## Saving, loading, and editing a terminal layout (a set)
+- Open via the **"Layouts…"** menu item (`LayoutManagerUI`, `purrTTY.GameMod/Layouts/UI/LayoutManagerUI.cs`).
+- **Save current as…** names the live terminals (2D windows + in-world instances) and writes one TOML
+  file to `<config>/.purrTTY/layouts/<name>.toml`. Appearance is captured **by theme name** — custom
+  colours/opacities persist only if first saved as a named theme (the Theme dialog).
+- **Load** re-creates the whole set; a terminal whose name collides with a live one is **logged and
+  skipped** (the rest still load — the banner shows "loaded N / skipped M"). **Tear down** removes a
+  loaded set as a unit; **Delete** removes the file.
+- **Edit** a saved layout: rename the layout, and per terminal rename / retheme / set the **startup
+  command** / grid + anchor ids (in-world) or window geometry, or remove it. Editing changes only the
+  saved file — live terminals are untouched until the layout is loaded again. Fine in-world placement
+  (offset/rotation/size) is best tuned live in "In-World Terminals…", then re-saved.
+- Data model + catalog: `purrTTY.Display/Layouts/` (`TerminalLayout`/`TerminalEntry`/`ShellSpec`,
+  `LayoutCatalog`, `LayoutTomlFormat`). Orchestrator: `purrTTY.GameMod/Layouts/LayoutManager.cs`
+  (`Apply`/`CaptureCurrentAs`/`TeardownSet`). There is **no auto-apply** — applying is always a user
+  action. See gotchas 29–30 and `plans/TERM_MANAGER_PLAN.md`.
+
+## Auto-running a command when a terminal starts
+- Set a per-terminal **startup command** (`ProcessLaunchOptions.StartupCommand`). It is written to the
+  shell as stdin (newline-terminated) right after the shell starts (`TerminalSession.InitializeAsync`).
+  Works for every shell type, including the gatOS SSH custom shell, because the interactive login PTY
+  is already up with its env (no SSH exec channel needed; no fixed sleep — the PTY line discipline
+  buffers it until the shell reads it).
+- Set it in the **In-World** create form ("Startup command" field) or per terminal in a saved layout
+  (the Layouts editor / `startup_command` in the TOML). gatOS recipes:
+  `cd /root/land-o-matic && cargo run --release` (landing-guidance TUI),
+  `watch -n 0.2 cat /sim/vessels/active/telemetry` (zero-build telemetry).
+
 ## Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.
    `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed

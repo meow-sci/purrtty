@@ -350,3 +350,29 @@
     opaque `BlendNone` quad. The blended part-mode pipeline depth-**tests** but does **not write**
     (`ReverseZDepthStencil.DepthTestNoWrite`) so translucent fragments don't occlude each other via the
     depth buffer.
+
+29. **Saved layouts are an opt-in set on top of session-only terminals.** A *layout* is a named set of
+    terminals (2D windows **and** in-world instances) persisted as one TOML file in
+    `<config>/.purrTTY/layouts/` (`LayoutCatalog`/`LayoutTomlFormat` in `purrTTY.Display/Layouts/`);
+    the orchestrator `LayoutManager` + the "Layouts…" dialog live in `purrTTY.GameMod/Layouts/`. Rules
+    that must not regress: **apply is always user-initiated** — no auto-apply on game start, no default
+    layout, no env gate; on apply a terminal whose name collides with a live one is **logged and
+    skipped** (`TerminalTargetRegistry.IsNameAvailable` pre-check) and the rest still load;
+    `LayoutManager.Apply` is pumped from `TerminalMod.OnAfterUi` because in-world `Create` needs an
+    active ImGui frame; **2D windows persist position+size only** (cols/rows + font are derived live),
+    while in-world entries persist cols/rows (texture extent) + anchor; and in-world anchor identity is
+    **best-effort** — only `Vehicle.Id` is reliably stable across restart, `Part.Id`/`SubPart.Id`
+    resolve "first match" (plans/TERM_MANAGER_PLAN.md §3.5). Teardown of a set uses the same safe paths
+    (`controller.CloseWindow` / the in-world deferred GPU free).
+
+30. **The layout persistence layer stays dependency-light: no Tomlyn POCO serializer, no `ModLog`.**
+    `LayoutTomlFormat` parses to the Tomlyn **DOM** on load and **hand-emits** the TOML text on save,
+    and `LayoutCatalog`/`LayoutTomlFormat` do **not** call `ModLog`. Both Tomlyn's reflection-based
+    POCO (de)serializer **and** Brutal.Logging's interpolated `LogString` handler pull
+    `Microsoft.Extensions.ObjectPool` (assembly v11) from the host runtime — present in the running
+    game but **absent from the reference-assembly set used by tests/CI**, where either throws
+    `FileNotFoundException` at first use. So the Display-side leaf layer is kept free of both (DOM +
+    hand-emit, silent graceful failure); user-facing logging lives in the GameMod `LayoutManager`
+    (in-game only). Don't reintroduce `TomlSerializer.Serialize(poco)` or `ModLog.Log.*` into
+    `purrTTY.Display/Layouts/` — the layout round-trip tests in `purrTTY.Display.Tests` would then fail
+    to load ObjectPool.

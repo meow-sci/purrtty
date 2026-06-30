@@ -37,6 +37,7 @@ Start here:
 - Two real-PTY backends behind `IProcessManager.cs`, selected per-OS by `TerminalSessionFactory`: ConPTY on Windows (`ProcessManager.cs` + `Process/ConPty*` etc.) and POSIX pty on Linux/macOS (`UnixProcessManager.cs` + `Process/UnixPtyNative.cs` / `UnixPtySpawner.cs` / `UnixPtyOutputPump.cs`) — see gotcha 16. Both share one start semantic: start failure = resolve/spawn/attach failure; a shell that spawns and dies promptly reports **once**, via `ProcessExited` with its real exit code. The shared teardown disciplines (cancel-outside-lock CTS handling, bounded never-throwing pump waits, join-before-dispose writer shutdown) live in `Process/PtyTeardown.cs`; the resource-close policies stay per-OS.
 - Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommandLine` (quoted CreateProcess command line, ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec); never join-then-split — Windows args are quoted per CommandLineToArgvW rules (`AppendQuotedArgument`), Unix args stay discrete. `Custom` takes a path or a bare executable name — a bare name (no directory component) resolves via PATH like every other shell type. `Auto` on Unix = `$SHELL`, then zsh/bash/sh from PATH; `Auto` on Windows offers WSL only when `WslDistributionDetector` finds ≥1 distro, then PowerShell, then cmd. `Auto` is also the config **default and unparsable-value fallback** (`ThemeConfiguration`) — the only shell type valid on every platform.
 - Input queue: `Process/PtyInputQueue.cs` — bounded queue + dedicated writer thread used by both managers (gotcha 20).
+- Auto-run on start: `ProcessLaunchOptions.StartupCommand` is written to the shell as stdin (newline-terminated) right after `ProcessManager.StartAsync` in `Sessions/TerminalSession.InitializeAsync` — works for every shell type incl. the gatOS SSH custom shell (no exec channel, no sleep; PTY line discipline buffers it). Carried on the shared launch spec, so both 2D windows and in-world terminals use it.
 - Shell detection for menus: `ShellAvailabilityChecker.cs` (`IsShellAvailable` cached per shell type; availability is defined as **resolvability** — it delegates to `ShellCommandResolver`, so the menus can never offer a shell the launch would reject), `WslDistributionDetector.cs` (Windows; `wsl --list --quiet` with a bounded 15s wait + kill, output read bounded too), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`, deduped by executable name, default marked) — all cached for the **process lifetime** (no expiry; shell installs do not change mid-game) and deliberately free of game-logging dependencies so they work from the test host; caching contract pinned by `ShellDetectionCachingTests`
 - Custom-shell adapter: `CustomShellPtyBridge.cs` (its `StartAsync` triggers the shell's `SendInitialOutput` — banner/prompt parity with a real shell's spawn output — and swaps in a fresh per-run exit-code source, since `GameConsoleShell` raises `Terminated` from its stop hook and a reused completed source made a stop→restart cycle look already-terminated); launch options: `ProcessLaunchOptions.cs`
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
@@ -58,6 +59,28 @@ Render-to-texture terminals drawn on world-space quads (a part anchor that depth
 - Vehicle/part resolution: `VehicleLookup.cs` — enumerates `Universe.CurrentSystem` vehicles and resolves a `TargetVehicleId` (empty = controlled vehicle); the quad resolves the top-level part then an optional sub-part within it.
 - Render injection: `Patches/RenderMainPassPatch.cs` — Harmony **postfix** on `SuperMeshRenderSystem.RenderMainPass` (optional patch); appends each live instance's quad draw to the scene command buffer inside the begun render pass so the quads depth-test against the opaque scene. Guards on `Active`; a per-instance draw failure retires only that instance.
 - Manager dialog: `UI/InWorldManagerUI.cs` — non-modal, movable window (menu **"In-World Terminals…"**): instance list (focus/configure/red **Destroy**), a create form (name + shell `FilterCombo` + cols/rows + radio-button anchor mode + tiered Vehicle→Part→SubPart pickers + theme), and a configure form (live theme/placement + a recreate-based grid resize).
+
+## Layouts — saved sets (`purrTTY.Display/Layouts/` + `purrTTY.GameMod/Layouts/`)
+
+Named **sets** of terminals (2D windows **and** in-world instances) saved as one TOML file per layout
+in `<config>/.purrTTY/layouts/`. Opt-in persistence on top of the session-only terminals; **applied
+only when the user loads them** (no auto-apply).
+
+- Data + catalog (in `purrTTY.Display`, so the pure-logic tests cover them and reuse the in-assembly
+  `AtomicFile`): `Layouts/LayoutDefinition.cs` (`TerminalLayout` → `LayoutHeader` + `TerminalEntry[]`;
+  kind-specific placement fields are nullable so a window entry never carries in-world fields and
+  vice-versa — 2D persists pos+size px only, in-world persists cols/rows + anchor + transform),
+  `Layouts/ShellSpec.cs` (serialisable shell + `StartupCommand`, with `ToLaunchOptions`/`From`),
+  `Layouts/LayoutCatalog.cs` (All/Load/Save/Delete/Rename), `Layouts/LayoutTomlFormat.cs` (DOM parse +
+  **hand-emitted** save — gotcha 30). Round-trip tests in `purrTTY.Display.Tests/LayoutTomlTests.cs`.
+- Orchestrator + UI (in `purrTTY.GameMod`, the only layer that sees both worlds):
+  `Layouts/LayoutManager.cs` (`Apply` with name-collision skip + per-set tracking, `CaptureCurrentAs`,
+  `TeardownSet`/`TeardownAllLoaded`, and the `TerminalEntry`↔record mappers) and
+  `Layouts/UI/LayoutManagerUI.cs` (the **"Layouts…"** dialog: list/load/teardown/delete, save-current,
+  and the per-layout editor). Wired in `TerminalMod` (built after both coordinators; pumped in
+  `OnAfterUi`). The 2D side uses `GhosttyTerminalController.CreateConfiguredWindow` / `CaptureWindows` /
+  `CloseWindow` + the `WindowLayoutRecord`; the in-world side reuses `InWorldTerminalManager.Create` /
+  `Remove` + the `InWorldTerminalRecord`.
 
 ## Shared in-game UI widgets (`purrTTY.GameMod/UI/`)
 

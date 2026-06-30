@@ -1,7 +1,17 @@
 # Terminal Layout Manager Plan (saved sets of in-world + 2D terminals)
 
-> Status: PROPOSED. Author target: `purrTTY.GameMod` (new `Layouts/` subsystem) + small,
-> well-contained additions to `purrTTY.Display` and `purrTTY.Terminal`.
+> Status: **IMPLEMENTED** (P1–P7, all phases committed). Author target: a `Layouts/` subsystem + small
+> additions across `purrTTY.Terminal`, `purrTTY.Display`, and `purrTTY.GameMod`.
+>
+> **As-built deviations from this design:** the data model + catalog live in **`purrTTY.Display/Layouts/`**
+> (not GameMod) so the pure-logic test project covers them and reuses the in-assembly `AtomicFile` —
+> so `AtomicFile` was **not** made public. `LayoutTomlFormat` parses via the Tomlyn DOM and **hand-emits**
+> TOML on save, and the leaf layer avoids `ModLog`, because both Tomlyn's POCO serializer and
+> Brutal.Logging pull `Microsoft.Extensions.ObjectPool` v11 — absent in the test/CI reference set
+> (gotcha 30). The on-disk schema uses **discrete scalar fields** (`pos_x`, `offset_x`, …) rather than
+> arrays, and each terminal carries a **single shell** (multi-tab capture deferred). The editor (R8)
+> covers rename / theme / startup command / grid / anchor ids / window geometry / remove; fine in-world
+> placement is tuned live then re-captured.
 >
 > This plan adds a way to **save, restore, and tear down named *sets* of terminals** — both
 > in-world (3D render-to-texture) **and** 2D ImGui windows — with all of their settings (anchor,
