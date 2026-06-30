@@ -1,5 +1,6 @@
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
+using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Rendering;
@@ -68,20 +69,25 @@ public sealed class InWorldTerminalRenderer : IDisposable
     private int _appMouseRow = -1;
     private readonly bool[] _appMousePressSent = new bool[3];
 
+    private readonly ProcessLaunchOptions? _launch;
     private bool _disposed;
 
-    public InWorldTerminalRenderer(ThemeConfiguration config, ThemeCatalog catalog)
+    public InWorldTerminalRenderer(
+        ThemeConfiguration config, ThemeCatalog catalog,
+        ProcessLaunchOptions? launch = null, string? themeName = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(catalog);
 
-        _settings = BuildSettings(config, catalog);
+        _launch = launch;
+        _settings = BuildSettings(config, catalog, themeName);
         _engineTheme = _settings.Colors.ToEngineTheme();
         _selectionColor = _settings.Colors.SelectionBackground.WithAlpha(0xAA);
 
         // A dedicated session manager with one shell. Pass the controller's
-        // already-loaded ThemeConfiguration so the default launch options (shell
-        // type, grid dims) match the rest of the mod.
+        // already-loaded ThemeConfiguration so the default launch options (grid
+        // dims, prompt env) match the rest of the mod; the per-instance shell
+        // override (if any) is supplied to CreateSessionAsync.
         _sessions = GhosttySessionManagerFactory.CreateSessionManager(config);
         // Pre-publication hook: theme/cursor are pushed before the session becomes
         // visible to the tick thread, so the native calls can never race BuildFrame
@@ -214,7 +220,7 @@ public sealed class InWorldTerminalRenderer : IDisposable
         {
             try
             {
-                await _sessions.CreateSessionAsync(null, null);
+                await _sessions.CreateSessionAsync(null, _launch);
             }
             catch (Exception ex)
             {
@@ -230,9 +236,33 @@ public sealed class InWorldTerminalRenderer : IDisposable
         session.Surface.SetCursorStyle(_settings.CursorStyle, _settings.CursorBlink);
     }
 
-    private static TerminalWindowSettings BuildSettings(ThemeConfiguration config, ThemeCatalog catalog)
+    /// <summary>
+    ///     Re-applies a complete theme bundle (colors + font + opacity + cursor) to
+    ///     this live in-world terminal: rebuilds the engine palette and pushes it to
+    ///     the session. A font-<i>size</i> change reflows the grid within the fixed
+    ///     off-screen texture (a true texture resize is a later phase). Tick thread.
+    /// </summary>
+    public void ApplyTheme(ThemeDefinition theme)
     {
-        var theme = catalog.Find(config.SelectedThemeName) ?? catalog.Default;
+        if (_disposed)
+        {
+            return;
+        }
+
+        _settings.ThemeName = theme.Name;
+        _settings.Colors = theme.Colors.Clone();
+        _settings.ApplyThemeOverrides(theme);
+        _engineTheme = _settings.Colors.ToEngineTheme();
+        _selectionColor = _settings.Colors.SelectionBackground.WithAlpha(0xAA);
+
+        var session = _sessions.ActiveSession;
+        session?.Surface.SetTheme(_engineTheme);
+        session?.Surface.SetCursorStyle(_settings.CursorStyle, _settings.CursorBlink);
+    }
+
+    private static TerminalWindowSettings BuildSettings(ThemeConfiguration config, ThemeCatalog catalog, string? themeName = null)
+    {
+        var theme = catalog.Find(themeName) ?? catalog.Find(config.SelectedThemeName) ?? catalog.Default;
         var settings = new TerminalWindowSettings
         {
             ThemeName = theme.Name,
@@ -301,9 +331,9 @@ public sealed class InWorldTerminalRenderer : IDisposable
     ///     rows×Height) at build time. Must be called with an ImGui frame active (the
     ///     in-world manager builds instances from <c>OnAfterGui</c>).
     /// </summary>
-    public static (float Width, float Height) MeasureCell(ThemeConfiguration config, ThemeCatalog catalog)
+    public static (float Width, float Height) MeasureCell(ThemeConfiguration config, ThemeCatalog catalog, string? themeName = null)
     {
-        var settings = BuildSettings(config, catalog);
+        var settings = BuildSettings(config, catalog, themeName);
         var fontConfig = PurrTTYFontManager.CreateFontConfigForFamily(settings.FontFamily);
         var regular = ResolveFontByName(fontConfig.RegularFontName) ?? ImGui.GetFont();
         return MeasureCell(regular, settings.FontSize);

@@ -12,216 +12,208 @@ using float2 = Brutal.Numerics.float2;
 namespace purrTTY.GameMod.InWorld;
 
 /// <summary>
-///     Coordinator for the in-world (render-to-texture) terminal feature: it owns a
-///     list of <see cref="InWorldTerminalInstance"/>s (each a dedicated shell rendered
-///     into an off-screen GPU texture and drawn on a world-space quad), arbitrates
-///     input focus, drives every instance's per-frame render, and exposes the static
-///     seams the render postfix + game-key gate read.
+///     Coordinator for the in-world (render-to-texture) terminal feature: it owns N
+///     <see cref="InWorldTerminalInstance"/>s (each a dedicated shell rendered into an
+///     off-screen GPU texture and drawn on a world-space quad), arbitrates which one
+///     holds input focus, drives every instance's per-frame render, and exposes the
+///     static seams the render postfix + game-key gate read.
 ///     <para>
-///         Today exactly one instance is created (the per-instance settings are still
-///         a single <see cref="InWorldSettings"/>); the list + per-instance extraction
-///         are the groundwork for N named instances. <see cref="Initialize"/> is cheap
-///         (no GPU); instances are built lazily on <see cref="Enable"/> and torn down
-///         on <see cref="Dispose"/>. <see cref="Disable"/> just stops drawing.
+///         Instances are created/removed via the <see cref="InWorldManagerUI"/> and
+///         are session-only (not persisted). A part-mode instance is focused by
+///         clicking its quad (nearest hit wins); a billboard is focused from the
+///         manager list. <see cref="Initialize"/> is cheap (no GPU); the dev gate
+///         (PURRTTY_INWORLD) auto-creates one default instance on the first frame.
 ///     </para>
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
 {
-    private readonly InWorldTerminalRecord _settings = new();
+    private readonly List<InWorldTerminalInstance> _instances = new();
     private ThemeConfiguration? _config;
     private ThemeCatalog? _catalog;
-
-    private readonly List<InWorldTerminalInstance> _instances = new();
-    private InWorldLaunchUI? _launchUI;
-    private bool _pendingEnable;
+    private InWorldManagerUI? _ui;
+    private InWorldTerminalInstance? _focused;
+    private bool _pendingDefault;
     private bool _disposed;
 
     /// <summary>
     ///     Read by the <c>SuperMeshRenderSystem.RenderMainPass</c> postfix to decide
-    ///     whether to draw any quad. Flipped on the main thread (the same thread the
-    ///     postfix runs on), so no synchronization is needed; cleared before GPU
-    ///     teardown so an in-flight postfix can't dereference freed handles.
+    ///     whether to draw any quad (true while ≥1 instance is live). Flipped on the
+    ///     main thread (the same thread the postfix runs on), so no synchronization is
+    ///     needed; cleared before GPU teardown so an in-flight postfix can't touch
+    ///     freed handles.
     /// </summary>
     public static bool Active;
-
-    /// <summary>
-    ///     Whether an in-world terminal currently owns keyboard input. Read by the
-    ///     game-key gate (Patch01) + the hotkey guard so typing at the quad never
-    ///     leaks to vehicle/camera controls. Main-thread only. (With one instance this
-    ///     is a plain bool; the N-instance refactor turns it into a focused-instance id.)
-    /// </summary>
-    public static bool IsInputFocused;
 
     /// <summary>The live coordinator the render postfix reaches the instances through.</summary>
     public static InWorldTerminalManager? Instance { get; private set; }
 
-    /// <summary>The (session-only) in-world terminal record, mutated live by the launch UI.</summary>
-    public InWorldTerminalRecord Settings => _settings;
+    /// <summary>
+    ///     Whether an in-world terminal currently owns keyboard input. Read by the
+    ///     game-key gate (Patch01) + the hotkey guard so typing at a quad never leaks
+    ///     to vehicle/camera controls. Computed from the focused instance; main-thread
+    ///     only.
+    /// </summary>
+    public static bool IsInputFocused => Instance?._focused != null;
 
-    /// <summary>True while the in-world terminal is on (drawing + rendering).</summary>
+    /// <summary>True while any in-world terminal is live.</summary>
     public bool IsActive => Active;
 
+    /// <summary>The live instances (read by the manager UI + render postfix).</summary>
+    public IReadOnlyList<InWorldTerminalInstance> Instances => _instances;
+
+    /// <summary>Shared theme config (used by the manager UI's shell/theme pickers).</summary>
+    public ThemeConfiguration? Config => _config;
+
+    /// <summary>Shared theme catalog (used by the manager UI's theme picker).</summary>
+    public ThemeCatalog? Catalog => _catalog;
+
     /// <summary>
-    ///     Stores the shared config/catalog and auto-enables when persisted on (or
-    ///     the dev gate is set). Cheap: no GPU work happens here. Call from
-    ///     <c>OnFullyLoaded</c>.
+    ///     Stores the shared config/catalog and builds the manager UI. Cheap: no GPU
+    ///     work happens here. The dev gate defers creating one default instance to the
+    ///     first <see cref="OnAfterGui"/> (building measures the font cell, which needs
+    ///     an active ImGui frame). Call from <c>OnFullyLoaded</c>.
     /// </summary>
     public void Initialize(ThemeConfiguration config, ThemeCatalog catalog)
     {
         _config = config;
         _catalog = catalog;
-        _launchUI = new InWorldLaunchUI(this);
+        _ui = new InWorldManagerUI(this);
+        Instance = this;
 
-        // Defer the dev-gate auto-enable to the first OnAfterGui frame: building an
-        // instance measures the font cell on the live ImGui frame (grid-driven
-        // texture sizing), which is not available here in OnFullyLoaded.
         if (IsDevGateEnabled())
         {
-            _pendingEnable = true;
+            _pendingDefault = true;
         }
     }
 
-    /// <summary>Menu action: toggle the in-world terminal on/off using current settings.</summary>
-    public void Toggle()
-    {
-        if (Active)
-        {
-            Disable();
-        }
-        else
-        {
-            Enable();
-        }
-    }
-
-    /// <summary>Menu action: open the launch / reconfigure popup.</summary>
-    public void OpenConfigure() => _launchUI?.RequestOpen();
-
-    /// <summary>Menu action: toggle in-world input focus (the focus path for billboard mode).</summary>
-    public void ToggleFocus()
-    {
-        if (Active)
-        {
-            IsInputFocused = !IsInputFocused;
-        }
-    }
+    /// <summary>Menu action: open the in-world terminal manager dialog.</summary>
+    public void OpenManager() => _ui?.RequestOpen();
 
     /// <summary>
-    ///     Builds the GPU resources + dedicated session + quad for the (single)
-    ///     instance and starts drawing. Idempotent. A build failure is logged and the
-    ///     feature stays off — it must never crash the game.
+    ///     Builds a new in-world terminal from <paramref name="record"/> (assigning a
+    ///     registry-unique name first) and starts drawing it. Returns the instance, or
+    ///     null on build failure (logged; never crashes the game). Call with an ImGui
+    ///     frame active.
     /// </summary>
-    public void Enable()
+    public InWorldTerminalInstance? Create(InWorldTerminalRecord record)
     {
-        if (_disposed)
+        if (_disposed || _config == null || _catalog == null)
         {
-            return;
+            return null;
         }
 
-        if (_config == null || _catalog == null)
+        record.Name = TerminalTargetRegistry.SuggestUniqueName(
+            string.IsNullOrWhiteSpace(record.Name) ? "In-World" : record.Name);
+
+        try
         {
-            ModLog.Log.Error("purrTTY in-world: Enable() called before Initialize()");
-            return;
+            var instance = new InWorldTerminalInstance(_config, _catalog, record);
+            _instances.Add(instance);
+            Active = true;
+            ModLog.Log.Debug($"purrTTY in-world: created '{record.Name}' ({record.Mode}, {record.Cols}x{record.Rows})");
+            return instance;
         }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world: create failed ({ex.Message})");
+            return null;
+        }
+    }
+
+    /// <summary>Closes one in-world terminal: stops drawing it, frees its GPU graph + shell, unregisters it.</summary>
+    public void Remove(InWorldTerminalInstance instance)
+    {
+        if (ReferenceEquals(_focused, instance))
+        {
+            _focused = null;
+        }
+
+        _instances.Remove(instance);
+        instance.Dispose();
 
         if (_instances.Count == 0)
         {
-            try
-            {
-                _instances.Add(new InWorldTerminalInstance(_config, _catalog, _settings));
-            }
-            catch (Exception ex)
-            {
-                ModLog.Log.Error($"purrTTY in-world: resource build failed ({ex.Message}); disabling");
-                return; // instance ctor already tore down any partial allocation
-            }
+            Active = false;
         }
-
-        // Publish to the render postfix once everything is built: Instance first,
-        // then Active (the postfix checks Active before touching Instance).
-        Instance = this;
-        Active = true;
-
-        ModLog.Log.Debug($"purrTTY in-world: enabled ({_settings.Mode} mode)");
     }
 
-    /// <summary>
-    ///     Stops drawing + rendering. Instances (and their shells) are kept so a
-    ///     re-enable is instant; everything is freed on <see cref="Dispose"/>.
-    /// </summary>
-    public void Disable()
-    {
-        // Clear Active so neither the postfix nor the per-frame loop touch the
-        // resources; we deliberately do NOT free them here (freeing while the
-        // current frame's already-recorded quad draw is in flight would be a
-        // use-after-free). They are released on Unload.
-        Active = false;
-        IsInputFocused = false;
-
-        ModLog.Log.Debug("purrTTY in-world: disabled");
-    }
+    /// <summary>Gives input focus to a specific instance (the manager list's billboard focus path).</summary>
+    public void Focus(InWorldTerminalInstance? instance) => _focused = instance;
 
     /// <summary>
     ///     Appends every live instance's quad draw to the scene-pass command buffer.
-    ///     Called from the render postfix (which guards on <see cref="Active"/> and
-    ///     wraps this in a try/catch that disables on failure).
+    ///     A per-instance draw failure retires only that instance (the coordinator
+    ///     prunes it next frame) rather than disabling all. Called from the render
+    ///     postfix (which guards on <see cref="Active"/>).
     /// </summary>
     public void RecordDrawAll(CommandBuffer commandBuffer)
     {
         for (int i = 0; i < _instances.Count; i++)
         {
-            _instances[i].RecordDraw(commandBuffer);
+            var instance = _instances[i];
+            if (instance.IsFailed)
+            {
+                continue;
+            }
+
+            try
+            {
+                instance.RecordDraw(commandBuffer);
+            }
+            catch (Exception ex)
+            {
+                instance.MarkFailed();
+                ModLog.Log.Error($"purrTTY in-world: quad draw failed for '{instance.Name}', retiring it ({ex.Message})");
+            }
         }
     }
 
     /// <summary>
-    ///     Drives one off-screen frame per instance (which each world-space quad
-    ///     samples) while active. Call once per frame from the main thread (StarMap
-    ///     <c>OnAfterGui</c>). A render failure stops the loop rather than spamming.
+    ///     Per frame on the main thread (StarMap <c>OnAfterGui</c>): draws the manager
+    ///     UI, processes a deferred dev-gate create, prunes failed instances, arbitrates
+    ///     focus + input forwarding, and drives each instance's off-screen render.
     /// </summary>
     public void OnAfterGui(double dt)
     {
-        // Launch/config UI renders in the main context — available even when the
-        // in-world terminal is off, so the player can enable/configure it.
-        _launchUI?.Draw();
+        // Manager UI renders in the main context — available even with no instances.
+        _ui?.Draw();
 
-        // Process a deferred dev-gate enable now that an ImGui frame is active (the
-        // instance build measures the font cell to size its texture).
-        if (_pendingEnable)
+        // Deferred dev-gate default (needs an active ImGui frame to measure the cell).
+        if (_pendingDefault)
         {
-            _pendingEnable = false;
-            Enable();
+            _pendingDefault = false;
+            Create(new InWorldTerminalRecord { Name = "In-World" });
         }
+
+        PruneFailed();
 
         if (!Active || _instances.Count == 0)
         {
             return;
         }
 
-        // Mutually exclusive with 2D-window focus: if a 2D terminal owns the
-        // keyboard this frame, the quad does not (prevents double-input).
+        // Mutually exclusive with 2D-window focus: if a 2D terminal owns the keyboard
+        // this frame, no quad does (prevents double-input).
         if (GhosttyTerminalController.IsAnyTerminalActive)
         {
-            IsInputFocused = false;
+            _focused = null;
         }
 
-        // Click-to-focus runs in the main context (current here), reading the main
-        // ImGui IO where GLFW delivers mouse events.
+        // Click-to-focus: nearest part-mode quad under the cursor.
         TickPicker();
 
-        // With one instance, "focused" is that instance while IsInputFocused holds.
-        var focused = IsInputFocused ? _instances[0] : null;
-
+        var focused = _focused;
         var io = ImGui.GetIO();
+
         if (focused != null && !io.WantTextInput && focused.Content.ActiveSession is { } session)
         {
             // Shared encoder; no suppression / blink-reset needed for the quad.
             TerminalInputEncoder.ProcessKeyboard(session, io);
         }
 
-        // App-mouse: when focused in part mode, map the cursor's quad hit to a cell
-        // and forward press/drag/wheel so in-world TUIs (vim, htop) respond to clicks.
-        if (focused != null && !_settings.IsBillboard)
+        // App-mouse: map the cursor's quad hit to a cell and forward press/drag/wheel
+        // so in-world TUIs (vim, htop) respond to clicks. Part mode only.
+        if (focused != null && !focused.IsBillboard)
         {
             float2? hitUv = null;
             if (focused.TryRaycast(Cursor.InputRay, out _, out float2 uv))
@@ -232,57 +224,80 @@ public sealed class InWorldTerminalManager : IDisposable
             focused.Content.ProcessMouse(hitUv, io);
         }
 
-        // Only the focused instance shows a focused cursor/selection.
+        // Only the focused instance shows a focused (solid) cursor.
         for (int i = 0; i < _instances.Count; i++)
         {
-            _instances[i].Content.HasFocus = ReferenceEquals(_instances[i], focused);
+            _instances[i].HasFocus = ReferenceEquals(_instances[i], focused);
         }
 
-        try
+        for (int i = 0; i < _instances.Count; i++)
         {
-            for (int i = 0; i < _instances.Count; i++)
+            var instance = _instances[i];
+            if (instance.IsFailed)
             {
-                _instances[i].Frame(dt);
+                continue;
             }
-        }
-        catch (Exception ex)
-        {
-            // Disable on first failure: a render-loop throw otherwise repeats every
-            // frame and can corrupt Vulkan state. Resources are released at Unload.
-            Active = false;
-            IsInputFocused = false;
-            ModLog.Log.Error($"purrTTY in-world: per-frame render failed, disabling ({ex.Message})");
+
+            try
+            {
+                instance.Frame(dt);
+            }
+            catch (Exception ex)
+            {
+                instance.MarkFailed();
+                ModLog.Log.Error($"purrTTY in-world: per-frame render failed for '{instance.Name}', retiring it ({ex.Message})");
+            }
         }
     }
 
     /// <summary>
-    ///     Click-to-focus for part mode (billboard focus is menu-driven). On a left
-    ///     click it ray-tests the quad: a hit grabs input focus, a click in empty
-    ///     world space releases it; clicks captured by ImGui are ignored. Escape is
-    ///     deliberately NOT a release key — it must reach the shell (vim, less, …).
-    ///     Folded in from the former QuadPicker; the N-instance refactor turns the
-    ///     single ray-test into a nearest-hit test over all part-mode quads.
+    ///     Click-to-focus over all part-mode quads: ray-tests each, focuses the nearest
+    ///     hit; a click in empty world space (not over an ImGui widget) clears focus.
+    ///     Billboard instances have no ego-space ray and are focused from the manager
+    ///     list. Escape is deliberately NOT a release key — it must reach the shell.
     /// </summary>
     private void TickPicker()
     {
-        if (_settings.IsBillboard)
-        {
-            return;
-        }
-
         if (!ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
             return;
         }
 
-        if (_instances[0].TryRaycast(Cursor.InputRay, out _, out _))
+        InWorldTerminalInstance? nearest = null;
+        double nearestT = double.MaxValue;
+        for (int i = 0; i < _instances.Count; i++)
         {
-            IsInputFocused = true;
+            var instance = _instances[i];
+            if (instance.IsBillboard || instance.IsFailed)
+            {
+                continue;
+            }
+
+            if (instance.TryRaycast(Cursor.InputRay, out double t, out _) && t < nearestT)
+            {
+                nearestT = t;
+                nearest = instance;
+            }
+        }
+
+        if (nearest != null)
+        {
+            _focused = nearest;
         }
         else if (!ImGui.GetIO().WantCaptureMouse)
         {
-            // Clicked empty world space (not over an ImGui widget) → release.
-            IsInputFocused = false;
+            _focused = null;
+        }
+    }
+
+    private void PruneFailed()
+    {
+        for (int i = _instances.Count - 1; i >= 0; i--)
+        {
+            if (_instances[i].IsFailed)
+            {
+                Remove(_instances[i]);
+            }
         }
     }
 
@@ -297,10 +312,11 @@ public sealed class InWorldTerminalManager : IDisposable
 
         // Stop the postfix BEFORE freeing GPU resources.
         Active = false;
-        IsInputFocused = false;
+        _focused = null;
         Instance = null;
 
-        // Each instance drains its fences and frees its GPU graph + shell in order.
+        // Each instance drains its fences and frees its GPU graph + shell, and
+        // unregisters from the target registry.
         for (int i = 0; i < _instances.Count; i++)
         {
             _instances[i].Dispose();
@@ -309,8 +325,8 @@ public sealed class InWorldTerminalManager : IDisposable
         _instances.Clear();
     }
 
-    // Dev convenience: auto-enable on load when PURRTTY_INWORLD is set, independent
-    // of the persisted toggle. The menu (Enable/Disable) is the user-facing path.
+    // Dev convenience: auto-create one default in-world terminal on load when
+    // PURRTTY_INWORLD is set. The manager dialog is the user-facing path.
     private static bool IsDevGateEnabled()
     {
         var v = Environment.GetEnvironmentVariable("PURRTTY_INWORLD");

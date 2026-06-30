@@ -43,20 +43,8 @@ internal static class TerminalMenus
     /// </summary>
     internal static Action? OpenThemeDialog;
 
-    /// <summary>Toggles the in-world (3D quad) terminal on/off. Null when unavailable.</summary>
-    internal static Action? ToggleInWorld;
-
-    /// <summary>Opens the in-world terminal launch / reconfigure popup.</summary>
-    internal static Action? OpenInWorldConfigure;
-
-    /// <summary>Returns whether the in-world terminal is currently active (for the menu check).</summary>
-    internal static Func<bool>? IsInWorldActive;
-
-    /// <summary>Toggles in-world input focus (the focus path for billboard mode).</summary>
-    internal static Action? FocusInWorld;
-
-    /// <summary>Returns whether the in-world terminal currently has input focus (menu check).</summary>
-    internal static Func<bool>? IsInWorldFocused;
+    /// <summary>Opens the in-world terminal manager dialog. Null when the in-world feature is unavailable.</summary>
+    internal static Action? OpenInWorldManager;
 
     /// <summary>
     ///     The live controller the game menus act on (null until initialized).
@@ -104,28 +92,12 @@ internal static class TerminalMenus
             OpenToggleHotkeySettings?.Invoke();
         }
 
-        if (ToggleInWorld != null)
+        if (OpenInWorldManager != null)
         {
             ImGui.Separator();
-
-            bool inWorldActive = IsInWorldActive?.Invoke() ?? false;
-            if (ImGui.MenuItem("In-World Terminal", "", inWorldActive))
+            if (ImGui.MenuItem("In-World Terminals..."))
             {
-                ToggleInWorld.Invoke();
-            }
-
-            if (ImGui.MenuItem("Configure In-World..."))
-            {
-                OpenInWorldConfigure?.Invoke();
-            }
-
-            if (inWorldActive)
-            {
-                bool inWorldFocused = IsInWorldFocused?.Invoke() ?? false;
-                if (ImGui.MenuItem("Focus In-World Terminal", "", inWorldFocused))
-                {
-                    FocusInWorld?.Invoke();
-                }
+                OpenInWorldManager.Invoke();
             }
         }
 

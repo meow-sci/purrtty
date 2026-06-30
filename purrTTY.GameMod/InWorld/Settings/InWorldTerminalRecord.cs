@@ -1,3 +1,5 @@
+using purrTTY.Core.Terminal;
+
 namespace purrTTY.GameMod.InWorld.Settings;
 
 /// <summary>
@@ -31,6 +33,12 @@ public sealed class InWorldTerminalRecord
 
     /// <summary>Fixed terminal grid height in rows (drives the off-screen texture height).</summary>
     public int Rows { get; set; } = 30;
+
+    /// <summary>Shell launch options for this terminal's session; null = the configured default shell.</summary>
+    public ProcessLaunchOptions? Launch { get; set; }
+
+    /// <summary>Named theme applied to this terminal; null = the global selected theme.</summary>
+    public string? ThemeName { get; set; }
 
     /// <summary>Anchor mode: <see cref="ModePart"/> or <see cref="ModeBillboard"/>.</summary>
     public string Mode { get; set; } = ModePart;

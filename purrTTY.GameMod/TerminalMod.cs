@@ -155,11 +155,7 @@ public class TerminalMod
             _inWorld = new InWorldTerminalManager();
             _inWorld.Initialize(_controller.Configuration, _controller.Catalog);
 
-            TerminalMenus.ToggleInWorld = () => _inWorld?.Toggle();
-            TerminalMenus.OpenInWorldConfigure = () => _inWorld?.OpenConfigure();
-            TerminalMenus.IsInWorldActive = () => _inWorld?.IsActive ?? false;
-            TerminalMenus.FocusInWorld = () => _inWorld?.ToggleFocus();
-            TerminalMenus.IsInWorldFocused = () => InWorldTerminalManager.IsInputFocused;
+            TerminalMenus.OpenInWorldManager = () => _inWorld?.OpenManager();
         }
         catch (Exception ex)
         {
@@ -640,11 +636,7 @@ public class TerminalMod
             TerminalMenus.OpenThemeDialog = null;
             TerminalMenus.MenuController = null;
             _themeDialog = null;
-            TerminalMenus.ToggleInWorld = null;
-            TerminalMenus.OpenInWorldConfigure = null;
-            TerminalMenus.IsInWorldActive = null;
-            TerminalMenus.FocusInWorld = null;
-            TerminalMenus.IsInWorldFocused = null;
+            TerminalMenus.OpenInWorldManager = null;
 
             _isInitialized = false;
             _isDisposed = true;

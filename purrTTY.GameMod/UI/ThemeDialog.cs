@@ -115,10 +115,10 @@ public sealed class ThemeDialog
             }
             else
             {
-                // In-world instances apply themes (phase 8) but not the 2D-window
-                // granular editor; nothing else is registered yet, so this is a guard.
+                // Non-window targets (in-world instances) support applying a complete
+                // saved theme, but not the 2D-window granular font/opacity editor.
                 ImGui.Separator();
-                ImGui.TextDisabled("This terminal type can only be themed by applying a saved theme.");
+                DrawPaletteApply(target);
             }
         }
 
@@ -298,6 +298,32 @@ public sealed class ThemeDialog
         if (ImGui.Button("Refresh themes from disk", new float2(-1f, 0f)))
         {
             _controller.Catalog.Refresh();
+        }
+    }
+
+    private void DrawPaletteApply(INamedTerminal target)
+    {
+        ImGui.TextDisabled("Theme");
+
+        var items = new List<(string Key, string Label)>();
+        foreach (var theme in _controller.Catalog.BuiltInThemes)
+        {
+            items.Add((theme.Name, theme.Name));
+        }
+
+        foreach (var theme in _controller.Catalog.UserThemes)
+        {
+            items.Add((theme.Name, $"{theme.Name}  (saved)"));
+        }
+
+        ImGui.Text("Apply theme");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(-1f);
+        if (ImGuiWidgets.FilterCombo("##theme_palette_apply", "Pick a saved theme to apply...", _paletteFilter, items, out string? picked)
+            && picked != null
+            && _controller.Catalog.Find(picked) is { } def)
+        {
+            target.ApplyTheme(def);
         }
     }
 

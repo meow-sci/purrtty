@@ -12,17 +12,18 @@ namespace purrTTY.GameMod.InWorld;
 /// <summary>
 ///     One in-world terminal: its own off-screen GPU target + secondary ImGui
 ///     context/backend + per-frame render loop + dedicated shell session
-///     (<see cref="InWorldTerminalRenderer"/>) + world-space quad. Extracted from
-///     <see cref="InWorldTerminalManager"/> so the coordinator can hold N of them
-///     (today exactly one is created).
+///     (<see cref="InWorldTerminalRenderer"/>) + world-space quad. Implements
+///     <see cref="INamedTerminal"/> so it appears in the shared terminal-target
+///     registry (the theme picker) alongside 2D windows.
 ///     <para>
-///         The constructor allocates GPU resources, so the renderer must be live
-///         (built from a menu Enable / <c>OnFullyLoaded</c>). On any build failure it
-///         tears down whatever was partially allocated and rethrows; the coordinator
-///         catches and logs so a failed build never crashes the game. Main thread only.
+///         The constructor allocates GPU resources (renderer must be live; built from
+///         <c>OnAfterGui</c> where an ImGui frame is active, since sizing measures the
+///         font cell). On any build failure it tears down the partial allocation and
+///         rethrows; the coordinator catches and logs. It self-registers in the target
+///         registry on success and unregisters on <see cref="Dispose"/>. Main thread only.
 ///     </para>
 /// </summary>
-public sealed class InWorldTerminalInstance : IDisposable
+public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
 {
     private readonly InWorldTerminalRecord _record;
 
@@ -32,13 +33,42 @@ public sealed class InWorldTerminalInstance : IDisposable
     private PerFrameRenderer? _perFrame;
     private InWorldTerminalRenderer? _content;
     private InWorldQuad? _quad;
+    private bool _hasFocus;
+    private bool _registered;
     private bool _disposed;
+
+    /// <summary>This terminal's configuration (placement read live by the quad).</summary>
+    public InWorldTerminalRecord Record => _record;
 
     /// <summary>The dedicated terminal content renderer (its own shell session + fonts).</summary>
     public InWorldTerminalRenderer Content => _content!;
 
     /// <summary>True when this instance is a camera billboard (no ego-space raycast / click-to-focus).</summary>
     public bool IsBillboard => _record.IsBillboard;
+
+    /// <summary>True once a GPU draw/frame failure has retired this instance; the coordinator prunes it.</summary>
+    public bool IsFailed { get; private set; }
+
+    /// <inheritdoc/>
+    public string Name => _record.Name;
+
+    /// <inheritdoc/>
+    public TerminalKind Kind => TerminalKind.InWorld;
+
+    /// <inheritdoc/>
+    public bool HasFocus
+    {
+        get => _hasFocus;
+        internal set
+        {
+            _hasFocus = value;
+            // Drive the content cursor (solid when focused, hollow when not).
+            if (_content != null)
+            {
+                _content.HasFocus = value;
+            }
+        }
+    }
 
     public InWorldTerminalInstance(ThemeConfiguration config, ThemeCatalog catalog, InWorldTerminalRecord record)
     {
@@ -50,10 +80,9 @@ public sealed class InWorldTerminalInstance : IDisposable
                 ?? throw new InvalidOperationException("Program.GetRenderer() returned null");
 
             // Grid-driven texture: derive the off-screen extent from the fixed
-            // cols×rows and the configured font's cell size (measured on the current
-            // ImGui frame's shared atlas), clamped to the GPU texture range. The
-            // content renderer then resizes its surface back to exactly cols×rows.
-            var (cellWidth, cellHeight) = InWorldTerminalRenderer.MeasureCell(config, catalog);
+            // cols×rows and this terminal's font cell (measured on the live ImGui
+            // frame's shared atlas), clamped to the GPU texture range.
+            var (cellWidth, cellHeight) = InWorldTerminalRenderer.MeasureCell(config, catalog, record.ThemeName);
             int width = Math.Clamp((int)MathF.Ceiling(record.Cols * cellWidth), 256, 4096);
             int height = Math.Clamp((int)MathF.Ceiling(record.Rows * cellHeight), 256, 4096);
 
@@ -75,13 +104,13 @@ public sealed class InWorldTerminalInstance : IDisposable
 
             _perFrame = new PerFrameRenderer(renderer, _target, _ctx, _backend!, framesInFlight: 2);
 
-            // Dedicated terminal session (its own shell) drawn into the off-screen
-            // target via the shared FrameGridRenderer. Self-contained.
-            _content = new InWorldTerminalRenderer(config, catalog);
+            // Dedicated terminal session (its own shell + theme) drawn into the
+            // off-screen target via the shared FrameGridRenderer.
+            _content = new InWorldTerminalRenderer(config, catalog, record.Launch, record.ThemeName);
             _perFrame.BuildUi = _content.BuildUi;
 
-            // World-space quad sampling the texture; reads InWorldSettings live (so
-            // launch-UI edits update it instantly).
+            // World-space quad sampling the texture; reads the record live (so launch-
+            // UI placement edits update it instantly).
             _quad = new InWorldQuad(renderer, _target, _record);
         }
         catch
@@ -89,6 +118,10 @@ public sealed class InWorldTerminalInstance : IDisposable
             Teardown();
             throw;
         }
+
+        // Register only after a successful build (the coordinator assigns a unique
+        // name first, so this always succeeds).
+        _registered = TerminalTargetRegistry.Register(this);
     }
 
     /// <summary>Drives one off-screen terminal frame (which the world-space quad samples).</summary>
@@ -100,6 +133,35 @@ public sealed class InWorldTerminalInstance : IDisposable
     /// <summary>Ray-tests the quad in part mode; see <see cref="InWorldQuad.TryRaycast"/>.</summary>
     public bool TryRaycast(Ray ray, out double t, out float2 uv) => _quad!.TryRaycast(ray, out t, out uv);
 
+    /// <summary>Retires this instance after a GPU draw/frame failure; the coordinator prunes + disposes it.</summary>
+    public void MarkFailed() => IsFailed = true;
+
+    /// <summary>Applies a theme bundle live (colors + font + opacity + cursor).</summary>
+    public void ApplyTheme(ThemeDefinition theme)
+    {
+        _record.ThemeName = theme.Name;
+        _content?.ApplyTheme(theme);
+    }
+
+    /// <summary>
+    ///     A live grid resize needs the off-screen texture rebuilt; not yet supported
+    ///     (the size is fixed at creation). Returns false so callers fall back.
+    /// </summary>
+    public bool TrySetGridSize(int cols, int rows) => false;
+
+    /// <inheritdoc/>
+    public bool TryRename(string newName)
+    {
+        string trimmed = newName.Trim();
+        if (!TerminalTargetRegistry.IsNameAvailable(trimmed, this))
+        {
+            return false;
+        }
+
+        _record.Name = trimmed;
+        return true;
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -108,6 +170,13 @@ public sealed class InWorldTerminalInstance : IDisposable
         }
 
         _disposed = true;
+
+        if (_registered)
+        {
+            TerminalTargetRegistry.Unregister(this);
+            _registered = false;
+        }
+
         Teardown();
     }
 
