@@ -23,6 +23,8 @@
   orchestrates **capture**, **apply** (create the whole set), and **teardown** (destroy the whole
   set). It is the only layer that sees both render worlds. Every action is user-initiated — nothing
   is ever applied automatically.
+- Saved layouts can be **edited in place** — remove a terminal, rename it, or change its attributes
+  (theme, shell, startup command, placement) — then re-saved, without applying them.
 - **Name collisions on load are logged and skipped** — exactly as requested — using the registry's
   existing `TerminalTargetRegistry.IsNameAvailable(name)` pre-check.
 - A per-terminal **auto-run command** is implemented as a single new field
@@ -65,6 +67,7 @@ user curates, which is a different and additive feature.
 | R5 | Leverage a **standard, non-bespoke** pattern for gatOS-over-SSH | stdin-injection into the live login PTY (see §6 — *not* `ssh host 'cmd'`, which gatOS doesn't support and which would be worse) |
 | R6 | **Duplicate names** on load → log error + skip that one | per-spec `IsNameAvailable` pre-check in `Apply` |
 | R7 | **Tear down the whole set** | `LayoutManager.TeardownSet(name)` / `TeardownAllLoaded()` |
+| R8 | **Edit a saved layout** — remove / rename / edit a terminal's attributes (theme, shell, startup command, placement) | `Layouts…` editor over the `TerminalLayout` POCO → `LayoutCatalog.Save` |
 
 ---
 
@@ -172,9 +175,12 @@ part.
   billboard params). All of this already lives on `InWorldTerminalRecord` (a flat POCO with
   `Clone()`).
 - **2D window**: cols/rows are **derived** from pixel size + font every frame (`TrySetGridSize`
-  returns `false`). So a 2D spec must persist **pixel geometry + font size** (grid follows). A 2D
-  window may also hold **multiple shell tabs** under one registry name → its spec needs an ordered
-  tab list.
+  returns `false`). So a 2D spec persists **window position + size (px) only** — never cols/rows,
+  and never a font (font comes from the resolved theme). The emulator recomputes the grid live from
+  the window's pixel size ÷ the current cell, so it re-flows correctly if the theme's font
+  family/size changes. A 2D window may also hold **multiple shell tabs** under one registry name →
+  its spec needs an ordered tab list. (In-world is the opposite: cols/rows are authoritative and
+  *are* stored — they size the off-screen texture.)
 - **Capture gap**: a live 2D window does **not** retain the `ProcessLaunchOptions` it was launched
   with (in-world keeps it in `.Launch`). Capturing an existing window therefore requires the
   session to remember its launch options — a small addition (§7).
@@ -203,13 +209,13 @@ purrTTY.GameMod/Layouts/                       ← NEW: the whole feature lives 
   LayoutDefinition.cs     — TOML POCO: TerminalLayout { Name, Description, Terminals: TerminalEntry[] }
   ShellSpec.cs            — TOML mirror of ProcessLaunchOptions (+ StartupCommand) with To/FromLaunchOptions
   LayoutCatalog.cs        — CRUD over <config>/layouts/*.toml (mirrors ThemeCatalog)
-  LayoutManager.cs        — orchestrator: Capture / Apply / TeardownSet / TeardownAllLoaded (all user-initiated)
+  LayoutManager.cs        — orchestrator: Capture / Apply / TeardownSet / TeardownAllLoaded + saved-layout editing (all user-initiated)
   UI/LayoutManagerUI.cs   — non-modal "Layouts…" dialog (mirrors InWorldManagerUI/ThemeDialog)
 
 purrTTY.Display/                               ← small additions
   Ghostty/GhosttyTerminalController.cs : + CaptureWindows(), CreateConfiguredWindow(...), CloseWindow(window)
   Ghostty/TerminalWindow.cs            : + desired-name ctor path, + RequestPlacement(pos,size)
-  Ghostty/WindowLayoutRecord.cs (NEW)  : Display-side 2D spec (Name, geometry, ThemeName, font, Tabs:ProcessLaunchOptions[])
+  Ghostty/WindowLayoutRecord.cs (NEW)  : Display-side 2D spec (Name, pos+size px, ThemeName, Tabs:ProcessLaunchOptions[]) — no cols/rows, no font
   Configuration/AtomicFile.cs          : internal → public
 
 purrTTY.Terminal/                              ← the auto-run mechanism
@@ -261,15 +267,15 @@ rotation     = [0.0, 0.0, 0.0]         # X,Y,Z degrees
 size_meters  = [2.0, 2.0]              # quad width,height
 
 # ── a 2D ImGui window running PowerShell ──
+# Windows persist position + size only. cols/rows and font are NOT stored — the emulator
+# auto-computes the grid from the live window pixel size and the resolved theme's font.
 [[terminal]]
 name        = "Console"
 kind        = "window"
 theme       = "Default"
 shell_type  = "PowerShell"
 pos         = [80.0, 80.0]             # screen px
-size        = [880.0, 520.0]           # px (grid follows pixel size + font)
-font_family = "Hack"
-font_size   = 28.0
+size        = [880.0, 520.0]           # px (grid auto-computed from this + theme font)
 
 # extra tabs in the same window (optional). The inline shell above is tab 0;
 # each [[terminal.tab]] adds another session/tab in order.
@@ -311,15 +317,14 @@ public sealed class TerminalEntry
     public ShellSpec Shell { get; set; } = new();
     [TomlPropertyName("tab")] public List<ShellSpec> ExtraTabs { get; set; } = new();   // window-only
 
-    // window placement
+    // window placement — position + size (px) ONLY. No cols/rows, no font:
+    // the emulator derives the grid live from pixel size + the resolved theme's font.
     public double[]? Pos { get; set; }            // [x,y] px
     public double[]? Size { get; set; }           // [w,h] px
-    public string?  FontFamily { get; set; }
-    public float?   FontSize { get; set; }
 
-    // in-world placement
-    public int Cols { get; set; } = 100;
-    public int Rows { get; set; } = 30;
+    // in-world placement (cols/rows are authoritative here — they size the texture)
+    public int? Cols { get; set; }                // in-world only
+    public int? Rows { get; set; }                // in-world only
     [TomlIgnore]               public string Mode { get; set; } = InWorldTerminalRecord.ModePart;
     [TomlPropertyName("mode")] public string ModeString { get; set; } = "part";
     public string VehicleId { get; set; } = "";
@@ -420,10 +425,10 @@ In-World create form, since gatOS flight terminals are the motivating use case.
      billboard). Map → `TerminalEntry(kind=inworld)`. (Opacities are intentionally **not** captured
      here — they persist via the referenced named theme; see §3.4 / §18.)
    - **2D**: `controller.CaptureWindows()` → one `WindowLayoutRecord` per open window:
-     - `Name` (`window.Name`), geometry (`window.LastKnownPosition` / `LastKnownSize`, when
-       `HasObservedGeometry`), `ThemeName` (`window.Settings.ThemeName`), font
-       (`window.Settings.FontFamily/FontSize`), and `Tabs` = each session's retained
-       `ProcessLaunchOptions`.
+     - `Name` (`window.Name`), position + size (`window.LastKnownPosition` / `LastKnownSize`, when
+       `HasObservedGeometry`), `ThemeName` (`window.Settings.ThemeName`), and `Tabs` = each session's
+       retained `ProcessLaunchOptions`. **No cols/rows or font are captured** — they're derived on
+       apply (grid from pixel size, font from the theme).
 2. Build a `TerminalLayout`, map records → `TerminalEntry[]` (incl. `ShellSpec.From(...)`), and
    `LayoutCatalog.Save(layout)`.
 
@@ -462,7 +467,7 @@ for entry in layout.Terminals (in file order):
     theme = catalog(themes).Find(entry.Theme)                      // may be null → default
     switch entry.Kind:
       case Window:
-        rec = map entry → WindowLayoutRecord (name, pos/size, theme name, font, tabs[])
+        rec = map entry → WindowLayoutRecord (name, pos/size, theme name, tabs[])
         win = controller.CreateConfiguredWindow(rec, theme)        // names exactly, places, themes, opens tabs in order
         controller.IsVisible = true
         track(layoutName, win); created += win
@@ -560,6 +565,21 @@ Sections:
    `CaptureCurrentAs`. If the name exists, require an explicit Overwrite confirm.
 3. **Apply result banner**: after a load, show "Loaded N, skipped M — see log" (skips come from R6
    collisions or in-world create failures). Use the `Warning`/`Error` colors when M > 0.
+4. **Edit a saved layout** (R8): selecting **Edit** loads the layout's `TerminalLayout` POCO into an
+   editable draft and lists its terminal entries. Per entry:
+   - **Remove** the entry (`DestructiveButton`).
+   - **Rename** the entry (`InputText`), validated for **uniqueness within the layout** (two entries
+     sharing a name would make the second collide-skip on load, so the editor blocks it up front).
+   - **Edit attributes** with the same field widgets the create/configure forms use: theme
+     (`DrawThemePicker`), shell + **startup command**, and placement — for a window the pos/size; for
+     in-world the cols/rows, mode, anchor (the tiered Vehicle→Part→SubPart picker when vehicles are
+     live, else raw id text fields so editing works at the main menu), offset/rotation/size.
+   - Appending a new terminal entry is natural here too, though the primary capture path stays
+     "Save current as…".
+   **Save** writes the draft back via `LayoutCatalog.Save` (atomic). **Editing changes only the
+   on-disk config — it does not touch live terminals already loaded from that layout;** the edits
+   take effect the next time the layout is applied. (Optionally also rename the layout *file* via a
+   `LayoutCatalog.Rename(old, new)` — distinct from renaming a terminal inside it.)
 
 Menu wiring (mirrors `OpenInWorldManager` exactly):
 - `TerminalMenus.OpenLayoutManager` (`internal static Action?`), drawn near "In-World Terminals…",
@@ -580,8 +600,9 @@ Menu wiring (mirrors `OpenInWorldManager` exactly):
 **purrTTY.Display**
 - `Configuration/AtomicFile.cs`: `internal` → `public`.
 - `Ghostty/TerminalWindow.cs`: optional `desiredName` ctor path; + `RequestPlacement(float2,float2)`.
-- `Ghostty/WindowLayoutRecord.cs` (NEW): 2D spec POCO (Name, PosX/Y/W/H, ThemeName, FontFamily,
-  FontSize, `List<ProcessLaunchOptions> Tabs`).
+- `Ghostty/WindowLayoutRecord.cs` (NEW): 2D spec POCO (Name, PosX/Y + Width/Height px, ThemeName,
+  `List<ProcessLaunchOptions> Tabs`) — deliberately **no cols/rows and no font** (both derived live
+  on apply: grid from pixel size, font from the resolved theme).
 - `Ghostty/GhosttyTerminalController.cs`: + `CaptureWindows()`, `CreateConfiguredWindow(spec, theme)`,
   `CloseWindow(window)`.
 
@@ -591,7 +612,11 @@ Menu wiring (mirrors `OpenInWorldManager` exactly):
 - `Layouts/LayoutCatalog.cs` (NEW): `GetLayoutsDirectory()`, `All`, `Load`, `Save`, `Delete`, `Refresh`.
 - `Layouts/LayoutManager.cs` (NEW): `CaptureCurrentAs`, `Apply`, `TeardownSet`, `TeardownAllLoaded`,
   startup auto-apply, the record↔entry mappers, `_loaded` tracking.
-- `Layouts/UI/LayoutManagerUI.cs` (NEW): the dialog (§11).
+- `Layouts/UI/LayoutManagerUI.cs` (NEW): the dialog (§11) — list + save-current + apply-result +
+  the saved-layout editor (remove / rename / edit-attributes per terminal, over the `TerminalLayout`
+  POCO; saves via `LayoutCatalog`).
+- `Layouts/LayoutCatalog.cs`: editing reuses `Load`/`Save`; optionally add `Rename(old, new)` for the
+  layout file itself.
 - `TerminalMod.cs`: build `LayoutManager` + `LayoutManagerUI` in `OnFullyLoaded` (after controller +
   in-world manager); wire `TerminalMenus.OpenLayoutManager`; pump the UI in `OnAfterUi`; tear down in
   `DisposeResources`.
@@ -632,8 +657,10 @@ reattachable (no tmux), so a relaunched terminal starts a fresh shell and re-run
    from a background thread.
 4. **gatOS VM boot on apply** — loading a layout with a gatOS terminal boots the QEMU VM and runs its
    `startup_command` at that moment (only ever on explicit user apply — there is no auto-apply).
-5. **2D grid is pixel-derived** — restoring pixel geometry + font restores the grid; cols/rows are
-   not directly settable for 2D (`TrySetGridSize == false`).
+5. **2D grid is pixel-derived (never stored)** — a window persists only pos/size; the emulator
+   recomputes cols/rows from pixel size ÷ the resolved theme's cell every frame (`TrySetGridSize ==
+   false`), so the grid re-flows correctly when the theme/font changes. In-world stores cols/rows
+   (authoritative texture extent).
 6. **Teardown uses the safe path** — in-world via `Remove` (deferred 2-frame GPU free), never the
    shutdown-only `Dispose(freeGpu:false)`.
 7. **Custom-shell timing** — gatOS `StartAsync` may block on VM boot; the post-start stdin write
@@ -663,6 +690,9 @@ Following `docs/build-and-test.md` (quiet; **no fixed sleeps**):
   - Collision policy as a unit: given a fake set of live names, `Apply`'s planner skips colliding
     specs and reports them (extract the create-vs-skip decision into a pure method to test without
     a renderer).
+  - Layout editing round-trip (R8): load a `TerminalLayout`, remove / rename / edit-attribute an
+    entry, save, reload, and assert the mutation persisted and intra-layout names stayed unique.
+    Confirm a window entry never serializes cols/rows or font.
 
 ---
 
@@ -692,7 +722,9 @@ Following `docs/build-and-test.md` (quiet; **no fixed sleeps**):
 - [ ] **P4 — Teardown.** `LayoutManager.TeardownSet` / `TeardownAllLoaded`. *Delivers R7.*
 - [ ] **P5 — Capture (save current).** Retain `TerminalSession.LaunchOptions`; `CaptureWindows`;
       `CaptureCurrentAs`. *Delivers R1 fully.*
-- [ ] **P6 — UI + menu.** `LayoutManagerUI`; `TerminalMenus.OpenLayoutManager`; wire in `TerminalMod`.
+- [ ] **P6 — UI + menu + layout editing.** `LayoutManagerUI` (list / save-current / apply-result /
+      **edit a saved layout**: remove + rename + edit-attributes per terminal, R8);
+      `TerminalMenus.OpenLayoutManager`; wire in `TerminalMod`. *Delivers R8.*
 - [ ] **P7 — Docs** (§16).
 
 ---
