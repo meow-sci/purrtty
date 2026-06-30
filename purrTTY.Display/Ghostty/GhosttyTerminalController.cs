@@ -172,6 +172,34 @@ public sealed class GhosttyTerminalController : ITerminalController
         window.Dispose();
     }
 
+    /// <summary>
+    /// Snapshots every open window's spec (name, observed geometry, theme name, and the
+    /// active tab's shell) so the layout manager can capture the current 2D windows.
+    /// </summary>
+    public IReadOnlyList<WindowLayoutRecord> CaptureWindows()
+    {
+        var result = new List<WindowLayoutRecord>();
+        for (int i = 0; i < _windows.Count; i++)
+        {
+            var window = _windows[i];
+            if (!window.IsOpen)
+            {
+                continue;
+            }
+
+            result.Add(new WindowLayoutRecord
+            {
+                Name = window.Name,
+                Position = window.HasObservedGeometry ? window.LastKnownPosition : null,
+                Size = window.HasObservedGeometry ? window.LastKnownSize : null,
+                ThemeName = window.Settings.ThemeName,
+                Launch = window.Sessions.ActiveSession?.LaunchOptions?.Clone(),
+            });
+        }
+
+        return result;
+    }
+
     /// <summary>Starts a session as a new tab in the focused window (or a new window when none exists).</summary>
     public void OpenTab(ProcessLaunchOptions? launchOptions = null, string? sessionTitle = null)
     {

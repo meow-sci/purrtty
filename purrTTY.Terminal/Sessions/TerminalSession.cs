@@ -51,6 +51,14 @@ public sealed class TerminalSession : IDisposable
     public ITerminalSurface Surface { get; }
 
     public IProcessManager ProcessManager { get; }
+
+    /// <summary>
+    /// The launch options this session was started with (recorded on
+    /// <see cref="InitializeAsync"/>); null before start. Lets the layout manager capture
+    /// a live window's shell into a saved layout.
+    /// </summary>
+    public ProcessLaunchOptions? LaunchOptions { get; private set; }
+
     public SessionSettings Settings { get; }
     public SessionState State { get; private set; }
     public DateTime CreatedAt { get; }
@@ -87,6 +95,7 @@ public sealed class TerminalSession : IDisposable
 
         try
         {
+            LaunchOptions = launchOptions;
             await ProcessManager.StartAsync(launchOptions, cancellationToken);
 
             // Auto-run command: type it as stdin once the shell is up. The PTY line

@@ -175,6 +175,79 @@ public sealed class LayoutManager
         }
     }
 
+    /// <summary>
+    /// Captures the currently-live terminals (in-world instances + 2D windows) as a named
+    /// layout and saves it. Appearance is captured by <b>theme name</b>; custom colours/
+    /// opacities persist only if first saved as a named theme (consistent with the rest of
+    /// the app). Overwrites any existing layout of the same name.
+    /// </summary>
+    public void CaptureCurrentAs(string name, string? description = null)
+    {
+        var layout = new TerminalLayout
+        {
+            Header = new LayoutHeader
+            {
+                Name = name.Trim(),
+                Description = string.IsNullOrWhiteSpace(description) ? null : description!.Trim(),
+            },
+        };
+
+        if (_inWorld is not null)
+        {
+            foreach (var instance in _inWorld.Instances)
+            {
+                layout.Terminals.Add(FromInWorld(instance.Record));
+            }
+        }
+
+        foreach (var window in _controller.CaptureWindows())
+        {
+            layout.Terminals.Add(FromWindow(window));
+        }
+
+        _catalog.Save(layout);
+    }
+
+    private static TerminalEntry FromInWorld(InWorldTerminalRecord r) => new()
+    {
+        Name = r.Name,
+        Kind = TerminalKind.InWorld,
+        Theme = r.ThemeName,
+        Shell = ShellSpec.From(r.Launch),
+        Cols = r.Cols,
+        Rows = r.Rows,
+        Mode = r.Mode,
+        VehicleId = r.TargetVehicleId,
+        PartId = r.TargetPartId,
+        SubPartId = r.TargetSubPartId,
+        OffsetX = r.PartOffsetX,
+        OffsetY = r.PartOffsetY,
+        OffsetZ = r.PartOffsetZ,
+        RotationX = r.PartRotationX,
+        RotationY = r.PartRotationY,
+        RotationZ = r.PartRotationZ,
+        WidthMeters = r.PartWidthMeters,
+        HeightMeters = r.PartHeightMeters,
+        BillboardDistance = r.BillboardDistance,
+        BillboardOffsetX = r.BillboardOffsetX,
+        BillboardOffsetY = r.BillboardOffsetY,
+        BillboardWidthMeters = r.BillboardWidthMeters,
+        BillboardHeightMeters = r.BillboardHeightMeters,
+        BillboardAlwaysOnTop = r.BillboardAlwaysOnTop,
+    };
+
+    private static TerminalEntry FromWindow(WindowLayoutRecord w) => new()
+    {
+        Name = w.Name,
+        Kind = TerminalKind.Window,
+        Theme = w.ThemeName,
+        Shell = ShellSpec.From(w.Launch),
+        PosX = w.Position?.X,
+        PosY = w.Position?.Y,
+        Width = w.Size?.X,
+        Height = w.Size?.Y,
+    };
+
     private static InWorldTerminalRecord ToInWorldRecord(TerminalEntry e, string name) => new()
     {
         Name = name,
