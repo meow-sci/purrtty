@@ -117,12 +117,16 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
         SessionManager sessions,
         TerminalWindowSettings settings,
         float2? initialPosition = null,
-        float2? initialSize = null)
+        float2? initialSize = null,
+        string? desiredName = null)
     {
         Id = id;
         Sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        Name = TerminalTargetRegistry.SuggestUniqueName("Terminal");
+        // Auto-unique ("Terminal", "Terminal 2", …) unless a specific name is requested
+        // (layout restore). SuggestUniqueName returns the requested name unchanged when it
+        // is free, so a pre-checked exact name round-trips.
+        Name = TerminalTargetRegistry.SuggestUniqueName(string.IsNullOrWhiteSpace(desiredName) ? "Terminal" : desiredName);
         _imguiName = BuildImguiName();
         _hotZoneImguiName = $"##purrtty_hotzone_{id}";
 
@@ -152,6 +156,12 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
     }
 
     public void RequestFocus() => _wantFocus = true;
+
+    /// <summary>
+    /// Requests an explicit window position + size (px), applied on the next render and
+    /// clamped to the work area — used by the layout manager to restore saved geometry.
+    /// </summary>
+    public void RequestPlacement(float2 position, float2 size) => _pendingPlacement = (position, size);
 
     /// <summary>
     /// Ticks every session's surface without rendering. Called by the

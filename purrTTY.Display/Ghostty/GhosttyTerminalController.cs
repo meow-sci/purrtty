@@ -124,6 +124,54 @@ public sealed class GhosttyTerminalController : ITerminalController
         return window;
     }
 
+    /// <summary>
+    /// Creates a window from a saved-layout record: exact name, explicit geometry, the
+    /// resolved theme, and the record's shell. The caller (layout manager) does the
+    /// registry name-collision pre-check, so the requested name is honored exactly.
+    /// </summary>
+    public TerminalWindow CreateConfiguredWindow(WindowLayoutRecord spec, ThemeDefinition? theme)
+    {
+        var sessions = GhosttySessionManagerFactory.CreateSessionManager(_config);
+        var settings = CreateWindowSettingsFromDefaults();
+        if (theme != null)
+        {
+            settings.ThemeName = theme.Name;
+            settings.Colors = theme.Colors.Clone();
+            settings.ApplyThemeOverrides(theme);
+        }
+
+        var window = new TerminalWindow(_nextWindowId++, sessions, settings, spec.Position, spec.Size, spec.Name);
+        window.KeyboardSuppression = () => KeyboardSuppression?.Invoke() ?? false;
+        window.FocusChanged += OnWindowFocusChanged;
+        window.InputSent += () =>
+        {
+            _blinkTimer = 0;
+            _cursorOn = true;
+        };
+        _windows.Add(window);
+        _lastFocusedWindow ??= window;
+
+        StartSession(window, spec.Launch, title: null);
+        window.RequestFocus();
+        return window;
+    }
+
+    /// <summary>Closes a specific window now (dispose → unregister → drop from the list).</summary>
+    public void CloseWindow(TerminalWindow window)
+    {
+        if (!_windows.Remove(window))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(_lastFocusedWindow, window))
+        {
+            _lastFocusedWindow = null;
+        }
+
+        window.Dispose();
+    }
+
     /// <summary>Starts a session as a new tab in the focused window (or a new window when none exists).</summary>
     public void OpenTab(ProcessLaunchOptions? launchOptions = null, string? sessionTitle = null)
     {
