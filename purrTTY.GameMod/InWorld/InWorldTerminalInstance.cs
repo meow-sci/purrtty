@@ -162,6 +162,20 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         return true;
     }
 
+    /// <summary>
+    ///     Drops this instance from the target registry immediately (so it leaves the
+    ///     theme picker / manager list at once) without freeing its GPU resources —
+    ///     the coordinator frees those later via deferred teardown. Idempotent.
+    /// </summary>
+    public void UnregisterNow()
+    {
+        if (_registered)
+        {
+            TerminalTargetRegistry.Unregister(this);
+            _registered = false;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -171,12 +185,7 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
 
         _disposed = true;
 
-        if (_registered)
-        {
-            TerminalTargetRegistry.Unregister(this);
-            _registered = false;
-        }
-
+        UnregisterNow();
         Teardown();
     }
 

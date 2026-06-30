@@ -27,7 +27,14 @@ namespace purrTTY.GameMod.InWorld;
 /// </summary>
 public sealed class InWorldTerminalManager : IDisposable
 {
+    // Frames to keep a closed instance's GPU resources alive after it stops being
+    // drawn: the game's scene command buffer may have recorded its quad this frame,
+    // so freeing immediately is a use-after-free (VK_ERROR_DEVICE_LOST). Freed after
+    // the recording frame has completed, gated by a device WaitIdle.
+    private const int TeardownDelayFrames = 2;
+
     private readonly List<InWorldTerminalInstance> _instances = new();
+    private readonly List<(InWorldTerminalInstance Instance, int FramesLeft)> _pendingTeardown = new();
     private ThemeConfiguration? _config;
     private ThemeCatalog? _catalog;
     private InWorldManagerUI? _ui;
@@ -120,16 +127,28 @@ public sealed class InWorldTerminalManager : IDisposable
         }
     }
 
-    /// <summary>Closes one in-world terminal: stops drawing it, frees its GPU graph + shell, unregisters it.</summary>
+    /// <summary>
+    ///     Closes one in-world terminal: stops drawing it and drops it from the
+    ///     registry immediately, but DEFERS freeing its GPU graph (the game's scene
+    ///     command buffer may still reference its quad this frame — freeing now would
+    ///     be a use-after-free / VK_ERROR_DEVICE_LOST). The free happens in
+    ///     <see cref="ProcessPendingTeardown"/> once the recording frame has completed.
+    /// </summary>
     public void Remove(InWorldTerminalInstance instance)
     {
+        if (!_instances.Remove(instance))
+        {
+            return; // already detached
+        }
+
         if (ReferenceEquals(_focused, instance))
         {
             _focused = null;
         }
 
-        _instances.Remove(instance);
-        instance.Dispose();
+        instance.HasFocus = false;
+        instance.UnregisterNow();
+        _pendingTeardown.Add((instance, TeardownDelayFrames));
 
         if (_instances.Count == 0)
         {
@@ -175,6 +194,10 @@ public sealed class InWorldTerminalManager : IDisposable
     /// </summary>
     public void OnAfterGui(double dt)
     {
+        // Free any instances whose deferred teardown has come due (closed/retired in
+        // a prior frame) before the UI can queue more this frame.
+        ProcessPendingTeardown();
+
         // Manager UI renders in the main context — available even with no instances.
         _ui?.Draw();
 
@@ -301,6 +324,49 @@ public sealed class InWorldTerminalManager : IDisposable
         }
     }
 
+    /// <summary>
+    ///     Frees instances whose deferred-teardown delay has elapsed: by now the frame
+    ///     that recorded their quad has been submitted, so a device WaitIdle guarantees
+    ///     the GPU is done with them before the resources are released.
+    /// </summary>
+    private void ProcessPendingTeardown()
+    {
+        if (_pendingTeardown.Count == 0)
+        {
+            return;
+        }
+
+        for (int i = _pendingTeardown.Count - 1; i >= 0; i--)
+        {
+            var (instance, framesLeft) = _pendingTeardown[i];
+            framesLeft--;
+            if (framesLeft > 0)
+            {
+                _pendingTeardown[i] = (instance, framesLeft);
+                continue;
+            }
+
+            WaitDeviceIdle();
+            instance.Dispose();
+            _pendingTeardown.RemoveAt(i);
+        }
+    }
+
+    // Blocks until the GPU has finished all in-flight work (incl. the game's scene
+    // pass that recorded our quad), so freeing an instance's GPU graph can't race a
+    // command buffer that still references it.
+    private static void WaitDeviceIdle()
+    {
+        try
+        {
+            Program.GetRenderer()?.Device.WaitIdle();
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Debug($"purrTTY in-world: device WaitIdle before teardown failed ({ex.Message})");
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -315,14 +381,24 @@ public sealed class InWorldTerminalManager : IDisposable
         _focused = null;
         Instance = null;
 
-        // Each instance drains its fences and frees its GPU graph + shell, and
-        // unregisters from the target registry.
+        // Wait the device idle so freeing can't race any final in-flight frame, then
+        // free both live and pending-teardown instances (each drains its fences and
+        // frees its GPU graph + shell, and unregisters from the target registry).
+        WaitDeviceIdle();
+
         for (int i = 0; i < _instances.Count; i++)
         {
             _instances[i].Dispose();
         }
 
         _instances.Clear();
+
+        for (int i = 0; i < _pendingTeardown.Count; i++)
+        {
+            _pendingTeardown[i].Instance.Dispose();
+        }
+
+        _pendingTeardown.Clear();
     }
 
     // Dev convenience: auto-create one default in-world terminal on load when
