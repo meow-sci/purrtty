@@ -103,6 +103,9 @@ internal static class LayoutTomlFormat
             BillboardOffsetY = GetFloat(t, "billboard_offset_y"),
             BillboardWidthMeters = GetFloat(t, "billboard_width_meters"),
             BillboardHeightMeters = GetFloat(t, "billboard_height_meters"),
+            BillboardRotationX = GetFloat(t, "billboard_rotation_x"),
+            BillboardRotationY = GetFloat(t, "billboard_rotation_y"),
+            BillboardRotationZ = GetFloat(t, "billboard_rotation_z"),
             BillboardAlwaysOnTop = GetBool(t, "billboard_always_on_top"),
         };
 
@@ -171,6 +174,9 @@ internal static class LayoutTomlFormat
             AppendNum(sb, "billboard_offset_y", e.BillboardOffsetY);
             AppendNum(sb, "billboard_width_meters", e.BillboardWidthMeters);
             AppendNum(sb, "billboard_height_meters", e.BillboardHeightMeters);
+            AppendNum(sb, "billboard_rotation_x", e.BillboardRotationX);
+            AppendNum(sb, "billboard_rotation_y", e.BillboardRotationY);
+            AppendNum(sb, "billboard_rotation_z", e.BillboardRotationZ);
             AppendBool(sb, "billboard_always_on_top", e.BillboardAlwaysOnTop);
 
             // Shell sub-table LAST (TOML requires a table's scalars before its sub-tables).

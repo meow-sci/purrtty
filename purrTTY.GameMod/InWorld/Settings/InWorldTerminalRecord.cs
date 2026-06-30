@@ -72,6 +72,15 @@ public sealed class InWorldTerminalRecord
     public float BillboardWidthMeters { get; set; } = 3f;
     public float BillboardHeightMeters { get; set; } = 2f;
 
+    /// <summary>
+    ///     View-space rotation (degrees) about the panel's own centre, applied before it
+    ///     is pushed to <see cref="BillboardDistance"/>. Tilts the camera-locked panel so
+    ///     it reads as perspective-distorted (X = pitch/keystone, Y = yaw, Z = in-plane spin).
+    /// </summary>
+    public float BillboardRotationX { get; set; }
+    public float BillboardRotationY { get; set; }
+    public float BillboardRotationZ { get; set; }
+
     /// <summary>When true the billboard ignores depth (always-on-top HUD); otherwise it is occluded.</summary>
     public bool BillboardAlwaysOnTop { get; set; } = true;
 
@@ -103,6 +112,9 @@ public sealed class InWorldTerminalRecord
         BillboardOffsetY = BillboardOffsetY,
         BillboardWidthMeters = BillboardWidthMeters,
         BillboardHeightMeters = BillboardHeightMeters,
+        BillboardRotationX = BillboardRotationX,
+        BillboardRotationY = BillboardRotationY,
+        BillboardRotationZ = BillboardRotationZ,
         BillboardAlwaysOnTop = BillboardAlwaysOnTop,
     };
 }

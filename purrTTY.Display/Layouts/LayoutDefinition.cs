@@ -65,6 +65,9 @@ public sealed class TerminalEntry
     public float? BillboardOffsetY { get; set; }
     public float? BillboardWidthMeters { get; set; }
     public float? BillboardHeightMeters { get; set; }
+    public float? BillboardRotationX { get; set; }
+    public float? BillboardRotationY { get; set; }
+    public float? BillboardRotationZ { get; set; }
     public bool? BillboardAlwaysOnTop { get; set; }
 
     /// <summary>Shell + startup command for this terminal.</summary>

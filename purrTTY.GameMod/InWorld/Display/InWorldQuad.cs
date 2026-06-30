@@ -331,10 +331,20 @@ public sealed class InWorldQuad : IDisposable
         // NOTE: the forward-axis sign (-distance) is the single most likely first-run
         // surprise — if the panel renders behind the camera, flip the sign.
         float4x4 scaleMat = float4x4.CreateScale(_settings.BillboardWidthMeters, _settings.BillboardHeightMeters, 1f);
+
+        // User rotation about the panel's own centre (degrees), applied before it is
+        // pushed to `distance` so the panel pivots in place — projection then renders
+        // the tilt as perspective distortion. Mirrors the part-mode user rotation.
+        const float deg2rad = MathF.PI / 180f;
+        float4x4 userRot = float4x4.CreateRotationX(_settings.BillboardRotationX * deg2rad)
+                         * float4x4.CreateRotationY(_settings.BillboardRotationY * deg2rad)
+                         * float4x4.CreateRotationZ(_settings.BillboardRotationZ * deg2rad);
+
         float4x4 placeMat = float4x4.CreateTranslation(
             new float3(_settings.BillboardOffsetX, _settings.BillboardOffsetY, -_settings.BillboardDistance));
 
-        model = scaleMat * placeMat;
+        // v_local → scale → userRot (about centre) → place (offset + forward distance).
+        model = scaleMat * userRot * placeMat;
         useNoDepth = _settings.BillboardAlwaysOnTop;
         return true;
     }

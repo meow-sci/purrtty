@@ -236,6 +236,9 @@ public sealed class LayoutManager
         BillboardOffsetY = r.BillboardOffsetY,
         BillboardWidthMeters = r.BillboardWidthMeters,
         BillboardHeightMeters = r.BillboardHeightMeters,
+        BillboardRotationX = r.BillboardRotationX,
+        BillboardRotationY = r.BillboardRotationY,
+        BillboardRotationZ = r.BillboardRotationZ,
         BillboardAlwaysOnTop = r.BillboardAlwaysOnTop,
     };
 
@@ -277,6 +280,9 @@ public sealed class LayoutManager
         BillboardOffsetY = e.BillboardOffsetY ?? 0f,
         BillboardWidthMeters = e.BillboardWidthMeters ?? 3f,
         BillboardHeightMeters = e.BillboardHeightMeters ?? 2f,
+        BillboardRotationX = e.BillboardRotationX ?? 0f,
+        BillboardRotationY = e.BillboardRotationY ?? 0f,
+        BillboardRotationZ = e.BillboardRotationZ ?? 0f,
         BillboardAlwaysOnTop = e.BillboardAlwaysOnTop ?? true,
     };
 

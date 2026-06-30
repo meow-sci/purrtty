@@ -437,6 +437,9 @@ public sealed class InWorldManagerUI
             DragRow("Screen Offset Y (m)", "##by", s.BillboardOffsetY, 0.02f, -100f, 100f, v => s.BillboardOffsetY = v);
             DragRow("Width (m)", "##bw", s.BillboardWidthMeters, 0.02f, 0.05f, 100f, v => s.BillboardWidthMeters = v);
             DragRow("Height (m)", "##bh", s.BillboardHeightMeters, 0.02f, 0.05f, 100f, v => s.BillboardHeightMeters = v);
+            DragRow("Rotation X (deg)", "##brx", s.BillboardRotationX, 0.5f, -180f, 180f, v => s.BillboardRotationX = v);
+            DragRow("Rotation Y (deg)", "##bry", s.BillboardRotationY, 0.5f, -180f, 180f, v => s.BillboardRotationY = v);
+            DragRow("Rotation Z (deg)", "##brz", s.BillboardRotationZ, 0.5f, -180f, 180f, v => s.BillboardRotationZ = v);
             ImGuiWidgets.EndFormTable();
         }
 

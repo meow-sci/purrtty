@@ -51,11 +51,59 @@ public static class ImGuiWidgets
         return open;
     }
 
-    /// <summary>Ends a <see cref="BeginFormTable"/>.</summary>
+    /// <summary>
+    ///     Like <see cref="BeginFormTable"/> but the label column is a <b>fixed</b> width
+    ///     (<paramref name="labelWidth"/>, typically from <see cref="MeasureLabelWidth"/>)
+    ///     and the widget column stretches to fill the rest — so several form sections in
+    ///     the same dialog line up to one uniform label gutter regardless of the widest
+    ///     label in each. Pair each <see cref="FormRow"/> with one full-width widget, and
+    ///     close with <see cref="EndFormTable"/>.
+    /// </summary>
+    public static bool BeginFormTableFixed(string id, float labelWidth)
+    {
+        ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, new float2(6f, 6f));
+        bool open = ImGui.BeginTable(id, 2, ImGuiTableFlags.NoPadOuterX);
+        if (open)
+        {
+            ImGui.TableSetupColumn($"{id}_l", ImGuiTableColumnFlags.WidthFixed, labelWidth);
+            ImGui.TableSetupColumn($"{id}_w", ImGuiTableColumnFlags.WidthStretch, 1f);
+        }
+        else
+        {
+            ImGui.PopStyleVar();
+        }
+
+        return open;
+    }
+
+    /// <summary>Ends a <see cref="BeginFormTable"/> or <see cref="BeginFormTableFixed"/>.</summary>
     public static void EndFormTable()
     {
         ImGui.EndTable();
         ImGui.PopStyleVar();
+    }
+
+    /// <summary>
+    ///     Measures the pixel width a fixed label column needs to fit the widest of
+    ///     <paramref name="labels"/> in the current font, plus a small gutter. Feed the
+    ///     result to <see cref="BeginFormTableFixed"/> to give every section of a dialog
+    ///     the same content-fitted label column. Call within an active ImGui frame.
+    /// </summary>
+    public static float MeasureLabelWidth(IReadOnlyList<string> labels)
+    {
+        float max = 0f;
+        for (int i = 0; i < labels.Count; i++)
+        {
+            float w = ImGui.CalcTextSize(labels[i]).X;
+            if (w > max)
+            {
+                max = w;
+            }
+        }
+
+        // Pad past the widest label so it never clips and leaves a gap before the widget
+        // column (covers the cell's left/right padding plus a little breathing room).
+        return max + 16f;
     }
 
     /// <summary>
@@ -74,15 +122,17 @@ public static class ImGuiWidgets
 
     /// <summary>
     ///     A red, clearly-destructive button (KSA "Destroy"-style). Returns true when
-    ///     clicked. Must run with an active ImGui frame (uses the style alpha).
+    ///     clicked. Pass <paramref name="size"/> to size it (e.g. a half-width footer
+    ///     button); omit for auto-fit. Must run with an active ImGui frame (uses the
+    ///     style alpha).
     /// </summary>
-    public static bool DestructiveButton(string label)
+    public static bool DestructiveButton(string label, float2? size = null)
     {
         ImGui.PushStyleColor(ImGuiCol.Button, ImGui.GetColorU32(new float4(0.70f, 0.18f, 0.18f, 1f)));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, ImGui.GetColorU32(new float4(0.85f, 0.25f, 0.25f, 1f)));
         ImGui.PushStyleColor(ImGuiCol.ButtonActive, ImGui.GetColorU32(new float4(0.60f, 0.12f, 0.12f, 1f)));
         ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(new float4(0.97f, 0.97f, 0.97f, 1f)));
-        bool clicked = ImGui.Button(label);
+        bool clicked = ImGui.Button(label, size);
         ImGui.PopStyleColor();
         ImGui.PopStyleColor();
         ImGui.PopStyleColor();
