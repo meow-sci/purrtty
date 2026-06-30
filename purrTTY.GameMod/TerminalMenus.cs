@@ -46,6 +46,9 @@ internal static class TerminalMenus
     /// <summary>Opens the in-world terminal manager dialog. Null when the in-world feature is unavailable.</summary>
     internal static Action? OpenInWorldManager;
 
+    /// <summary>Opens the layouts manager dialog (save / load / edit / tear-down sets of terminals). Null when unavailable.</summary>
+    internal static Action? OpenLayoutManager;
+
     /// <summary>
     ///     The live controller the game menus act on (null until initialized).
     /// </summary>
@@ -92,13 +95,19 @@ internal static class TerminalMenus
             OpenToggleHotkeySettings?.Invoke();
         }
 
-        if (OpenInWorldManager != null)
+        if (OpenInWorldManager != null || OpenLayoutManager != null)
         {
             ImGui.Separator();
-            if (ImGui.MenuItem("In-World Terminals..."))
-            {
-                OpenInWorldManager.Invoke();
-            }
+        }
+
+        if (OpenInWorldManager != null && ImGui.MenuItem("In-World Terminals..."))
+        {
+            OpenInWorldManager.Invoke();
+        }
+
+        if (OpenLayoutManager != null && ImGui.MenuItem("Layouts..."))
+        {
+            OpenLayoutManager.Invoke();
         }
 
         var controller = MenuController;

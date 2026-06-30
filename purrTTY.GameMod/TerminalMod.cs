@@ -6,6 +6,8 @@ using purrTTY.Display.Theming;
 using StarMap.API;
 using purrTTY.Logging;
 using purrTTY.GameMod.InWorld;
+using purrTTY.GameMod.Layouts;
+using purrTTY.GameMod.Layouts.UI;
 using purrTTY.GameMod.UI;
 using ModMenu;
 using float2 = Brutal.Numerics.float2;
@@ -43,6 +45,9 @@ public class TerminalMod
 
     private ThemeDialog? _themeDialog;
 
+    private LayoutManager? _layoutManager;
+    private LayoutManagerUI? _layoutUi;
+
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
     /// <summary>
@@ -75,6 +80,10 @@ public class TerminalMod
             // The theme + in-world manager are non-modal windows now (drawn here / in
             // the in-world coordinator); they do not block the toggle hotkey.
             _themeDialog?.Render();
+
+            // Layouts dialog: applying a layout creates in-world instances, which need an
+            // active ImGui frame — so it is pumped here in OnAfterUi like the other dialogs.
+            _layoutUi?.Draw();
 
             // Handle terminal toggle keybind (dynamic, defaults to F12). Suppressed
             // while the in-world terminal is focused so the key reaches that shell.
@@ -135,6 +144,10 @@ public class TerminalMod
             // In-world render-to-texture quad (plans/GAME_SPACE_QUAD_PLAN.md).
             // Built here because the renderer is only live from OnFullyLoaded on.
             TryInitializeInWorld();
+
+            // Layout manager (save/load/edit/tear-down sets of terminals) sits above both
+            // the 2D controller and the in-world manager, so it is built last.
+            TryInitializeLayouts();
         }
         catch (Exception ex)
         {
@@ -166,6 +179,28 @@ public class TerminalMod
             ModLog.Log.Error($"purrTTY GameMod: in-world terminal init failed: {ex.Message}");
             _inWorld?.Dispose();
             _inWorld = null;
+        }
+    }
+
+    private void TryInitializeLayouts()
+    {
+        if (_controller == null)
+        {
+            return;
+        }
+
+        try
+        {
+            // _inWorld may be null (in-world unavailable) — window-only layouts still work.
+            _layoutManager = new LayoutManager(_controller, _inWorld, _controller.Catalog);
+            _layoutUi = new LayoutManagerUI(_layoutManager);
+            TerminalMenus.OpenLayoutManager = () => _layoutUi?.RequestOpen();
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY GameMod: layout manager init failed: {ex.Message}");
+            _layoutUi = null;
+            _layoutManager = null;
         }
     }
 
@@ -640,6 +675,9 @@ public class TerminalMod
             TerminalMenus.MenuController = null;
             _themeDialog = null;
             TerminalMenus.OpenInWorldManager = null;
+            TerminalMenus.OpenLayoutManager = null;
+            _layoutUi = null;
+            _layoutManager = null;
 
             _isInitialized = false;
             _isDisposed = true;

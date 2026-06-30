@@ -41,6 +41,9 @@ public sealed class LayoutManager
 
     public LayoutCatalog Catalog => _catalog;
 
+    /// <summary>The theme catalog used to resolve a layout's per-terminal theme by name.</summary>
+    public ThemeCatalog Themes => _themes;
+
     /// <summary>The layouts currently applied (and still tracking ≥1 live terminal).</summary>
     public IReadOnlyCollection<string> LoadedLayouts => _loaded.Keys;
 
