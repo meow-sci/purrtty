@@ -318,14 +318,14 @@ public sealed class ThemeDialog
     private List<(string Key, string Label)> BuildThemeItems()
     {
         var items = new List<(string Key, string Label)>();
-        foreach (var theme in _controller.Catalog.BuiltInThemes)
-        {
-            items.Add((theme.Name, theme.Name));
-        }
-
         foreach (var theme in _controller.Catalog.UserThemes)
         {
             items.Add((theme.Name, $"{theme.Name}  (saved)"));
+        }
+
+        foreach (var theme in _controller.Catalog.BuiltInThemes)
+        {
+            items.Add((theme.Name, theme.Name));
         }
 
         return items;

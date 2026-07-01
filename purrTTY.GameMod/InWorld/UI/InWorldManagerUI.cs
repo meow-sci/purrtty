@@ -777,14 +777,14 @@ public sealed class InWorldManagerUI
         var items = new List<(string Key, string Label)>();
         if (_manager.Catalog is { } catalog)
         {
-            foreach (var theme in catalog.BuiltInThemes)
-            {
-                items.Add((theme.Name, theme.Name));
-            }
-
             foreach (var theme in catalog.UserThemes)
             {
                 items.Add((theme.Name, $"{theme.Name}  (saved)"));
+            }
+
+            foreach (var theme in catalog.BuiltInThemes)
+            {
+                items.Add((theme.Name, theme.Name));
             }
         }
 

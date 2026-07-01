@@ -461,14 +461,14 @@ public sealed class LayoutManagerUI
     private bool DrawThemePicker(string id, ref string? selected)
     {
         var items = new List<(string Key, string Label)>();
-        foreach (var theme in _manager.Themes.BuiltInThemes)
-        {
-            items.Add((theme.Name, theme.Name));
-        }
-
         foreach (var theme in _manager.Themes.UserThemes)
         {
             items.Add((theme.Name, $"{theme.Name}  (saved)"));
+        }
+
+        foreach (var theme in _manager.Themes.BuiltInThemes)
+        {
+            items.Add((theme.Name, theme.Name));
         }
 
         if (ImGuiWidgets.FilterCombo(id, selected ?? "(default)", _themeFilter, items, out string? picked) && picked != null)
