@@ -9,11 +9,12 @@ internal struct GridRenderStats
 {
     public int BackgroundRects;
     public int BlockRects;
+    public int BrailleDots;
     public int GlyphRuns;
     public int GlyphCells;
     public int DecorationLines;
 
-    public readonly int TotalCalls => BackgroundRects + BlockRects + GlyphRuns + GlyphCells + DecorationLines;
+    public readonly int TotalCalls => BackgroundRects + BlockRects + BrailleDots + GlyphRuns + GlyphCells + DecorationLines;
 }
 
 /// <summary>
@@ -29,7 +30,11 @@ internal struct GridRenderStats
 /// Block Elements (U+2580–U+259F) are drawn as exact rects instead of font
 /// glyphs — pixel-perfect cell coverage with no hinting seams between cells,
 /// and half-block "pixel" output (doom, chafa, notcurses) collapses into merged
-/// color strips. The decoration pass is skipped for rows without decorations.
+/// color strips. Braille Patterns (U+2800–U+28FF) are likewise drawn directly as
+/// their 2×4 dot matrix — the bundled fonts ship no braille glyphs, so routing
+/// them through the font would render U+FFFD tofu (this is what breaks ratatui /
+/// notcurses braille plots). The decoration pass is skipped for rows without
+/// decorations.
 /// </summary>
 internal static class FrameGridRenderer
 {
@@ -249,6 +254,37 @@ internal static class FrameGridRenderer
                             ToU32(cell.Fg, foregroundOpacity));
                     }
 
+                    continue;
+                }
+
+                // Braille Patterns: 2×4 dot matrix drawn directly. The bundled
+                // fonts ship no braille glyphs, so going through the font would
+                // yield U+FFFD tofu; ratatui/notcurses braille plots also stay
+                // crisp this way (same rationale as the Block Elements above).
+                if (ch >= '\u2800' && ch <= '\u28FF' && cell.Width == CellWidth.Narrow)
+                {
+                    if (runStart >= 0)
+                    {
+                        stats.GlyphRuns++;
+                        FlushRun(drawList, fonts, fontSize, origin, y, cellWidth, runStart, runVariant, runColor, runScratch, runLen);
+                        runStart = -1;
+                        runLen = 0;
+                    }
+
+                    if (blockStart >= 0)
+                    {
+                        drawList.AddRectFilled(
+                            new float2(origin.X + blockStart * cellWidth, y + blockY0 * cellHeight),
+                            new float2(origin.X + blockEnd * cellWidth, y + blockY1 * cellHeight),
+                            blockColor);
+                        stats.BlockRects++;
+                        blockStart = -1;
+                    }
+
+                    stats.BrailleDots += DrawBrailleCell(
+                        drawList, ch,
+                        origin.X + c * cellWidth, y, cellWidth, cellHeight,
+                        ToU32(cell.Fg, foregroundOpacity));
                     continue;
                 }
 
@@ -543,6 +579,58 @@ internal static class FrameGridRenderer
         }
     }
 
+    /// <summary>
+    /// Draws a Braille Patterns glyph (U+2800–U+28FF) as its 2×4 dot matrix.
+    /// The low 8 bits of (ch − 0x2800) are the dot pattern; Unicode numbers the
+    /// dots down the left column then down the right:
+    /// <code>
+    ///   1 4      bit0 bit3
+    ///   2 5      bit1 bit4
+    ///   3 6      bit2 bit5
+    ///   7 8      bit6 bit7
+    /// </code>
+    /// Dots sit on a uniform grid (column centers at ¼/¾, row centers at
+    /// ⅛/⅜/⅝/⅞) so set dots tile seamlessly across cell edges — a filled graph
+    /// region reads evenly with no seams. Returns the dot count drawn.
+    /// </summary>
+    private static int DrawBrailleCell(
+        ImDrawListPtr drawList, char ch, float x, float y, float cellWidth, float cellHeight, uint fg)
+    {
+        int pattern = ch - 0x2800;
+        if (pattern == 0)
+        {
+            return 0; // U+2800 BRAILLE PATTERN BLANK — nothing to draw.
+        }
+
+        float colW = cellWidth * 0.5f;
+        float rowH = cellHeight * 0.25f;
+        // Radius capped at half the smaller dot pitch so dots never overlap;
+        // floored so they stay visible in tiny cells.
+        float radius = Math.Max(0.75f, 0.42f * Math.Min(colW, rowH));
+
+        int dots = 0;
+        for (int col = 0; col < 2; col++)
+        {
+            float cx = x + (col + 0.5f) * colW;
+            for (int row = 0; row < 4; row++)
+            {
+                // Rows 0–2 are bits col*3+row (left 0,1,2 / right 3,4,5);
+                // the bottom row is bit 6 (left, dot 7) or 7 (right, dot 8).
+                int bit = row < 3 ? col * 3 + row : 6 + col;
+                if ((pattern & (1 << bit)) == 0)
+                {
+                    continue;
+                }
+
+                float cy = y + (row + 0.5f) * rowH;
+                drawList.AddCircleFilled(new float2(cx, cy), radius, fg);
+                dots++;
+            }
+        }
+
+        return dots;
+    }
+
     /// <summary>Encodes a single UTF-16 unit (never a surrogate) as UTF-8; returns bytes written.</summary>
     private static int AppendUtf8(byte[] buffer, int offset, char ch)
     {
@@ -633,6 +721,12 @@ internal static class FrameGridRenderer
                         {
                             DrawBlockCell(drawList, ch, x, y, cellWidth, cellHeight, glyphColor);
                         }
+                    }
+                    else if (ch >= '\u2800' && ch <= '\u28FF' && cell.Width == CellWidth.Narrow)
+                    {
+                        // Braille has no font glyph either; draw its dots in the
+                        // background color so the char stays legible under the cursor.
+                        DrawBrailleCell(drawList, ch, x, y, cellWidth, cellHeight, glyphColor);
                     }
                     else
                     {

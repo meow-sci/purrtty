@@ -74,7 +74,7 @@ public sealed partial class TerminalWindow
             (false, true)  => $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s  DROP:{frameStats.InboxDropTotal}",
             _              => $"submit {submitMs:F2}ms  state {state}  in {_hudBytesPerSec / 1048576.0:F2} MB/s",
         };
-        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}  img:{imagePlacements}/{imageTextures}+{newImages}  vram:{vramBytes / 1048576.0:F1}MB";
+        ImString l3 = $"draws bg:{stats.BackgroundRects} blk:{stats.BlockRects} brl:{stats.BrailleDots} runs:{stats.GlyphRuns} cell:{stats.GlyphCells} deco:{stats.DecorationLines} = {stats.TotalCalls}  img:{imagePlacements}/{imageTextures}+{newImages}  vram:{vramBytes / 1048576.0:F1}MB";
 
         // Line 4: kitty diagnostics (only when the diag flag is on).
         // Shows storage existence, placement counts, and the first 32 bytes after
