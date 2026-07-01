@@ -206,6 +206,26 @@ public unsafe void RecordDraw(CommandBuffer cmd)
 }
 ```
 
+**Gotcha — a `DepthTestNoWrite` (or `NoDepthTest`) quad drawn here can be masked by a planet.**
+`RenderMainPass` only draws *opaque* scene geometry (vehicle parts, the planet's solid body). After its
+render pass ends, KSA still runs `OceanRenderer.Render` (its own `VkRenderPass`, same depth/color images)
+and `PlanetTransparenciesRenderer.Render` → atmosphere/cloud **compute** shaders that `imageLoad`/
+`imageStore` the resolved offscreen color image directly, using the existing depth buffer to decide how
+to repaint every pixel. A quad that doesn't write depth leaves no trace for those passes to see, so
+wherever it overlaps a planet they unconditionally overwrite it — a hard cutout that exactly follows the
+planet's silhouette (looks like normal depth occlusion, isn't). Two fixes:
+- If the quad always writes depth (`DepthTestWrite`), atmosphere/ocean correctly treat it as an occluder
+  — simplest, but reintroduces quad-vs-quad self-occlusion if you ever draw more than one.
+- If it must stay `DepthTestNoWrite` (e.g. several overlapping translucent quads), postfix
+  `SuperMeshRenderSystem.RenderTranslucencyPass` instead — KSA's own slot for translucent scene geometry,
+  which runs after atmosphere/ocean. It closes its own dynamic-rendering scope before returning though, so
+  the postfix must reopen a second `BeginRendering`/`EndRendering` (`LoadOp.Load` for color+depth, plus a
+  `ColorAttachmentWrite`→`ColorAttachmentRead` barrier), mirroring KSA's own `PartModelGlass.WriteCommandsColor`.
+  This also means the pipeline must be built with `VkPipelineRenderingCreateInfo` (no `RenderPass` handle)
+  instead of `RenderPass = Program.OffScreenPass.Pass`, since dynamic rendering and classic render passes
+  are not pipeline-compatible. purrTTY's in-world terminal quad (`purrTTY.GameMod/InWorld/`) hit exactly
+  this bug — see `RenderTranslucencyPassPatch.cs` and gotcha 32 in `docs/gotchas.md` for the worked fix.
+
 ## Positioning the quad relative to a SubPart — ego space
 
 KSA renders the scene in **ego space** (camera-centered local frame, to keep float32 precision near the camera). `camera.MVP.viewProjection` is built for ego-space verts, so the model matrix you push must also be in ego space.

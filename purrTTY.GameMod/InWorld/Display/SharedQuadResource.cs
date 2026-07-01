@@ -154,15 +154,30 @@ public sealed class SharedQuadResource : IDisposable
             Name   = Presets.Entrypoint.Main,
         };
 
-        // ---- Pipeline state — the load-bearing bits (z-order fix from commit 5be1aad) ----
-        // Bind to Program.OffScreenPass, NOT Program.MainPass: the scene (parts + our
-        // postfix) runs inside the offscreen MSAA pass; MainPass is the 1-bit
-        // swapchain pass. RasterizationSamples must match the scene framebuffer's MSAA.
-        // Cull none: a user-orientable single quad should never be invisible from its
-        // back face. Two pipelines differ only in depth state.
+        // ---- Pipeline state — the load-bearing bits ----
+        // Built for DYNAMIC RENDERING (VkPipelineRenderingCreateInfo), not a classic
+        // VkRenderPass — see the RenderTranslucencyPassPatch draw-order note below for
+        // why. RasterizationSamples must match the scene framebuffer's MSAA. Cull none:
+        // a user-orientable single quad should never be invisible from its back face.
+        // Two pipelines differ only in depth state.
         var multisample = new VkPipelineMultisampleStateCreateInfo
         {
             RasterizationSamples = Program.OffScreenPass.SampleCount,
+        };
+
+        // Dynamic-rendering pipeline info (mirrors KSA's own PartModelGlass pipeline,
+        // which draws translucent geometry in this same post-atmosphere slot): no
+        // VkRenderPass handle, just the attachment formats the pipeline must be
+        // compatible with.
+        var colorFormat = Program.OffscreenTarget.ColorImage.Format;
+        var renderingInfo = stackalloc VkPipelineRenderingCreateInfo[1];
+        renderingInfo[0] = new VkPipelineRenderingCreateInfo
+        {
+            ColorAttachmentCount    = 1,
+            ColorAttachmentFormats  = &colorFormat,
+            DepthAttachmentFormat   = Program.OffscreenTarget.DepthImage.Format,
+            StencilAttachmentFormat = VkFormat.Undefined,
+            ViewMask                = 0,
         };
 
         // PREMULTIPLIED-alpha blend. The off-screen terminal texture is produced by KSA's
@@ -193,8 +208,7 @@ public sealed class SharedQuadResource : IDisposable
         var pipelineInfo = new VkGraphicsPipelineCreateInfo
         {
             Layout             = PipelineLayout,
-            RenderPass         = Program.OffScreenPass.Pass,
-            Subpass            = 0,
+            Next               = renderingInfo,
             StageCount         = 2,
             Stages             = stagesArr,
             DynamicState       = renderer.DynamicStateInfo,

@@ -297,8 +297,8 @@
     id-disambiguated with `##{index}` so duplicate labels (parts sharing a template id) never collide.
 
 25. **Closing an in-world terminal: detach synchronously, free the GPU two frames later.** The render
-    postfix (`RenderMainPassPatch`) records each live instance's quad into the game's scene command
-    buffer **on the same main thread** that drives the coordinator. So `InWorldTerminalManager.Remove`
+    postfix (`RenderTranslucencyPassPatch`) records each live instance's quad into the game's scene
+    command buffer **on the same main thread** that drives the coordinator. So `InWorldTerminalManager.Remove`
     must, in order: remove the instance from `_instances` (the postfix stops drawing it at once),
     unregister it from the target registry, clear focus if it was focused, then **defer** the GPU free
     onto `_pendingTeardown` (`TeardownDelayFrames = 2`). Freeing immediately is a use-after-free
@@ -349,7 +349,8 @@
     opacities at `1.0` the texture alpha is `1` everywhere and the result is pixel-identical to the old
     opaque `BlendNone` quad. The blended part-mode pipeline depth-**tests** but does **not write**
     (`ReverseZDepthStencil.DepthTestNoWrite`) so translucent fragments don't occlude each other via the
-    depth buffer.
+    depth buffer. Because it never writes depth, the quad's draw must happen **after** every KSA pass
+    that reads the depth buffer to repaint color from scratch (atmosphere/clouds/ocean) — see gotcha 32.
 
 29. **Saved layouts are an opt-in set on top of session-only terminals.** A *layout* is a named set of
     terminals (2D windows **and** in-world instances) persisted as one TOML file in
@@ -391,3 +392,34 @@
     **specifically-targeted** part is followed — the empty-target "first part" default keeps re-resolving
     so it stays with the controlled/target vehicle rather than chasing a decoupled chunk. A tracked part
     that vanishes from every vehicle (destroyed) drops the cache and re-resolves.
+
+32. **The in-world quad postfixes `SuperMeshRenderSystem.RenderTranslucencyPass`, not `RenderMainPass`
+    — atmosphere/clouds/ocean draw between the two and don't know about non-depth-writing quads.**
+    KSA's frame (`Program.RenderGame`) draws all *opaque* geometry — vehicle parts, the planet's solid
+    terrain/distant-sphere body — inside `SuperMeshRenderSystem.RenderMainPass`'s render pass, all of
+    which correctly depth-test/write and so are correctly occluded by/occlude the quad. But **after**
+    that render pass ends, `OceanRenderer.Render` (its own `VkRenderPass`, same depth/color images) and
+    `PlanetTransparenciesRenderer.Render` → `AtmosphereRenderer.RenderWithCompute` (a **compute** shader
+    that `imageLoad`/`imageStore`s the resolved offscreen color image directly, gated by a ray-sphere
+    intersection against the atmosphere shell) both run, reading the **existing depth buffer** to decide
+    how to repaint color at every pixel — with no notion of a translucent quad that drew color there
+    without writing depth. The result: atmosphere/clouds/ocean unconditionally overwrite the quad
+    wherever it overlaps a planet, producing a hard cutout following the planet's silhouette (looks like
+    normal depth occlusion but isn't). Postfixing `SuperMeshRenderSystem.RenderTranslucencyPass` instead
+    — the pass KSA itself uses for translucent scene geometry (glass, particles) — runs after both
+    offenders, so the quad survives. Two consequences baked into the fix:
+    - **The pipelines are built for dynamic rendering, not a classic `VkRenderPass`.**
+      `RenderTranslucencyPass(useCustomRenderPass:true)` uses `vkCmdBeginRendering`/`EndRendering`, not
+      `Program.OffScreenPass.Pass` — a pipeline bound to that render pass handle is not valid inside a
+      dynamic-rendering scope. `SharedQuadResource`'s pipelines instead chain a
+      `VkPipelineRenderingCreateInfo` (color format = `Program.OffscreenTarget.ColorImage.Format`, depth
+      format = `Program.OffscreenTarget.DepthImage.Format`, no `RenderPass`/`Subpass`), mirroring KSA's
+      own `PartModelGlass` pipeline (which draws in this same post-atmosphere slot).
+    - **The postfix reopens its own dynamic-rendering scope.** Unlike `RenderMainPass` (which leaves its
+      render pass open for the caller to `EndRenderPass`), `RenderTranslucencyPass` calls its own
+      `BeginRendering`/`EndRendering` internally and returns with the scope already closed — a postfix
+      can't simply append draws into it. `RenderTranslucencyPassPatch` instead issues the same
+      `ColorAttachmentWrite`→`ColorAttachmentRead` barrier plus a second `BeginRendering` (`LoadOp.Load`
+      for both color and depth) that KSA's own `PartModelGlass.WriteCommandsColor` performs at this exact
+      point in the frame, draws every live instance's quad, then `EndRendering`s — a self-contained
+      second dynamic-rendering scope layered on top, not a modification of KSA's own pass.

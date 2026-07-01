@@ -30,7 +30,7 @@ internal static class Patcher
     typeof(Patch02),
     typeof(ConsoleWindowPrintPatch),
     // In-world quad draw injection (no-op unless the in-world feature is active).
-    typeof(RenderMainPassPatch),
+    typeof(RenderTranslucencyPassPatch),
   };
 
   public static void patch()
