@@ -103,6 +103,13 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
   (the Layouts editor / `startup_command` in the TOML). gatOS recipes:
   `cd /root/land-o-matic && cargo run --release` (landing-guidance TUI),
   `watch -n 0.2 cat /sim/vessels/active/telemetry` (zero-build telemetry).
+- The In-World create form's "Startup command" field has a **History** dropdown on the row below it
+  (a full-width filterable combo, `InWorldManagerUI.DrawStartupCommandInput`) listing the last 20
+  distinct values typed there, most-recent first; picking one fills the field above. History is backed by
+  `purrTTY.Display.Configuration.StartupCommandHistory`, persisted to
+  `<config>/.purrTTY/startup-command-history.toml` — loaded once and cached in memory (the combo
+  never touches disk while drawing), and rewritten only when a terminal is actually created with a
+  non-blank startup command.
 
 ## Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.

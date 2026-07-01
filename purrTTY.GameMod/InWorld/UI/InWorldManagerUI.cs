@@ -2,6 +2,7 @@ using Brutal.ImGuiApi;
 using KSA;
 using purrTTY.Core.Terminal;
 using purrTTY.CustomShells;
+using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.GameMod.InWorld.Settings;
 using purrTTY.GameMod.UI;
@@ -51,9 +52,11 @@ public sealed class InWorldManagerUI
     };
 
     private readonly InWorldTerminalManager _manager;
+    private readonly StartupCommandHistory _startupHistory = new();
 
     private readonly ImInputString _nameInput = new(64);
     private readonly ImInputString _startupCommandInput = new(512);
+    private readonly ImInputString _startupHistoryFilter = new(64);
     private readonly ImInputString _shellFilter = new(64);
     private readonly ImInputString _themeFilter = new(64);
     private readonly ImInputString _vehicleFilter = new(64);
@@ -234,8 +237,8 @@ public sealed class InWorldManagerUI
             }
 
             // Optional command auto-run as stdin once the shell starts (e.g. a gatOS flight-computer TUI).
-            ImGuiWidgets.FormRow("Startup command");
-            ImGui.InputText("##iw_startup", _startupCommandInput, ImGuiInputTextFlags.None);
+            // Draws its own two rows: the input, then a blank-label row for the History combo.
+            DrawStartupCommandInput();
 
             ImGuiWidgets.FormRow("Columns");
             ImGui.DragInt("##iw_cols", ref _draftCols, 0.5f, 8, 400, "%d");
@@ -572,6 +575,11 @@ public sealed class InWorldManagerUI
             return;
         }
 
+        if (startupCommand.Length > 0)
+        {
+            _startupHistory.Record(startupCommand);
+        }
+
         _nameInput.Clear();
         _startupCommandInput.Clear();
         _draftShell = null;
@@ -724,6 +732,42 @@ public sealed class InWorldManagerUI
         }
 
         return null;
+    }
+
+    // The free-typed startup-command box (its own labeled row) plus, on the row below under
+    // a blank label cell, a full-width "History" filter-combo that recalls previously used
+    // values (purrTTY.Display.Configuration.StartupCommandHistory, loaded once and cached —
+    // no per-frame file IO). Picking an entry fills the input; the value itself is recorded
+    // to history only on a successful create (CreateFromDraft).
+    private void DrawStartupCommandInput()
+    {
+        ImGuiWidgets.FormRow("Startup command");
+        ImGui.InputText("##iw_startup", _startupCommandInput, ImGuiInputTextFlags.None);
+
+        ImGuiWidgets.FormRow(string.Empty);
+
+        var history = _startupHistory.Entries;
+        bool hasHistory = history.Count > 0;
+        if (!hasHistory)
+        {
+            ImGui.BeginDisabled();
+        }
+
+        var items = new List<(string Key, string Label)>(history.Count);
+        foreach (string cmd in history)
+        {
+            items.Add((cmd, cmd));
+        }
+
+        if (ImGuiWidgets.FilterCombo("##iw_startup_history", "History", _startupHistoryFilter, items, out string? picked) && picked != null)
+        {
+            _startupCommandInput.SetValue(picked);
+        }
+
+        if (!hasHistory)
+        {
+            ImGui.EndDisabled();
+        }
     }
 
     // Returns true (with the picked name) when a theme is chosen this frame. Draws a
