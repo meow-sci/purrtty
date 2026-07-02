@@ -105,9 +105,24 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // (by design) and the inbox only drains on the tick, so a session that is
     // not being ticked (hidden terminal, inactive tab) would otherwise grow
     // without bound under chatty output. The frontend now ticks every session,
-    // so hitting this cap means something upstream is broken — drop is the
-    // last resort, not the regulator.
+    // and a pump thread that fills the inbox now WAITS for the drain
+    // (backpressure, see Write) — so hitting the drop path means the tick has
+    // stalled past the wait budget; drop is the last resort, not the regulator.
     private const int MaxInboxBytes = 8 * 1024 * 1024;
+
+    // How long a pump thread will wait for the tick to drain a full inbox before
+    // falling back to the drop+CAN/ST path. Hidden windows drain at ~4 Hz
+    // (gotcha 18), so the budget covers two hidden-drain cycles; a wait this
+    // long also throttles the producer end to end (SSH window → guest PTY →
+    // the gatOS 9p stream, which drops whole frames at the source) — which is
+    // exactly the lossless behavior a kitty video stream needs: a mid-stream
+    // byte drop severs an APC start and prints the remaining base64 into cells.
+    private static readonly TimeSpan WriteBackpressureBudget = TimeSpan.FromMilliseconds(500);
+
+    // The thread that runs BuildFrame (the drain). A Write from this thread must
+    // never wait on the drain — it would self-deadlock until the timeout (a
+    // custom shell, e.g. the game console, may emit output on the tick thread).
+    private int _tickThreadId;
 
     // Drain up to this many bytes from the inbox per BuildFrame. Set to the full
     // inbox capacity so we always drain everything each tick: VTWrite is fast
@@ -305,6 +320,34 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         bool dropped = false;
         lock (_sync)
         {
+            // Backpressure: when the inbox is full, wait for the tick to drain it
+            // instead of shearing the byte stream (a mid-stream drop severs APC
+            // starts and prints kitty base64 into cells). Only pump threads wait —
+            // never the tick thread itself — and a write that could never fit
+            // (larger than the whole inbox) skips straight to the drop path.
+            if (Environment.CurrentManagedThreadId != Volatile.Read(ref _tickThreadId)
+                && data.Length + DropResetSeq.Length <= MaxInboxBytes)
+            {
+                long waitStart = 0;
+                while (!_disposed
+                       && (long)_inboxLen + (_inboxDroppedTail ? DropResetSeq.Length : 0) + data.Length
+                           > MaxInboxBytes)
+                {
+                    waitStart = waitStart == 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : waitStart;
+                    var remaining = WriteBackpressureBudget
+                                    - System.Diagnostics.Stopwatch.GetElapsedTime(waitStart);
+                    if (remaining <= TimeSpan.Zero || !Monitor.Wait(_sync, remaining))
+                    {
+                        break; // budget exhausted (or spurious timeout) — fall through to drop
+                    }
+                }
+
+                if (_disposed)
+                {
+                    return;
+                }
+            }
+
             int prefix = _inboxDroppedTail ? DropResetSeq.Length : 0;
             long required = (long)_inboxLen + prefix + data.Length;
             if (required > MaxInboxBytes)
@@ -644,6 +687,9 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         ThrowIfDisposed();
         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
 
+        // Writers from this thread must never wait on the drain (see Write).
+        Volatile.Write(ref _tickThreadId, Environment.CurrentManagedThreadId);
+
         int inputLen;
         int inboxDropSnap;
         lock (_sync)
@@ -674,6 +720,13 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                 Array.Copy(_inbox, 0, _scratch, 0, inputLen);
                 Array.Copy(_inbox, inputLen, _inbox, 0, _inboxLen - inputLen);
                 _inboxLen -= inputLen;
+            }
+
+            if (inputLen > 0)
+            {
+                // Space was freed: release any pump threads parked in Write's
+                // backpressure wait.
+                Monitor.PulseAll(_sync);
             }
         }
 
@@ -1433,6 +1486,13 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         }
 
         _disposed = true;
+        // Release any pump thread parked in Write's backpressure wait (it
+        // re-checks _disposed and returns without touching the dying surface).
+        lock (_sync)
+        {
+            Monitor.PulseAll(_sync);
+        }
+
         _selectionAnchor?.Dispose();
         _kittyCursor?.Dispose();
         _mouseEvent.Dispose();

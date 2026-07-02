@@ -163,15 +163,23 @@
     The one tracked object is reused across drags via `Set()` (each tracked ref adds bookkeeping
     to every terminal mutation — don't create them per tick).
 
-18. **Every session is ticked every frame, and the inbox is bounded.** The PTY pumps never sleep
-    (gotcha 14) and a surface inbox drains only inside `BuildFrame`, so any unticked session grows
-    its inbox without bound. `TerminalWindow.Render` ticks **all tabs** (dirty tracking makes quiet
-    ones nearly free) and `GhosttyTerminalController.Update` — which `TerminalMod.OnAfterUi` calls
-    even while the terminal is hidden — drains hidden windows' sessions at ~4 Hz on the same tick
-    thread. Safety nets in `GhosttyTerminalSurface`: the inbox hard-caps at 8 MiB (overflow drops
-    incoming bytes and heals the gap with CAN+ST so the VT parser cannot desync; logged once per
-    episode), and backlog catch-up feeds the engine at most 1 MiB per tick so re-showing a busy
-    terminal cannot stall the render thread on one giant `VTWrite`.
+18. **Every session is ticked every frame, the inbox is bounded, and a full inbox applies
+    BACKPRESSURE before it ever drops.** The PTY pumps never sleep (gotcha 14) and a surface inbox
+    drains only inside `BuildFrame` (the whole inbox per tick — `MaxBytesPerTick == MaxInboxBytes`),
+    so any unticked session grows its inbox without bound. `TerminalWindow.Render` ticks **all
+    tabs** (dirty tracking makes quiet ones nearly free) and `GhosttyTerminalController.Update` —
+    which `TerminalMod.OnAfterUi` calls even while the terminal is hidden — drains hidden windows'
+    sessions at ~4 Hz on the same tick thread. When a pump-thread `Write` would overflow the 8 MiB
+    cap it now **waits for the drain** (`Monitor.Wait` on the inbox lock, 500 ms budget — two
+    hidden-drain cycles): this propagates flow control end to end (SSH window → guest PTY → the
+    gatOS 9p stream, which drops whole *frames* at the source) instead of shearing the byte stream
+    — a mid-stream drop severs a kitty APC start and the remaining base64 prints into cells (seen
+    live with 1440×900 screen-stream frames, ~6.9 MB per unit). The **tick thread itself never
+    waits** (a custom shell — the game console — can emit output on it; waiting would self-deadlock
+    until timeout), a write that could never fit (> the whole inbox) skips straight to the drop
+    path, and `Dispose` pulses parked writers out. The drop+CAN/ST heal (logged once per episode,
+    `drop:N` in the perf HUD) remains as the last resort when the tick stalls past the budget.
+    Pinned by `InboxBackpressureTests`.
 
 19. **Session create/close side effects stay off the published surface.** Creation: configure new
     sessions (theme, surface events) via `SessionManager.SessionConfigurator`, which runs *before*
