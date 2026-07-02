@@ -27,6 +27,46 @@ public sealed class GhosttyKittyGraphicsTests
         => surface.Write(Encoding.UTF8.GetBytes(s));
 
     [Test]
+    public void QuietTicks_SkipTheImageScan_ButKeepPlacementsAndReDecode()
+    {
+        // gatOS PERF_IMPROVEMENT_PLAN.md P5: a tick with no input skips the whole placement +
+        // payload-hash scan (the steady-state tax of a visible video placement), keeps the
+        // placement list, clears the per-tick NewImages hand-off, and a later re-transmit is
+        // still detected.
+        using var surface = NewSurface();
+        Write(surface, TransmitAndDisplay);
+        var first = surface.BuildFrame();
+        Assert.That(first.ImagePlacements, Has.Length.EqualTo(1));
+        Assert.That(first.NewImages, Has.Length.EqualTo(1));
+
+        var quiet = surface.BuildFrame(); // no bytes fed - nothing can have changed
+        Assert.That(quiet.ImagePlacements, Has.Length.EqualTo(1), "placements survive quiet ticks");
+        Assert.That(quiet.NewImages, Is.Empty, "the NewImages hand-off is per-tick");
+
+        // Same-id, equal-length re-transmit (the video pattern) must still re-decode.
+        Write(surface, "_Ga=T,t=d,f=24,i=1,p=1,s=1,v=2,c=10,r=1;AAAAAAAA\\");
+        var retransmit = surface.BuildFrame();
+        Assert.That(retransmit.NewImages, Has.Length.EqualTo(1), "content change detected after quiet ticks");
+    }
+
+    [Test]
+    public void DecodeGate_SkipsDecode_AndRecoversOnReEnable()
+    {
+        // Background tabs keep ticking (placements, inbox) but skip hash + decode; flipping
+        // the gate back on decodes without needing new bytes (perf plan P5).
+        using var surface = NewSurface();
+        surface.DecodeKittyImages = false;
+        Write(surface, TransmitAndDisplay);
+        var background = surface.BuildFrame();
+        Assert.That(background.ImagePlacements, Has.Length.EqualTo(1), "placements still tracked");
+        Assert.That(background.NewImages, Is.Empty, "no decode while the gate is off");
+
+        surface.DecodeKittyImages = true; // forces a scan on the next tick
+        var activated = surface.BuildFrame();
+        Assert.That(activated.NewImages, Has.Length.EqualTo(1), "activation decodes the pending image");
+    }
+
+    [Test]
     public void Placement_AppearsInFrameWithGeometry()
     {
         using var surface = NewSurface();

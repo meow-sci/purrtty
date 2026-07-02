@@ -108,7 +108,10 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // and a pump thread that fills the inbox now WAITS for the drain
     // (backpressure, see Write) — so hitting the drop path means the tick has
     // stalled past the wait budget; drop is the last resort, not the regulator.
-    private const int MaxInboxBytes = 8 * 1024 * 1024;
+    // Sized to hold >=3 full gatOS screen-stream frame units at their largest
+    // (~7 MB at 1440x900 raw), so the lossless park — not the byte-severing
+    // drop — stays the steady mechanism across GC hitches (perf plan P5).
+    internal const int MaxInboxBytes = 24 * 1024 * 1024;
 
     // The kitty-graphics image storage budget handed to the native engine at
     // construction. The lib-artifact native defaults to 10 MB — below TWO frames
@@ -134,13 +137,15 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // custom shell, e.g. the game console, may emit output on the tick thread).
     private int _tickThreadId;
 
-    // Drain up to this many bytes from the inbox per BuildFrame. Set to the full
-    // inbox capacity so we always drain everything each tick: VTWrite is fast
-    // (~0 ms shown in the perf HUD) and kitty-graphics workloads (terminal-doom
-    // at ~55 MB/s) outrun the old 1 MB cap at sub-60fps game rates, causing the
-    // inbox to overflow and DropResetSeq to be injected mid-APC, which corrupts
-    // in-flight kitty sequences and lets their base64 payload land in cells as text.
-    private const int MaxBytesPerTick = MaxInboxBytes;
+    // Drain up to this many bytes from the inbox per BuildFrame. Large enough that
+    // kitty-graphics workloads (terminal-doom at ~55 MB/s, the gatOS screen stream)
+    // never starve at sub-60fps game rates — the old 1 MB cap overflowed the inbox
+    // and injected DropResetSeq mid-APC, landing base64 in cells as text — but no
+    // longer the whole (now 24 MiB) inbox: one tick parsing 24 MiB through the
+    // native per-byte APC path would stall the render thread for tens of ms. The
+    // catch-up branch in BuildFrame carries any remainder to the next tick while
+    // the backpressure park keeps producers lossless.
+    internal const int MaxBytesPerTick = 8 * 1024 * 1024;
 
     // Set when Write had to discard bytes at the inbox tail. The next bytes
     // that are accepted are preceded by CAN + ST, which aborts any escape
@@ -233,6 +238,10 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // drives the change signal so a still image alone doesn't bump the frame generation
     // every tick. The two scratch lists keep the per-tick bookkeeping allocation-free.
     private global::Ghostty.Vt.KittyPlacementCursor? _kittyCursor;
+    // Reused staging for non-raw payloads (zlib/png): grown to the largest payload seen,
+    // so the slow decode path stops allocating a fresh payload copy per changed frame.
+    private byte[] _imagePayloadScratch = [];
+    private bool _decodeKittyImages = true;
     private readonly Dictionary<uint, ulong> _emittedImageContent = new();
     private readonly List<uint> _seenImageIds = new(4);
     private readonly List<uint> _staleImageIds = new(4);
@@ -308,6 +317,24 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
     /// <summary>Test seam: the engine terminal, for asserting native-side configuration.</summary>
     internal VtTerminal EngineTerminal => _terminal;
+
+    /// <inheritdoc/>
+    public bool DecodeKittyImages
+    {
+        get => _decodeKittyImages;
+        set
+        {
+            // Re-enabling must force a placement scan on the next tick: image content that
+            // arrived while decoding was off never updated _emittedImageContent, so the scan
+            // re-hashes, mismatches, and decodes — without waiting for new bytes.
+            if (value && !_decodeKittyImages)
+            {
+                _pendingChange = true;
+            }
+
+            _decodeKittyImages = value;
+        }
+    }
 
     public int Cols => _terminal.Cols;
     public int Rows => _terminal.Rows;
@@ -849,10 +876,16 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         _renderState.Update(_terminal);
         long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
+        // Placements can only move (and image bytes only change) when the engine mutated:
+        // bytes were fed this tick, or an out-of-band mutation (resize / viewport scroll /
+        // decode-gate flip) set _pendingChange. A quiet tick skips the whole placement +
+        // payload-hash scan — the previous steady-state cost of one visible video placement
+        // was a full ~frame-size FNV hash every tick (perf plan P5).
+        bool engineMutated = inputLen > 0 || _pendingChange;
         bool changed = PopulateFrame(_pendingChange);
         _pendingChange = false;
         changed |= RefreshCursorAndScrollbar();
-        changed |= PopulateImages();
+        changed |= PopulateImages(engineMutated);
         long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         if (changed)
@@ -1084,8 +1117,23 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     /// image state changed (new image, or the visible placement set differs) so a
     /// still image alone doesn't bump the frame generation each tick.
     /// </summary>
-    private bool PopulateImages()
+    private bool PopulateImages(bool engineMutated)
     {
+        // Quiet tick: no bytes were fed and nothing moved the viewport, so neither the
+        // placement set nor any image payload can have changed — skip the scan (and with it
+        // the per-placement full-payload hash, the steady-state tax of a visible video
+        // placement). NewImages is a per-tick hand-off; the host consumed last tick's on the
+        // tick that produced them.
+        if (!engineMutated)
+        {
+            if (_frame.NewImages.Length > 0)
+            {
+                _frame.NewImages = [];
+            }
+
+            return false;
+        }
+
         _kittyCursor ??= new global::Ghostty.Vt.KittyPlacementCursor(_terminal);
 
         List<ImagePlacement>? placements = null;
@@ -1137,19 +1185,26 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                     _seenImageIds.Add(p.ImageId);
                 }
 
-                ulong contentHash = _kittyCursor.HashImageData(p.ImageId) ?? 0;
-                bool hadPrevious = _emittedImageContent.TryGetValue(p.ImageId, out ulong prevHash);
-                if (!hadPrevious || prevHash != contentHash)
+                // Non-visible surfaces (background tabs) skip the hash + decode entirely:
+                // nothing would upload the pixels. _emittedImageContent stays untouched, so
+                // re-enabling the gate re-hashes and decodes on the next scan (see the
+                // DecodeKittyImages setter, which forces that scan).
+                if (_decodeKittyImages)
                 {
-                    if (DecodeImage(p.ImageId) is { } img)
+                    ulong contentHash = _kittyCursor.HashImageData(p.ImageId) ?? 0;
+                    bool hadPrevious = _emittedImageContent.TryGetValue(p.ImageId, out ulong prevHash);
+                    if (!hadPrevious || prevHash != contentHash)
                     {
-                        newImages ??= new List<TerminalImage>(1);
-                        newImages.Add(img);
-                    }
-                    _emittedImageContent[p.ImageId] = contentHash;
-                    if (hadPrevious)
-                    {
-                        _logger.LogDebug("kitty image {Id} re-transmitted (content changed)", p.ImageId);
+                        if (DecodeImage(p.ImageId) is { } img)
+                        {
+                            newImages ??= new List<TerminalImage>(1);
+                            newImages.Add(img);
+                        }
+                        _emittedImageContent[p.ImageId] = contentHash;
+                        if (hadPrevious)
+                        {
+                            _logger.LogDebug("kitty image {Id} re-transmitted (content changed)", p.ImageId);
+                        }
                     }
                 }
             }
@@ -1211,19 +1266,62 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             return null;
         }
 
-        var data = _kittyCursor.CopyImageData(imageId);
-        if (data is null)
+        var payloadLength = _kittyCursor.GetImageDataLen(imageId);
+        if (payloadLength <= 0 || payloadLength > int.MaxValue)
+        {
+            return null;
+        }
+
+        // Fast path — the video case (raw RGBA, no compression): the stored payload IS the
+        // pixel block, so read it from the engine straight into the final buffer. One copy,
+        // one allocation per changed frame; the previous copy-then-decode path allocated and
+        // copied the ~frame-sized payload twice (2 × 5.2 MB LOH at 1440x900 — perf plan P5).
+        if (meta is { Format: KittyImageFormat.Rgba, Compression: KittyImageCompression.None })
+        {
+            long pixels = (long)meta.Width * meta.Height;
+            long needed = pixels * 4;
+            if (meta.Width <= 0 || meta.Height <= 0 || pixels > KittyImageDecoder.MaxPixels
+                || payloadLength < needed)
+            {
+                return null;
+            }
+
+            var rgba = new byte[needed];
+            if (_kittyCursor.ReadImageData(imageId, rgba) != rgba.Length)
+            {
+                return null;
+            }
+
+            return new TerminalImage
+            {
+                ImageId = (int)imageId,
+                ContentVersion = ++_imageVersionCounter,
+                Width = (int)meta.Width,
+                Height = (int)meta.Height,
+                Rgba = rgba,
+            };
+        }
+
+        // Slow path (zlib / png / packed layouts): stage the payload in the reused scratch
+        // (grown to the largest payload seen) and run the decoder over it.
+        var length = (int)payloadLength;
+        if (_imagePayloadScratch.Length < length)
+        {
+            _imagePayloadScratch = new byte[Math.Max(length, _imagePayloadScratch.Length * 2)];
+        }
+
+        if (_kittyCursor.ReadImageData(imageId, _imagePayloadScratch.AsSpan(0, length)) != length)
         {
             return null;
         }
 
         var decoded = KittyImageDecoder.Decode(
-            meta.Format, meta.Compression, data, (int)meta.Width, (int)meta.Height);
+            meta.Format, meta.Compression, _imagePayloadScratch, length, (int)meta.Width, (int)meta.Height);
         if (decoded is not { } d)
         {
             _logger.LogDebug(
                 "kitty image {Id} decode failed (format {Format}, compression {Compression}, {Bytes} bytes)",
-                imageId, meta.Format, meta.Compression, data.Length);
+                imageId, meta.Format, meta.Compression, length);
             return null;
         }
 

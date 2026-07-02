@@ -24,22 +24,39 @@ internal static class KittyImageDecoder
         byte[] data,
         int width,
         int height)
+        => Decode(format, compression, data, data.Length, width, height);
+
+    /// <summary>
+    /// Length-bounded overload: <paramref name="data"/> may be an oversized reused scratch
+    /// holding <paramref name="dataLength"/> payload bytes (gatOS PERF_IMPROVEMENT_PLAN.md P5 —
+    /// the caller stages the engine payload in one reusable buffer instead of allocating a
+    /// fresh copy per changed frame).
+    /// </summary>
+    public static DecodedImage? Decode(
+        KittyImageFormat format,
+        KittyImageCompression compression,
+        byte[] data,
+        int dataLength,
+        int width,
+        int height)
     {
         try
         {
-            var bytes = compression == KittyImageCompression.ZlibDeflate ? Inflate(data) : data;
-            if (bytes is null)
+            int length = dataLength;
+            var bytes = data;
+            if (compression == KittyImageCompression.ZlibDeflate)
             {
-                return null;
+                bytes = Inflate(data, dataLength);
+                length = bytes.Length;
             }
 
             return format switch
             {
-                KittyImageFormat.Png => DecodePng(bytes),
-                KittyImageFormat.Rgba => FromRaw(bytes, width, height, 4),
-                KittyImageFormat.Rgb => FromRaw(bytes, width, height, 3),
-                KittyImageFormat.GrayAlpha => FromRaw(bytes, width, height, 2),
-                KittyImageFormat.Gray => FromRaw(bytes, width, height, 1),
+                KittyImageFormat.Png => DecodePng(bytes, length),
+                KittyImageFormat.Rgba => FromRaw(bytes, length, width, height, 4),
+                KittyImageFormat.Rgb => FromRaw(bytes, length, width, height, 3),
+                KittyImageFormat.GrayAlpha => FromRaw(bytes, length, width, height, 2),
+                KittyImageFormat.Gray => FromRaw(bytes, length, width, height, 1),
                 _ => null,
             };
         }
@@ -50,17 +67,24 @@ internal static class KittyImageDecoder
         }
     }
 
-    private static byte[] Inflate(byte[] data)
+    private static byte[] Inflate(byte[] data, int dataLength)
     {
-        using var input = new MemoryStream(data, writable: false);
+        using var input = new MemoryStream(data, 0, dataLength, writable: false);
         using var zlib = new ZLibStream(input, CompressionMode.Decompress);
         using var output = new MemoryStream();
         zlib.CopyTo(output);
         return output.ToArray();
     }
 
-    private static DecodedImage? DecodePng(byte[] bytes)
+    private static DecodedImage? DecodePng(byte[] bytes, int length)
     {
+        // StbImageSharp needs an exact-size array; the PNG path is cold (the pinned native
+        // rejects kitty PNG transmits), so the trim copy is acceptable.
+        if (length != bytes.Length)
+        {
+            bytes = bytes[..length];
+        }
+
         // StbImageSharp handles PNG (and, as a bonus, JPEG); force 4-channel output.
         var result = ImageResult.FromMemory(bytes, ColorComponents.RedGreenBlueAlpha);
         if (result.Width <= 0 || result.Height <= 0)
@@ -74,7 +98,7 @@ internal static class KittyImageDecoder
         return new DecodedImage(result.Width, result.Height, result.Data);
     }
 
-    private static DecodedImage? FromRaw(byte[] bytes, int width, int height, int channels)
+    private static DecodedImage? FromRaw(byte[] bytes, int length, int width, int height, int channels)
     {
         if (width <= 0 || height <= 0 || (long)width * height > MaxPixels)
         {
@@ -82,7 +106,7 @@ internal static class KittyImageDecoder
         }
 
         long pixels = (long)width * height;
-        if (bytes.Length < pixels * channels)
+        if (length < pixels * channels)
         {
             return null;
         }

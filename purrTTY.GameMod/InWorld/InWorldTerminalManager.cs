@@ -31,8 +31,10 @@ public sealed class InWorldTerminalManager : IDisposable
     // Frames to keep a closed instance's GPU resources alive after it stops being
     // drawn: the game's scene command buffer may have recorded its quad this frame,
     // so freeing immediately is a use-after-free (VK_ERROR_DEVICE_LOST). Freed after
-    // the recording frame has completed, gated by a device WaitIdle.
-    private const int TeardownDelayFrames = 2;
+    // the recording frame has completed, gated by a device WaitIdle. Internal: the
+    // live-resize drain (InWorldTerminalInstance.TrySetGridSize) waits out the same
+    // window before rebuilding the off-screen target in place.
+    internal const int TeardownDelayFrames = 2;
 
     private readonly List<InWorldTerminalInstance> _instances = new();
     private readonly List<(InWorldTerminalInstance Instance, int FramesLeft)> _pendingTeardown = new();
@@ -185,8 +187,9 @@ public sealed class InWorldTerminalManager : IDisposable
 
     /// <summary>
     ///     Replaces an existing in-world terminal with one rebuilt from
-    ///     <paramref name="newRecord"/> — used when a change needs the off-screen
-    ///     texture regenerated (a different grid size, font, or shell). The name and
+    ///     <paramref name="newRecord"/> — used when a change needs the whole instance
+    ///     regenerated (a different font or shell; a grid resize is live via
+    ///     <see cref="InWorldTerminalInstance.TrySetGridSize"/>). The name and
     ///     focus carry over; the shell session restarts. The old instance's GPU
     ///     resources are released via the deferred-teardown path.
     /// </summary>

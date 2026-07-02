@@ -52,7 +52,8 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
   trailing `*` when focused / `cols x rows` / **Focus** / **Config** / red **Destroy**). **Config**
   opens a **separate per-terminal window** (several can be open at once), independent of the manager's
   visibility: a **Configure** section (live rename + theme + the three **opacity** sliders, plus a
-  recreate-based grid resize) and a **Placement** section, both collapsible, with a footer of
+  **live grid resize** — the texture rebuilds in place and the shell reflows via a PTY resize, no
+  restart) and a **Placement** section, both collapsible, with a footer of
   half-width **Done** / red **Destroy** buttons. Set `PURRTTY_INWORLD=1` to auto-create one default
   instance on load (dev convenience).
 - **Focusing:** a *Part* terminal is focused (and forwards app-mouse) by **clicking its quad**

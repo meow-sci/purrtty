@@ -346,6 +346,43 @@ public sealed unsafe class KittyPlacementCursor : IDisposable
         return bytes;
     }
 
+    /// <summary>
+    /// purrtty addition (gatOS PERF_IMPROVEMENT_PLAN.md P5): copies up to
+    /// <paramref name="destination"/>.Length bytes of the stored payload for
+    /// <paramref name="imageId"/> straight into caller-owned memory — no intermediate
+    /// allocation (video streams re-transmit a ~5 MB payload every frame; the copy-per-frame
+    /// path was pure LOH churn). Returns the bytes copied, or -1 if the image is absent/empty.
+    /// The engine owns its buffer only for the current tick, so consume before any further
+    /// engine mutation.
+    /// </summary>
+    public int ReadImageData(uint imageId, Span<byte> destination)
+    {
+        ThrowIfDisposed();
+        if (_storage == nint.Zero)
+        {
+            return -1;
+        }
+
+        nint image = NativeMethods.ghostty_kitty_graphics_image(_storage, imageId);
+        if (image == nint.Zero)
+        {
+            return -1;
+        }
+
+        nint dataPtr = nint.Zero;
+        nuint dataLen = 0;
+        NativeMethods.ghostty_kitty_graphics_image_get(image, (int)KittyImageDataKey.DataPtr, &dataPtr);
+        NativeMethods.ghostty_kitty_graphics_image_get(image, (int)KittyImageDataKey.DataLen, &dataLen);
+        if (dataPtr == nint.Zero || dataLen == 0)
+        {
+            return -1;
+        }
+
+        int take = (int)Math.Min((ulong)destination.Length, dataLen);
+        new ReadOnlySpan<byte>((void*)dataPtr, take).CopyTo(destination);
+        return take;
+    }
+
     private void ThrowIfDisposed()
     {
         if (_iterator == nint.Zero)

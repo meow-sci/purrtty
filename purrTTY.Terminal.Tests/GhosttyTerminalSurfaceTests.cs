@@ -398,21 +398,24 @@ public sealed class GhosttyTerminalSurfaceTests
     public void Write_BeyondInboxCap_DropsButStaysCoherent()
     {
         // Hidden-terminal scenario: PTY output arrives but nothing ticks
-        // BuildFrame. The inbox must cap (8 MiB) instead of growing without
-        // bound, and the surface must stay usable after the drop.
-        // MaxBytesPerTick == MaxInboxBytes so the full inbox drains in one tick —
-        // chunking was removed to prevent CAN+ST injection mid-APC sequence.
+        // BuildFrame. The inbox must cap (MaxInboxBytes) instead of growing without
+        // bound, and the surface must stay usable after the drop. A full inbox now
+        // drains across a few ticks (MaxBytesPerTick caps one tick's native VT parse;
+        // the catch-up branch carries the remainder losslessly).
         using var surface = NewSurface();
+        const int cap = GhosttyTerminalSurface.MaxInboxBytes;
         var chunk = new byte[1024 * 1024];
         Array.Fill(chunk, (byte)'x');
-        for (int i = 0; i < 12; i++)
+        int offeredMiB = cap / (1024 * 1024) + 4;
+        for (int i = 0; i < offeredMiB; i++)
         {
-            surface.Write(chunk); // 12 MiB offered, > the 8 MiB cap
+            surface.Write(chunk); // 4 MiB more than the cap
         }
 
         surface.BuildFrame();
-        Assert.That(surface.LastFrameStats.BytesConsumed, Is.EqualTo(8 * 1024 * 1024),
-            "full inbox should drain in one tick (MaxBytesPerTick == MaxInboxBytes)");
+        Assert.That(surface.LastFrameStats.BytesConsumed,
+            Is.EqualTo(Math.Min(cap, GhosttyTerminalSurface.MaxBytesPerTick)),
+            "the first tick drains a full per-tick chunk");
 
         long consumed = surface.LastFrameStats.BytesConsumed;
         for (int i = 0; i < 16; i++)
@@ -421,7 +424,7 @@ public sealed class GhosttyTerminalSurfaceTests
             consumed += surface.LastFrameStats.BytesConsumed;
         }
 
-        Assert.That(consumed, Is.LessThanOrEqualTo(8L * 1024 * 1024),
+        Assert.That(consumed, Is.LessThanOrEqualTo((long)cap),
             "everything past the cap should have been dropped");
 
         // Output accepted after the drop still parses correctly (the drop

@@ -130,7 +130,25 @@ internal sealed class ImageTextureCache : IDisposable
             {
                 return;
             }
-            Evict(img.ImageId, existing); // content changed: replace
+
+            if (existing.Entry.Width == img.Width && existing.Entry.Height == img.Height)
+            {
+                // Same geometry — the kitty video case (one fixed id re-transmitted per frame):
+                // refresh the texels of the EXISTING texture in place. No new VkImage, no ImGui
+                // descriptor Remove/Add on the shared 1000-slot pool, no deferred delete — the
+                // old path churned all three per frame (gatOS PERF_IMPROVEMENT_PLAN.md P5).
+                // Safe against in-flight frames still sampling the image: the upload's
+                // pre-barrier (FragmentShader → Transfer, VkUtils.TransitionPipelineForUpload)
+                // orders the copy after prior submissions' fragment reads on this same queue.
+                UploadPixels(renderer, existing.Entry.Texture, img);
+                img.ClearPixelData();
+                existing.Entry.ContentVersion = img.ContentVersion;
+                _lruOrder.Remove(existing.Node);
+                _lruOrder.AddLast(existing.Node);
+                return;
+            }
+
+            Evict(img.ImageId, existing); // geometry changed: rebuild the texture
         }
 
         var texture = new SimpleVkTexture(
@@ -145,14 +163,7 @@ internal sealed class ImageTextureCache : IDisposable
 
         try
         {
-            using (var pool = renderer.Allocator.CreateStagingPool(renderer.Graphics, 1))
-            {
-                var cmd = pool.NextCommandBuffer();
-                cmd.Begin(VkCommandBufferUsageFlags.OneTimeSubmitBit);
-                texture.UploadData(pool, cmd, img.Rgba, new[] { img.Rgba.Length });
-                cmd.End();
-                pool.Submit().Wait();
-            }
+            UploadPixels(renderer, texture, img);
 
             var texRef = ImGuiBackend.Vulkan.AddTexture(renderer.LinearSampler, texture.ImageView);
             // GPU upload and ImGui registration both succeeded — release the CPU buffer now.
@@ -177,6 +188,20 @@ internal sealed class ImageTextureCache : IDisposable
         }
 
         EvictLruIfNeeded();
+    }
+
+    /// <summary>
+    /// Stages + submits one synchronous texel upload (a one-shot staging pool; the wait is a
+    /// few hundred µs for a video-sized image and runs at most once per changed frame).
+    /// </summary>
+    private static void UploadPixels(Renderer renderer, SimpleVkTexture texture, TerminalImage img)
+    {
+        using var pool = renderer.Allocator.CreateStagingPool(renderer.Graphics, 1);
+        var cmd = pool.NextCommandBuffer();
+        cmd.Begin(VkCommandBufferUsageFlags.OneTimeSubmitBit);
+        texture.UploadData(pool, cmd, img.Rgba, new[] { img.Rgba.Length });
+        cmd.End();
+        pool.Submit().Wait();
     }
 
     private void EvictLruIfNeeded()

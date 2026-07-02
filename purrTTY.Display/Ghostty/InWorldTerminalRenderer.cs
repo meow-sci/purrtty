@@ -71,6 +71,17 @@ public sealed class InWorldTerminalRenderer : IDisposable
     // App-mouse (Phase 9): the grid's pixel extent (from the last BuildUi) used to
     // map a quad-hit UV to a cell, plus per-button press-gating and last-cell
     // tracking, mirroring TerminalWindow's app-mouse path.
+    // Render-skip bookkeeping (gatOS PERF_IMPROVEMENT_PLAN.md P5): the surface must TICK
+    // every game frame (inbox drain, gotcha 18) but the off-screen pass only needs to
+    // RE-RENDER when something visible changed — the world quad keeps sampling the last
+    // rendered texture otherwise. A ~1 Hz floor repaints after any missed external change.
+    private TerminalFrame? _tickedFrame;
+    private long _renderedGeneration = -1;
+    private bool _renderedSessionMissing;
+    private bool _renderedFocus;
+    private bool _forceRedraw = true;
+    private long _lastRenderTs;
+
     private float _gridPixelWidth;
     private float _gridPixelHeight;
     private int _appMouseCol = -1;
@@ -120,6 +131,69 @@ public sealed class InWorldTerminalRenderer : IDisposable
     /// with the secondary (off-screen) context current; the in-world manager wraps
     /// this in <c>PerFrameRenderer</c>'s NewFrame/Render.
     /// </summary>
+    /// <summary>
+    ///     Ticks the active session's surface (drains the PTY inbox, advances the engine —
+    ///     this must run every game frame, gotcha 18) and reports whether the off-screen
+    ///     texture needs re-rendering. When it returns false the caller can skip the whole
+    ///     ImGui build + render pass + submit; the world quad keeps sampling the previous
+    ///     texture (gatOS PERF_IMPROVEMENT_PLAN.md P5 — the pass used to re-record every
+    ///     game frame regardless of change).
+    /// </summary>
+    /// <param name="pixelWidth">The off-screen target width (== the ImGui display size).</param>
+    /// <param name="pixelHeight">The off-screen target height.</param>
+    public bool TickAndCheckDirty(float pixelWidth, float pixelHeight)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        var session = _sessions.ActiveSession;
+        if (session == null)
+        {
+            // Starting/failed: render the status text once (and again on any force).
+            _tickedFrame = null;
+            return _forceRedraw || !_renderedSessionMissing;
+        }
+
+        int cols = Math.Max(1, (int)(pixelWidth / _cellWidth));
+        int rows = Math.Max(1, (int)(pixelHeight / _cellHeight));
+        if (cols != session.Surface.Cols || rows != session.Surface.Rows)
+        {
+            session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
+            session.UpdateTerminalDimensions(cols, rows);
+            session.ProcessManager.Resize(cols, rows);
+            _sessions.UpdateLastKnownTerminalDimensions(cols, rows);
+        }
+
+        // Mouse geometry for app-mouse cell mapping (see DrawContent's original notes).
+        int mouseCellW = Math.Max(1, (int)_cellWidth);
+        int mouseCellH = Math.Max(1, (int)_cellHeight);
+        session.Surface.SetMouseGeometry(cols * mouseCellW, rows * mouseCellH, mouseCellW, mouseCellH);
+        _gridPixelWidth = pixelWidth;
+        _gridPixelHeight = pixelHeight;
+
+        session.Surface.DecodeKittyImages = true;
+        var frame = session.Surface.BuildFrame();
+        _tickedFrame = frame;
+
+        return _forceRedraw
+               || _renderedSessionMissing
+               || frame.Generation != _renderedGeneration
+               || frame.NewImages.Length > 0
+               || HasFocus != _renderedFocus
+               || System.Diagnostics.Stopwatch.GetElapsedTime(_lastRenderTs).TotalSeconds >= 1.0;
+    }
+
+    private void MarkRendered()
+    {
+        _renderedGeneration = _tickedFrame?.Generation ?? -1;
+        _renderedSessionMissing = _tickedFrame is null;
+        _renderedFocus = HasFocus;
+        _forceRedraw = false;
+        _lastRenderTs = System.Diagnostics.Stopwatch.GetTimestamp();
+    }
+
     public void BuildUi()
     {
         if (_disposed)
@@ -156,6 +230,8 @@ public sealed class InWorldTerminalRenderer : IDisposable
 
         // ImGui requires a matching End() for every Begin(), regardless of return.
         ImGui.End();
+
+        MarkRendered();
     }
 
     private void DrawContent(FrameFonts fonts, float fontSize)
@@ -193,28 +269,10 @@ public sealed class InWorldTerminalRenderer : IDisposable
         int cols = Math.Max(1, (int)(avail.X / _cellWidth));
         int rows = Math.Max(1, (int)(avail.Y / _cellHeight));
 
-        if (cols != session.Surface.Cols || rows != session.Surface.Rows)
-        {
-            session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
-            session.UpdateTerminalDimensions(cols, rows);
-            session.ProcessManager.Resize(cols, rows);
-            _sessions.UpdateLastKnownTerminalDimensions(cols, rows);
-        }
-
-        // Mouse geometry for app-mouse cell mapping: the engine divides pixels by
-        // these INTEGER cell metrics, so a quad-hit cell must be synthesized in them
-        // too (Phase 9). The grid pixel extent feeds ProcessMouse's UV→cell map.
-        int mouseCellW = Math.Max(1, (int)_cellWidth);
-        int mouseCellH = Math.Max(1, (int)_cellHeight);
-        session.Surface.SetMouseGeometry(cols * mouseCellW, rows * mouseCellH, mouseCellW, mouseCellH);
-        _gridPixelWidth = avail.X;
-        _gridPixelHeight = avail.Y;
-
-        // BuildFrame is the tick: it drains the PTY inbox and advances the engine.
-        // It must run every frame (gotcha 18 — an unticked surface grows its inbox
-        // unbounded), which it does because the in-world manager calls BuildUi each
-        // frame.
-        var frame = session.Surface.BuildFrame();
+        // The tick (inbox drain + resize + mouse geometry + BuildFrame) ran in
+        // TickAndCheckDirty before this render was scheduled; consume its frame. The
+        // fallback tick covers a caller that renders without the dirty check.
+        var frame = _tickedFrame ?? session.Surface.BuildFrame();
 
         // Kitty graphics, exactly as TerminalWindow does it: upload newly-decoded
         // images (main thread, the only Vulkan owner) and draw below-text placements
@@ -273,8 +331,9 @@ public sealed class InWorldTerminalRenderer : IDisposable
     /// <summary>
     ///     Re-applies a complete theme bundle (colors + font + opacity + cursor) to
     ///     this live in-world terminal: rebuilds the engine palette and pushes it to
-    ///     the session. A font-<i>size</i> change reflows the grid within the fixed
-    ///     off-screen texture (a true texture resize is a later phase). Tick thread.
+    ///     the session. A font-<i>size</i> change reflows the grid within the current
+    ///     off-screen texture (the texture extent itself changes only through an
+    ///     explicit grid resize — the instance's TrySetGridSize). Tick thread.
     /// </summary>
     public void ApplyTheme(ThemeDefinition theme)
     {
@@ -292,6 +351,7 @@ public sealed class InWorldTerminalRenderer : IDisposable
         var session = _sessions.ActiveSession;
         session?.Surface.SetTheme(_engineTheme);
         session?.Surface.SetCursorStyle(_settings.CursorStyle, _settings.CursorBlink);
+        _forceRedraw = true;
     }
 
     /// <summary>Live in-world background opacity (0..1) — drives the quad's see-through.</summary>
@@ -317,6 +377,7 @@ public sealed class InWorldTerminalRenderer : IDisposable
             return;
         }
 
+        _forceRedraw = true;
         _settings.BackgroundOpacity = Math.Clamp(background, 0f, 1f);
         _settings.ForegroundOpacity = Math.Clamp(foreground, 0f, 1f);
         _settings.CellBackgroundOpacity = Math.Clamp(cellBackground, 0f, 1f);

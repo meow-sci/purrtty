@@ -15,10 +15,11 @@ namespace purrTTY.GameMod.InWorld.UI;
 ///     terminals in a table (name / size / Focus / Config / Destroy) under a
 ///     collapsible header, plus a collapsible create form (name, shell, grid size,
 ///     anchor, theme). "Config" opens a <b>separate</b> per-terminal window (so several
-///     can be edited at once) carrying the live theme/opacity edits, a recreate-based
+///     can be edited at once) carrying the live theme/opacity edits, a live in-place
 ///     grid resize, a rename, and the live placement form. Renders in the <b>main</b>
-///     ImGui context; placement, theme, opacity, and rename edits are live, while a
-///     size change rebuilds the off-screen texture (restarting the shell). Table-based
+///     ImGui context; placement, theme, opacity, and rename edits are live, and a
+///     size change rebuilds the off-screen texture in place — the shell reflows via
+///     a PTY resize (no restart). Table-based
 ///     label/widget layout per the KSA mod conventions.
 /// </summary>
 public sealed class InWorldManagerUI
@@ -438,7 +439,8 @@ public sealed class InWorldManagerUI
                 instance.ApplyTheme(def);
             }
 
-            // Grid size: a draft; "Apply size" below recreates the texture (restarts the shell).
+            // Grid size: a draft; "Apply size" below rebuilds the texture in place
+            // (the shell reflows via a PTY resize — no restart).
             ImGuiWidgets.FormRow("Columns");
             ImGui.DragInt($"##iw_cfg_cols_{w.Id}", ref w.ResizeCols, 0.5f, 8, 400, "%d");
 
@@ -492,15 +494,26 @@ public sealed class InWorldManagerUI
             ImGui.BeginDisabled();
         }
 
-        if (ImGui.Button($" Apply size (restarts shell) ##iw_cfg_resize_{w.Id}") && sizeChanged)
+        if (ImGui.Button($" Apply size ##iw_cfg_resize_{w.Id}") && sizeChanged)
         {
-            var newRecord = r.Clone();
-            newRecord.Cols = Math.Clamp(w.ResizeCols, 8, 400);
-            newRecord.Rows = Math.Clamp(w.ResizeRows, 4, 200);
-            var created = _manager.Recreate(instance, newRecord);
-            if (created != null)
+            if (instance.TrySetGridSize(w.ResizeCols, w.ResizeRows))
             {
-                w.Rebind(created);
+                // Live in-place resize (shell reflows). TrySetGridSize clamped and
+                // committed to the record; sync the drafts so the button disables.
+                w.ResizeCols = r.Cols;
+                w.ResizeRows = r.Rows;
+            }
+            else
+            {
+                // Instance can't resize (disposed/failed): fall back to a rebuild.
+                var newRecord = r.Clone();
+                newRecord.Cols = Math.Clamp(w.ResizeCols, 8, 400);
+                newRecord.Rows = Math.Clamp(w.ResizeRows, 4, 200);
+                var created = _manager.Recreate(instance, newRecord);
+                if (created != null)
+                {
+                    w.Rebind(created);
+                }
             }
         }
 

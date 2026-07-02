@@ -95,7 +95,18 @@ public sealed class InWorldQuad : IDisposable
         // layout was built against.
         _descriptorSet = device.AllocateDescriptorSet(_descriptorPool, _shared.DescriptorSetLayout);
 
-        // ---- Write this instance's sampler + image-view into the set ----
+        RebindTarget();
+    }
+
+    /// <summary>
+    ///     (Re)writes the descriptor set to the target's <b>current</b> color image +
+    ///     sampler. Called at build, and again after a live grid resize rebuilt the
+    ///     target (the old view/sampler handles are destroyed). The caller must
+    ///     guarantee no submitted-but-unfinished command buffer still binds the set —
+    ///     the resize path drains the device first.
+    /// </summary>
+    public unsafe void RebindTarget()
+    {
         var imageInfo = new VkDescriptorImageInfo
         {
             ImageView   = _target.ColorImageView,
@@ -110,7 +121,7 @@ public sealed class InWorldQuad : IDisposable
             DescriptorType  = VkDescriptorType.CombinedImageSampler,
             ImageInfo       = &imageInfo,
         };
-        device.UpdateDescriptorSets(
+        _renderer.Device.UpdateDescriptorSets(
             new ReadOnlySpan<VkWriteDescriptorSet>(ref write),
             default(ReadOnlySpan<VkCopyDescriptorSet>));
     }

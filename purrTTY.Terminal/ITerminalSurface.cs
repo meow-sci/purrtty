@@ -102,6 +102,16 @@ public interface ITerminalSurface : IDisposable
 
     // ---- OUT: frame ----
 
+    /// <summary>
+    ///     Whether kitty-graphics images are hashed + decoded to RGBA during
+    ///     <see cref="BuildFrame"/>. The frontend clears this for non-visible surfaces
+    ///     (background tabs): they keep ticking — inbox drain, grid, placements — but skip the
+    ///     per-change payload hash and the ~frame-sized decode nothing would upload. Re-enabling
+    ///     forces a scan on the next tick so the image appears on activation without waiting for
+    ///     new bytes. Default true. (gatOS PERF_IMPROVEMENT_PLAN.md P5)
+    /// </summary>
+    bool DecodeKittyImages { get; set; }
+
     /// <summary>Applies queued input and returns the current frame snapshot.</summary>
     TerminalFrame BuildFrame();
 

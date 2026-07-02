@@ -314,9 +314,18 @@
     descriptor set + sampled image. `ProcessPendingTeardown` (start of `OnAfterGui`) counts the delay
     down, then does a device `WaitIdle()` (the recording frame has completed) before
     `instance.Dispose()`. `Active` is re-derived (cleared only when the list empties), so an in-flight
-    postfix never touches freed handles. A grid/font/shell change is a **`Recreate`** (Remove + Create
-    preserving name + focus) — there is no in-place texture resize (`TrySetGridSize` returns false), so
-    a resize routes through this same deferred-free path; the shell restarts.
+    postfix never touches freed handles. A **grid resize is live and in-place** (`TrySetGridSize`) and
+    follows the same drain discipline: it commits the new cols×rows to the record, stops recording the
+    quad immediately, waits out the same `TeardownDelayFrames` window, then under a device `WaitIdle()`
+    rebuilds the `OffscreenRenderTarget` (`Resize` — new image/view/sampler/render-pass/framebuffer),
+    resizes the secondary context, and rewrites the quad's descriptor set (`InWorldQuad.RebindTarget`).
+    The shell **survives**: the next off-screen frame sees the new extent and `InWorldTerminalRenderer`
+    resizes the engine grid + PTY (ConPTY resize / `TIOCSWINSZ`→SIGWINCH), so the running app reflows
+    like a 2D-window drag. The off-screen ImGui backend is deliberately **not** rebuilt — its pipeline
+    was created against the original render pass, and the recreated pass (identical formats/samples)
+    is render-pass-compatible per the Vulkan spec (verified: KSA's `ImGuiBackendVulkanImpl` creates its
+    main pipeline once in the ctor and never re-reads the stored render pass). A font/shell change
+    still routes through **`Recreate`** (Remove + Create preserving name + focus); the shell restarts.
 
 26. **Shutdown is the opposite rule: never touch the Vulkan device.** The mod only unloads at game
     shutdown, by which point the game has already destroyed the Vulkan device. Calling `WaitIdle` /

@@ -439,6 +439,9 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
             session.Surface.SetMouseGeometry(cols * mouseCellW, rows * mouseCellH, mouseCellW, mouseCellH);
 
             long buildStart = Stopwatch.GetTimestamp();
+            // The visible tab decodes kitty images; background tabs (ticked further down)
+            // skip the per-change hash + decode work nothing would upload (perf plan P5).
+            session.Surface.DecodeKittyImages = true;
             var frame = session.Surface.BuildFrame();
             long submitStart = Stopwatch.GetTimestamp();
 
@@ -510,6 +513,9 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
         {
             if (!ReferenceEquals(allSessions[i], session))
             {
+                // Nothing uploads a background tab's kitty pixels — skip the hash + decode
+                // until it becomes the active tab again (the surface re-scans on re-enable).
+                allSessions[i].Surface.DecodeKittyImages = false;
                 allSessions[i].Surface.BuildFrame();
             }
         }

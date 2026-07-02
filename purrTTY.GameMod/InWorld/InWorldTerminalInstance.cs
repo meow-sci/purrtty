@@ -1,4 +1,5 @@
 using Brutal.VulkanApi;
+using Core;
 using KSA;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
@@ -26,6 +27,16 @@ namespace purrTTY.GameMod.InWorld;
 public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
 {
     private readonly InWorldTerminalRecord _record;
+    private readonly ThemeConfiguration _config;
+    private readonly ThemeCatalog _catalog;
+    private Renderer _renderer = null!;
+
+    // Live grid resize: the new texture extent, applied only after the frames that
+    // may have recorded the current quad have been submitted (same window as the
+    // coordinator's deferred teardown), then under a device drain. The quad is not
+    // drawn while a resize is pending.
+    private (int Width, int Height)? _pendingResize;
+    private int _resizeFramesLeft;
 
     private OffscreenRenderTarget? _target;
     private OffscreenImGuiContext? _ctx;
@@ -74,11 +85,14 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         ThemeConfiguration config, ThemeCatalog catalog, InWorldTerminalRecord record, SharedQuadResource sharedQuad)
     {
         _record = record;
+        _config = config;
+        _catalog = catalog;
 
         try
         {
             var renderer = Program.GetRenderer()
                 ?? throw new InvalidOperationException("Program.GetRenderer() returned null");
+            _renderer = renderer;
 
             // Grid-driven texture: derive the off-screen extent from the fixed
             // cols×rows and this terminal's font cell (measured on the live ImGui
@@ -127,10 +141,45 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
     }
 
     /// <summary>Drives one off-screen terminal frame (which the world-space quad samples).</summary>
-    public void Frame(double dt) => _perFrame!.Frame(dt);
+    public void Frame(double dt)
+    {
+        if (_pendingResize is { } extent && --_resizeFramesLeft <= 0)
+        {
+            ApplyResize(extent.Width, extent.Height);
+            _pendingResize = null;
+        }
+
+        _pendingFrameDt += dt;
+
+        // Tick every game frame (the surface inbox must drain — gotcha 18), but re-record +
+        // submit the off-screen pass only when something visible changed; the world quad keeps
+        // sampling the previous texture otherwise (gatOS PERF_IMPROVEMENT_PLAN.md P5 — this
+        // pass used to render every game frame unconditionally, per in-world terminal).
+        if (_content is { } content && _target is { } target
+            && !content.TickAndCheckDirty(target.Extent.Width, target.Extent.Height))
+        {
+            return;
+        }
+
+        _perFrame!.Frame(_pendingFrameDt);
+        _pendingFrameDt = 0;
+    }
+
+    // Accumulates skipped-frame time so ImGui's DeltaTime stays truthful when a render runs.
+    private double _pendingFrameDt;
 
     /// <summary>Appends this instance's quad draw to the scene-pass command buffer.</summary>
-    public void RecordDraw(CommandBuffer commandBuffer) => _quad!.RecordDraw(commandBuffer);
+    public void RecordDraw(CommandBuffer commandBuffer)
+    {
+        // A pending resize is draining scene-pass references to the current texture;
+        // recording the quad now would re-arm the use-after-free the drain prevents.
+        if (_pendingResize != null)
+        {
+            return;
+        }
+
+        _quad!.RecordDraw(commandBuffer);
+    }
 
     /// <summary>Ego-space ray-tests the quad (part mode, or a click-to-focus billboard); see <see cref="InWorldQuad.TryRaycast"/>.</summary>
     public bool TryRaycast(Ray ray, out double t, out float2 uv) => _quad!.TryRaycast(ray, out t, out uv);
@@ -159,10 +208,66 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         => _content?.SetOpacities(background, foreground, cellBackground);
 
     /// <summary>
-    ///     A live grid resize needs the off-screen texture rebuilt; not yet supported
-    ///     (the size is fixed at creation). Returns false so callers fall back.
+    ///     Live in-place grid resize: commits the new cols×rows to the record and
+    ///     schedules the off-screen texture rebuild. The quad stops drawing at once;
+    ///     after the deferred-teardown window (so every scene command buffer that
+    ///     recorded the current texture has been submitted) the target is rebuilt
+    ///     under a device drain and the quad's descriptor set rewritten. The shell
+    ///     session survives — the next off-screen frame sees the new extent and
+    ///     resizes the engine grid + PTY itself, so the running app just reflows
+    ///     (SIGWINCH-style), exactly like dragging a 2D window. Needs an active ImGui
+    ///     frame (measures the font cell). Main thread only.
     /// </summary>
-    public bool TrySetGridSize(int cols, int rows) => false;
+    public bool TrySetGridSize(int cols, int rows)
+    {
+        if (_disposed || IsFailed || _target == null)
+        {
+            return false;
+        }
+
+        cols = Math.Clamp(cols, 8, 400);
+        rows = Math.Clamp(rows, 4, 200);
+
+        // Same extent derivation as the constructor (cell measured on the live
+        // ImGui frame's shared atlas, clamped to the GPU texture range).
+        var (cellWidth, cellHeight) = InWorldTerminalRenderer.MeasureCell(_config, _catalog, _record.ThemeName);
+        int width = Math.Clamp((int)MathF.Ceiling(cols * cellWidth), 256, 4096);
+        int height = Math.Clamp((int)MathF.Ceiling(rows * cellHeight), 256, 4096);
+
+        _record.Cols = cols;
+        _record.Rows = rows;
+
+        if (width == (int)_target.Extent.Width && height == (int)_target.Extent.Height)
+        {
+            // The clamped extent is unchanged, and the grid is derived from the
+            // texture — nothing to rebuild. Also cancels a superseded pending
+            // resize that pointed back at the current extent.
+            _pendingResize = null;
+            return true;
+        }
+
+        // +1: the countdown decrements in Frame() later this same OnAfterGui pass,
+        // whereas the teardown queue's first decrement is a frame after Remove —
+        // this keeps both drains the same length.
+        _pendingResize = (width, height);
+        _resizeFramesLeft = InWorldTerminalManager.TeardownDelayFrames + 1;
+        return true;
+    }
+
+    // Applies a deferred live resize. By now every scene command buffer that could
+    // reference the current quad texture has been submitted (RecordDraw skipped while
+    // the resize was pending) and our own off-screen submits are synchronous, so a
+    // device drain leaves zero live references — the target can be rebuilt and the
+    // descriptor set rewritten in place. The ImGui backend is NOT rebuilt: its
+    // pipeline, created against the original render pass, remains valid with the
+    // recreated (identically-formatted, therefore render-pass-compatible) one.
+    private void ApplyResize(int width, int height)
+    {
+        _renderer.Device.WaitIdle();
+        _target!.Resize(width, height);
+        _ctx!.Resize(width, height);
+        _quad!.RebindTarget();
+    }
 
     /// <inheritdoc/>
     public bool TryRename(string newName)

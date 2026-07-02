@@ -56,7 +56,7 @@ public sealed class InboxBackpressureTests
 
         // Larger than the whole inbox: waiting could never help, so the write must
         // return promptly via the legacy drop path instead of burning the budget.
-        var oversized = new byte[9 * OneMiB];
+        var oversized = new byte[GhosttyTerminalSurface.MaxInboxBytes + OneMiB];
         Array.Fill(oversized, (byte)'x');
 
         var sw = Stopwatch.StartNew();
@@ -77,12 +77,12 @@ public sealed class InboxBackpressureTests
         // Fill to the cap, then overflow — from the tick thread. Waiting here would
         // self-deadlock (the drain runs on this very thread), so it must fall through
         // to the drop path immediately.
-        var big = new byte[7 * OneMiB];
+        var big = new byte[GhosttyTerminalSurface.MaxInboxBytes - OneMiB];
         Array.Fill(big, (byte)'x');
         surface.Write(big);
 
         var sw = Stopwatch.StartNew();
-        surface.Write(big); // 14 MiB required > 8 MiB cap
+        surface.Write(big); // twice (cap - 1 MiB) > the cap
         sw.Stop();
 
         Assert.That(sw.ElapsedMilliseconds, Is.LessThan(400), "the tick thread must never park in Write");

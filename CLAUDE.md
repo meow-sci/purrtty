@@ -64,7 +64,8 @@ name in one process-wide `TerminalTargetRegistry`. Names are how the UI addresse
   opacities + cursor/border/lock/hot-zone. This replaced the old scattered theme/font/opacity menus.
 - **In-world manager** (`purrTTY.GameMod/InWorld/UI/InWorldManagerUI.cs`, menu **"In-World
   Terminals…"**) — creates/lists/configures **N** independent in-world terminals, each with a name,
-  shell, fixed cols×rows, anchor (vehicle Part/SubPart or camera billboard), and theme.
+  shell, cols×rows (live-resizable in place — the shell reflows via a PTY resize, no restart),
+  anchor (vehicle Part/SubPart or camera billboard), and theme.
 - **Layouts manager** (`purrTTY.GameMod/Layouts/UI/LayoutManagerUI.cs`, menu **"Layouts…"**) —
   saves/loads/edits/tears-down named **sets** of terminals (2D **and** in-world) as TOML files in
   `<config>/.purrTTY/layouts/`. Apply is **always user-initiated** (no auto-apply on game start); a
