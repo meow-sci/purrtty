@@ -28,3 +28,12 @@ How `KittyScreenStreamAssetTests` uses them:
   the pinned libghostty-vt native memory corruption on compressed payloads
   (gotcha 34) — fed only by the `[Explicit]` crash-repro test, to be re-run on
   every native pin bump.
+
+`zig-flate-decompress-repro.zig` is the **standalone ~15-line isolation** of that
+native bug (gotcha 34): ghostty's `decompressZlib` verbatim against zig 0.15.2's
+`std.compress.flate.Decompress` — no ghostty, no purrtty. Feed it any zlib stream
+whose decompressed output exceeds ~64 KiB with back-references (e.g. zlib of
+230 KB of zeros): `zig run zig-flate-decompress-repro.zig -- payload.bin` panics
+at `unreachable` in `std.Io.Writer.rebase` (Debug) / corrupts silently
+(ReleaseFast). Zig upstream: ziglang/zig #25032 / #25035 (open). Use it to test
+candidate zig versions before rebuilding the native.

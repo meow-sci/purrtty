@@ -449,3 +449,20 @@
     unsupported). The repro is preserved as the `[Explicit]`
     `KittyScreenStreamAssetTests.ZlibRealFrame_CrashesPinnedNative_KnownBug` — run it after any
     native pin bump; when it passes, zlib may be re-enabled stream-side and gotcha updated.
+
+    **Root cause (isolated 2026-07-02): a `zig 0.15.2 std` bug, NOT ghostty's code — a pin bump
+    alone will not fix it.** Ghostty's `LoadingImage.decompressZlib`
+    (`src/terminal/kitty/graphics_image.zig`, byte-identical from our pin through ghostty main)
+    drives `std.compress.flate.Decompress` through the `std.Io.Reader` plumbing; std's
+    `streamIndirectInner` builds its 64 KiB-window `Writer` with `rebase = unreachableRebase`,
+    but `writeMatch` calls `writableSlicePreserve(history_len=32 KiB, len)` which *does* rebase
+    when a back-reference write straddles the window end — guaranteed once decompressed output
+    exceeds ~64 KiB with matches (i.e. any real image). Debug builds panic at the `unreachable`;
+    the shipped `ReleaseFast` native turns it into silent heap corruption. Reproduced standalone
+    in ~15 lines of zig (fixed Reader over the payload + `appendRemaining`, ghostty's exact
+    code). Upstream: zig issues #25032/#25035 (same `flate.Decompress` streaming family,
+    milestone "urgent") are **open**, code unchanged on zig master. Paths to re-enable zlib:
+    (a) a future zig release fixes flate and the native is rebuilt (zig 0.15, cross-compile
+    commands in the vendored README), or (b) patch ghostty's `decompressZlib` to bypass the
+    broken Reader plumbing (e.g. drive `streamRemaining` into a `Writer.Allocating`, whose
+    rebase is real) and rebuild. Either way, the `[Explicit]` repro test is the gate.
