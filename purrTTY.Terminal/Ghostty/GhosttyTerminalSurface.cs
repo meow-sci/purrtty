@@ -110,6 +110,16 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
     // stalled past the wait budget; drop is the last resort, not the regulator.
     private const int MaxInboxBytes = 8 * 1024 * 1024;
 
+    // The kitty-graphics image storage budget handed to the native engine at
+    // construction. The lib-artifact native defaults to 10 MB — below TWO frames
+    // of a large kitty video stream (the gatOS screen stream reaches ~5.2 MB per
+    // 1440x900 raw frame, and ghostty's limit check runs BEFORE the same-id
+    // replace frees the old copy), so every video frame triggered a full
+    // evict+realloc of the image and leaked a tracked pin through the eviction
+    // path. 256 MiB restores the true in-place replace the fixed-id video
+    // pattern is designed around (gatOS PERF_IMPROVEMENT_PLAN.md P0.2, R2/R3).
+    internal const ulong KittyImageStorageLimitBytes = 256UL * 1024 * 1024;
+
     // How long a pump thread will wait for the tick to drain a full inbox before
     // falling back to the drop+CAN/ST path. Hidden windows drain at ~4 Hz
     // (gotcha 18), so the budget covers two hidden-drain cycles; a wait this
@@ -266,6 +276,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             opts.OnTitleChanged = () => _titlePending = true;
             opts.OnDeviceAttributes = () => DeviceAttributesReply;
         });
+        _terminal.KittyImageStorageLimit = KittyImageStorageLimitBytes;
 
         _renderState = new VtRenderState();
         _keyEncoder = new VtKeyEncoder();
@@ -294,6 +305,9 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
             }
         }
     }
+
+    /// <summary>Test seam: the engine terminal, for asserting native-side configuration.</summary>
+    internal VtTerminal EngineTerminal => _terminal;
 
     public int Cols => _terminal.Cols;
     public int Rows => _terminal.Rows;

@@ -35,6 +35,21 @@ public sealed class GhosttyTerminalSurfaceTests
     }
 
     [Test]
+    public void Constructor_RaisesTheKittyImageStorageLimit_ForVideoStreams()
+    {
+        // The lib-artifact native defaults the kitty image storage limit to 10 MB — below two
+        // frames of the gatOS screen stream at large sizes, which turns every fixed-id
+        // re-transmit into a full evict+realloc (and leaks a tracked pin via the eviction
+        // path). The surface must raise it at construction so the video replace is in-place.
+        using var surface = NewSurface();
+
+        Assert.That(surface.EngineTerminal.KittyImageStorageLimit,
+            Is.EqualTo(GhosttyTerminalSurface.KittyImageStorageLimitBytes));
+        Assert.That(surface.EngineTerminal.KittyImageStorageLimit,
+            Is.GreaterThanOrEqualTo(4UL * 1920 * 1920 * 4), "must hold several max-size frames");
+    }
+
+    [Test]
     public void Write_ProducesGraphemesAndCursorPosition()
     {
         using var surface = NewSurface();

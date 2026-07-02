@@ -313,6 +313,34 @@ public sealed unsafe partial class Terminal : IDisposable
         }
     }
 
+    /// <summary>
+    ///     The kitty-graphics image storage budget in bytes, applied across all screens. The
+    ///     lib-artifact native defaults this to a conservative <b>10 MB</b> — smaller than TWO
+    ///     frames of a large kitty video stream (a 1440x900 raw RGBA frame is ~5.2 MB, and the
+    ///     limit check in <c>graphics_storage.zig addImage</c> runs <i>before</i> a same-id
+    ///     replace frees the old copy), which turns every re-transmit into a full evict+realloc
+    ///     of the whole image. Hosts that expect kitty video should raise it well above 2× the
+    ///     largest expected image. Setting <c>0</c> disables kitty graphics entirely.
+    /// </summary>
+    public ulong KittyImageStorageLimit
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            ulong value = 0;
+            NativeMethods.ghostty_terminal_get(
+                _handle.DangerousGetHandle(), (int)TerminalData.KittyImageStorageLimit, &value);
+            return value;
+        }
+        set
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            var result = NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 15 /* OPT_KITTY_IMAGE_STORAGE_LIMIT */, &value);
+            GhosttyException.ThrowIfFailure(result);
+        }
+    }
+
     // --- Operations ---
     public void Resize(int cols, int rows, int cellWidthPx = 0, int cellHeightPx = 0)
     {

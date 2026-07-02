@@ -487,3 +487,20 @@
     kitty textures) only AFTER `PerFrameRenderer.Dispose()` drains the off-screen fences (no
     in-flight command buffer may still sample them), and the shutdown path (`Dispose(freeGpu:false)`,
     device already destroyed) skips freeing them entirely — the OS reclaims the VRAM.
+
+36. **libghostty-vt lib builds default the kitty image-storage limit to 10 MB — set it.**
+    Ghostty's `.lib` artifact defaults `kitty_image_storage_limit` to 10 * 1000 * 1000
+    (`Terminal.zig` / `Screen.zig`, "more conservative with memory by default"), vs 320 MB in
+    the full app. A large kitty video frame (gatOS screen stream at 1440x900 raw = ~5.2 MB)
+    means TWO frames exceed 10 MB — and ghostty's `addImage` limit check runs BEFORE the
+    same-id replace frees the old copy, so at the default every re-transmit of the fixed video
+    id triggered a full evict+realloc of the whole image, and the eviction path removes
+    placements without `untrackPin` (a tracked-pin leak per frame, unbounded; q=2 hides every
+    resulting error until placements silently stop being created and the video freezes while
+    text keeps working). `GhosttyTerminalSurface` now sets 256 MiB at construction via the
+    binding's `Terminal.KittyImageStorageLimit` (C option 15; the get key is `TerminalData` 26),
+    which restores the true in-place replace. The overwrite-path pin leak
+    (`graphics_storage.zig addPlacement` never deinits the replaced placement) still exists in
+    the native and is patched at the next native rebuild (gatOS PERF_IMPROVEMENT_PLAN.md P0.4);
+    until then the gatOS stream sends steady-state frames as `a=t` (transmit-only, no new
+    placement) with an `a=T` keyframe ~1/s, so pin churn is bounded either way.
