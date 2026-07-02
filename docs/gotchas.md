@@ -484,6 +484,17 @@
     broken Reader plumbing (e.g. drive `streamRemaining` into a `Writer.Allocating`, whose
     rebase is real) and rebuild. Either way, the `[Explicit]` repro test is the gate.
 
+    **RESOLVED 2026-07-02 via path (b):** the native was rebuilt from ghostty main `c22df09da`
+    + branch `purrtty/vt-video-fixes` (`bb9c398bf`): `decompressZlib` now uses the windowless
+    direct mode into a `std.Io.Writer.Allocating` (whose rebase really reallocates), with an
+    effectively unbounded per-call limit — the finite-limit path has its own
+    `remaining -= length` underflow (a second std bug in the same family) — and the 400 MB
+    output cap enforced per step. Verified standalone in Debug + ReleaseFast (zeros + 5.2 MB
+    match-heavy payloads, exact output), by `zig build test-lib-vt`, and by the un-quarantined
+    `ZlibRealFrame_DecodesToGroundTruth` (real o=z frame, pixel-exact decode). `o=z` is safe for
+    purrTTY again; the gatOS stream default flipped back to `rgba-zlib` (gatOS perf plan P6).
+    The test stays as the standing pin-bump gate.
+
 35. **Kitty images draw in the in-world (off-screen) terminals too — via main-backend textures.**
     `InWorldTerminalRenderer` mirrors `TerminalWindow`'s kitty integration (upload `NewImages`,
     draw z<0 placements under the grid, z>=0 over it) with its own per-instance `ImageTextureCache`.
@@ -513,3 +524,7 @@
     the native and is patched at the next native rebuild (gatOS PERF_IMPROVEMENT_PLAN.md P0.4);
     until then the gatOS stream sends steady-state frames as `a=t` (transmit-only, no new
     placement) with an `a=T` keyframe ~1/s, so pin churn is bounded either way.
+    **Patched 2026-07-02:** the rebuilt native (`purrtty/vt-video-fixes` `ac3fee170`) now
+    untracks the replaced/evicted placement's pin in `addPlacement`/`evictImage`, so even
+    per-frame `a=T` re-displays no longer leak; the keyframe cadence stays as belt-and-braces
+    (and still matters for external terminals running unpatched ghostty).

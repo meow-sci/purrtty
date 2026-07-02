@@ -22,8 +22,11 @@ bump** — it runs once at startup and as a test).
 | Binding upstream | `deblasis/libghostty-vt-dotnet` |
 | Binding commit | `68e8b3e75d612e2e658d18d9e9982b1f857f50f0` |
 | Native engine | `ghostty-org/ghostty` |
-| Native commit (pinned) | `7092b39445bebfd3178f562eb9e5fa9a95a32332` (1.3.2-dev) |
-| Vendored on | 2026-06-07 |
+| Native base commit (pinned) | `c22df09da` (main, 2026-07-02: "libghostty: fix utf-8 grapheme length overflow") |
+| **Native local patches** | branch `purrtty/vt-video-fixes` in the local ghostty checkout: `ac3fee170` (kitty: untrack placement pins on replace/eviction — the per-frame video pin leak, gotcha 36) + `bb9c398bf` (kitty: route zlib image decompression around the zig 0.15.2 std flate bugs, ziglang/zig #25032/#25035 — the `o=z` heap corruption, gotcha 34). **Rebuild from that branch, not bare upstream**, until both land upstream. |
+| Built with | zig 0.15.2, all three RIDs cross-compiled from one Windows host |
+| Vendored on | 2026-07-02 |
+| Previous pin | `7092b39445bebfd3178f562eb9e5fa9a95a32332` (1.3.2-dev, vendored 2026-06-07) |
 
 The managed sources under `src/` were copied from the upstream `src/Ghostty.Vt/`, retargeted
 to `net10.0` (purrtty's TFM), with purrtty-specific additions marked in-file as
@@ -55,10 +58,10 @@ reference, **never** re-vendor wholesale (it would revert the fixes below). Grep
   usable, see repo gotcha 33). Read-only — the engine parses/stores graphics inside VTWrite;
   there is no command-injection API. Enums (`KittyImageFormat`/`Compression`/`PlacementLayer`)
   are 0-based C enums — re-verify against the headers on a pin bump.
-  **Known native bug (this pin):** committing a kitty `o=z` (zlib) payload of compressible data
-  memory-corrupts/segfaults inside `VTWrite` (repo gotcha 34; `[Explicit]` repro in
-  `KittyScreenStreamAssetTests`) — re-run that repro on any pin bump. Used by purrtty's image
-  compositing.
+  **Fixed native bug (pre-2026-07-02 pins):** committing a kitty `o=z` (zlib) payload of
+  compressible data memory-corrupted/segfaulted inside `VTWrite` — a zig 0.15.2 std flate bug,
+  patched in the `purrtty/vt-video-fixes` native (gotcha 34). `ZlibRealFrame_DecodesToGroundTruth`
+  is the standing regression gate; it must stay green on every pin bump.
 - **`KeyEvent.UnshiftedCodepoint` is bound and set for printable keys.** The kitty keyboard
   protocol encoder builds `CSI <code>;<mods>u` from it (no `key.codepoint()` fallback, unlike
   legacy) and emits **nothing** without it — so a Ctrl/Alt+letter dropped silently for any app
@@ -132,7 +135,11 @@ After a pin bump: update the pinned commit in this README, rebuild all three, an
 purrTTY.Terminal.Tests suite — `RawCellLayout.Validate()` fails loudly if the native cell
 bit-layout changed.
 
-We **pin** the C library; we do **not** fork it. All purrtty changes live in the managed binding (`src/`).
+We **pin** the C library **plus the two local patches above** (the `purrtty/vt-video-fixes`
+branch); everything else lives in the managed binding (`src/`). Re-apply/rebase those patches on
+any future pin bump — building bare upstream re-introduces the video pin leak and the `o=z`
+corruption — and re-run `ZlibRealFrame_DecodesToGroundTruth` plus the full purrTTY.Terminal.Tests
+suite as the gate.
 
 The library is loaded by `src/Native/NativeLibraryResolver.cs` (a purrtty addition) which
 resolves the native next to the consuming assembly — necessary inside KSA's plugin

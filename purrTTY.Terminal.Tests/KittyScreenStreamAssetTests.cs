@@ -16,12 +16,13 @@ namespace PurrTTY.Terminal.Tests;
 /// gatOS's strict offline protocol validation), so failures here localize to purrTTY/libghostty.
 /// </summary>
 /// <remarks>
-/// These tests build <b>raw f=32</b> units from the vendored ground-truth PNGs. The vendored
-/// <c>.kitty</c> files themselves are <c>o=z</c> (zlib) units, and the pinned libghostty-vt
-/// native <b>memory-corrupts / segfaults</b> when committing a zlib payload of compressible
-/// real-world data (highly reproducible; minimal repro: zlib of 230 KB of zeros) — see
-/// <see cref="ZlibRealFrame_CrashesPinnedNative_KnownBug"/>. Until the native pin is bumped
-/// past a fix, <c>o=z</c> must not be sent to purrTTY, and the gatOS stream defaults to raw.
+/// Raw <c>f=32</c> units are built from the vendored ground-truth PNGs; the vendored
+/// <c>.kitty</c> files themselves are <c>o=z</c> (zlib) units and are driven verbatim by the
+/// zlib tests. The 7092b39-pin native memory-corrupted on any compressible <c>o=z</c> payload
+/// (a zig 0.15.2 std.compress.flate bug — gotcha 34); the current native carries the purrtty
+/// decompressZlib patch (ghostty branch <c>purrtty/vt-video-fixes</c>), so
+/// <see cref="ZlibRealFrame_DecodesToGroundTruth"/> is the standing regression gate: it must
+/// stay green on every native pin bump or <c>o=z</c> goes back on the banned list.
 /// </remarks>
 [TestFixture]
 public sealed class KittyScreenStreamAssetTests
@@ -173,13 +174,12 @@ public sealed class KittyScreenStreamAssetTests
     }
 
     [Test]
-    [Explicit("SEGFAULTS the test host: the pinned libghostty-vt native memory-corrupts when "
-              + "committing a kitty o=z payload of compressible data (minimal repro: zlib of "
-              + "230 KB of zeros; nondeterministic crash point — heap corruption). Run manually "
-              + "after a native pin bump; when it survives AND decodes to the ground-truth PNG, "
-              + "zlib is safe to re-enable in the gatOS stream and this Explicit can be removed.")]
-    public void ZlibRealFrame_CrashesPinnedNative_KnownBug()
+    public void ZlibRealFrame_DecodesToGroundTruth()
     {
+        // Historically [Explicit]: the 7092b39-pin native SEGFAULTED committing any
+        // compressible o=z payload (zig 0.15.2 std flate, gotcha 34). The patched native
+        // (ghostty purrtty/vt-video-fixes) must decode the real vendored o=z unit
+        // pixel-exact — this is the gate for keeping zlib enabled in the gatOS stream.
         using var surface = NewSurface();
         surface.Write(Asset("gatos-frame-a.kitty")); // the real o=z unit, byte-for-byte
         var frame = surface.BuildFrame();
@@ -190,14 +190,41 @@ public sealed class KittyScreenStreamAssetTests
         Assert.That(frame.NewImages[0].Rgba, Is.EqualTo(expected));
     }
 
-    /// <summary>
-    ///     One gatOS-shaped raw video frame: ESC7 · ESC[H · [optional delete i=1] · chunked a=T
-    ///     f=32 · ESC8. gatOS streams delete-free (replace-on-retransmit keeps the previous frame
-    ///     visible mid-load); the delete variant covers the terminal-doom-style pattern.
-    /// </summary>
-    private static byte[] RawVideoUnit(byte[] rgba, int w, int h, bool withDelete = true)
+    [Test]
+    public void ZlibVideo_KeyframeThenTransmitOnlyReplace_ReEmitsPixelExact()
     {
-        var b64 = Convert.ToBase64String(rgba);
+        // The exact post-P6 gatOS wire shape: an o=z a=T keyframe establishes the placement,
+        // then o=z a=t transmit-only replaces swap the pixels under it (perf plan P0.3 + P6).
+        // Real frames, real zlib, the real native decode path.
+        var (w, h, frameA) = Png("gatos-frame-a.png");
+        var (_, _, frameB) = Png("gatos-frame-b.png");
+
+        using var surface = NewSurface();
+        surface.Write(RawVideoUnit(frameA, w, h, withDelete: false, zlib: true));
+        var first = surface.BuildFrame();
+        Assert.That(first.ImagePlacements.Length, Is.EqualTo(1), "keyframe places");
+        Assert.That(first.NewImages.Length, Is.EqualTo(1), "keyframe decodes");
+        Assert.That(first.NewImages[0].Rgba, Is.EqualTo(frameA));
+
+        surface.Write(RawVideoUnit(frameB, w, h, withDelete: false, zlib: true, display: false));
+        var second = surface.BuildFrame();
+        Assert.That(second.ImagePlacements.Length, Is.EqualTo(1), "the keyframe's placement survives a=t");
+        Assert.That(second.NewImages.Length, Is.EqualTo(1), "the replace re-emits new pixels");
+        Assert.That(second.NewImages[0].Rgba, Is.EqualTo(frameB));
+    }
+
+    /// <summary>
+    ///     One gatOS-shaped video frame: ESC7 · ESC[H · [optional delete i=1] · chunked transmit
+    ///     (optionally <c>o=z</c>) · ESC8. gatOS streams delete-free (replace-on-retransmit keeps
+    ///     the previous frame visible mid-load) as an <c>a=T</c> keyframe or an <c>a=t</c>
+    ///     transmit-only replace (perf plan P0.3); the delete variant covers the
+    ///     terminal-doom-style pattern.
+    /// </summary>
+    private static byte[] RawVideoUnit(
+        byte[] rgba, int w, int h, bool withDelete = true, bool zlib = false, bool display = true)
+    {
+        var payload = zlib ? ZlibDeflate(rgba) : rgba;
+        var b64 = Convert.ToBase64String(payload);
         var sb = new StringBuilder("\x1b7\x1b[H");
         if (withDelete)
             sb.Append("\x1b_Ga=d,d=I,i=1\x1b\\");
@@ -208,8 +235,12 @@ public sealed class KittyScreenStreamAssetTests
             var take = Math.Min(4000, b64.Length - offset);
             var last = offset + take >= b64.Length;
             sb.Append("\x1b_G");
+            // Keyframes (a=T) carry the placement keys p/C; steady-state replaces (a=t) must
+            // not — mirroring the two gatOS KittyEncoder unit forms.
             sb.Append(first
-                ? $"a=T,q=2,i=1,p=1,f=32,s={w},v={h},C=1,m={(last ? 0 : 1)}"
+                ? display
+                    ? $"a=T,q=2,i=1,p=1,f=32{(zlib ? ",o=z" : "")},s={w},v={h},C=1,m={(last ? 0 : 1)}"
+                    : $"a=t,q=2,i=1,f=32{(zlib ? ",o=z" : "")},s={w},v={h},m={(last ? 0 : 1)}"
                 : $"m={(last ? 0 : 1)}");
             sb.Append(';').Append(b64, offset, take).Append('\x1b').Append('\\');
             offset += take;
@@ -218,6 +249,17 @@ public sealed class KittyScreenStreamAssetTests
         while (offset < b64.Length);
         sb.Append("\x1b8");
         return Encoding.ASCII.GetBytes(sb.ToString());
+    }
+
+    private static byte[] ZlibDeflate(byte[] data)
+    {
+        // The exact compressor class the gatOS encoder uses, so these tests drive the same
+        // family of zlib streams the live /sim/display feed produces.
+        using var output = new MemoryStream();
+        using (var z = new System.IO.Compression.ZLibStream(
+                   output, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+            z.Write(data);
+        return output.ToArray();
     }
 
     private static byte[] Solid(int w, int h, byte r, byte g, byte b)
