@@ -1,0 +1,363 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alex Sherwin <alex-sherwin@users.noreply.github.com>
+Date: Thu, 2 Jul 2026 12:43:03 -0400
+Subject: [PATCH 3/3] terminal: bulk lane for APC string payloads + kitty frame
+ presize (purrtty patch)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The VT stream's SIMD fast path only covers the ground state; inside an APC
+string (kitty graphics payloads) every byte walked a five-layer per-byte
+pipeline — parse-table lookup, apc_put action dispatch, handler vt() call,
+apc.Handler.feed, kitty CommandParser.feed, one-byte ArrayList append. A
+kitty video frame is megabytes of opaque base64 through exactly that state,
+which made VTWrite the dominant per-frame cost of the gatOS screen stream.
+
+consumeUntilGround now has a bulk lane: in sos_pm_apc_string, every byte
+below 0x80 other than CAN/SUB/ESC is a bare apc_put with no state change
+(parse_table.zig), so whole runs are scanned out and handed to the handler
+in one call. Handlers opt in by declaring vtApcPutMany (semantically
+identical to one vt(.apc_put, byte) per byte; non-opting handlers keep the
+exact per-byte path, including prospective vtRaw interceptors). The terminal
+handler routes it through new slice variants — apc.Handler.feedSlice and
+kitty Parser.feedSlice — whose .data state appends the remaining run in one
+memcpy; identification and control-key bytes still step per byte.
+
+LoadingImage.init also presizes the payload accumulator for uncompressed
+direct transmissions (the first chunk fixes s*v*bpp), removing the ~1.5x
+growth-realloc memmoves (~10-15 MB of pure copy per 5 MB frame).
+
+Tests: kitty Parser.feedSlice equivalence at every split point + payload cap
+parity; apc.Handler.feedSlice equivalence across the identify/kitty states;
+a stream-level differential test pinning bulk-lane bytes/starts/ends equal
+to the per-byte handler (and that the lane engages). Full test-lib-vt green.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PKNTeh747EKUC19owSNpYc
+---
+ src/terminal/apc.zig                    | 62 +++++++++++++++++
+ src/terminal/kitty/graphics_command.zig | 68 ++++++++++++++++++
+ src/terminal/kitty/graphics_image.zig   | 18 +++++
+ src/terminal/stream.zig                 | 93 +++++++++++++++++++++++++
+ src/terminal/stream_terminal.zig        | 10 +++
+ 5 files changed, 251 insertions(+)
+
+diff --git a/src/terminal/apc.zig b/src/terminal/apc.zig
+index 61d30822f..5f3982dee 100644
+--- a/src/terminal/apc.zig
++++ b/src/terminal/apc.zig
+@@ -113,6 +113,36 @@ pub const Handler = struct {
+         }
+     }
+ 
++    /// Feed a run of bytes at once — behaviorally identical to calling `feed`
++    /// per byte (purrtty patch: the stream's APC bulk lane). Only the kitty
++    /// protocol has a bulk path (its payload state appends the run in one
++    /// memcpy); identification and other protocols fall back per byte.
++    pub fn feedSlice(self: *Handler, alloc: Allocator, bytes: []const u8) void {
++        var i: usize = 0;
++        while (i < bytes.len) {
++            switch (self.state) {
++                // Ignoring is terminal until end(); the rest of the run can
++                // be dropped exactly like N per-byte feeds would.
++                .ignore => return,
++
++                .kitty => |*p| if (comptime build_options.kitty_graphics) {
++                    p.feedSlice(bytes[i..]) catch |err| {
++                        log.warn("kitty graphics protocol error: {}", .{err});
++                        p.deinit();
++                        self.state = .ignore;
++                    };
++                    return;
++                } else unreachable,
++
++                // .inactive (unreachable), .identify, .glyph: single steps.
++                else => {
++                    self.feed(alloc, bytes[i]);
++                    i += 1;
++                },
++            }
++        }
++    }
++
+     pub fn end(self: *Handler) ?Command {
+         defer {
+             self.state.deinit();
+@@ -400,3 +430,35 @@ test "disabled glyph command is ignored" {
+     for ("25a1;q;cp=e0a0") |c| h.feed(alloc, c);
+     try testing.expect(h.end() == null);
+ }
++
++test "kitty feedSlice equals per-byte feed" {
++    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
++
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    // Identification byte + control keys + payload, crossing every state.
++    const input = "Ga=T,q=2,i=1,f=32,s=2,v=1;QUJDREVGR0g=";
++
++    var ref: Handler = .{};
++    defer ref.deinit();
++    ref.start();
++    for (input) |c| ref.feed(alloc, c);
++    var ref_cmd = ref.end().?;
++    defer ref_cmd.deinit(alloc);
++    try testing.expect(ref_cmd == .kitty);
++
++    var split: usize = 0;
++    while (split <= input.len) : (split += 1) {
++        var h: Handler = .{};
++        defer h.deinit();
++        h.start();
++        h.feedSlice(alloc, input[0..split]);
++        h.feedSlice(alloc, input[split..]);
++        var cmd = h.end().?;
++        defer cmd.deinit(alloc);
++
++        try testing.expect(cmd == .kitty);
++        try testing.expectEqualSlices(u8, ref_cmd.kitty.data, cmd.kitty.data);
++    }
++}
+diff --git a/src/terminal/kitty/graphics_command.zig b/src/terminal/kitty/graphics_command.zig
+index aa35fbeb9..3c3ffba59 100644
+--- a/src/terminal/kitty/graphics_command.zig
++++ b/src/terminal/kitty/graphics_command.zig
+@@ -149,6 +149,29 @@ pub const Parser = struct {
+         }
+     }
+ 
++    /// Feed a run of bytes at once — behaviorally identical to calling `feed`
++    /// per byte. The `.data` state (the overwhelmingly dominant one for image
++    /// payloads: a kitty video frame is thousands of ~4 KB base64 chunks)
++    /// appends the whole remaining run in one memcpy instead of a per-byte
++    /// call; the control-key states fall back to `feed` (purrtty patch —
++    /// the APC bulk lane, see terminal.Stream.consumeUntilGround).
++    pub fn feedSlice(self: *Parser, bytes: []const u8) !void {
++        var i: usize = 0;
++        while (i < bytes.len) {
++            if (self.state == .data) {
++                const rest = bytes[i..];
++                // Same capacity rule as feed(): exactly max_bytes may be
++                // stored; the byte after that errors.
++                if (self.data.items.len + rest.len > self.max_bytes) return error.OutOfMemory;
++                try self.data.appendSlice(self.arena.child_allocator, rest);
++                return;
++            }
++
++            try self.feed(bytes[i]);
++            i += 1;
++        }
++    }
++
+     /// Complete the parsing. This must be called after all the
+     /// bytes have been fed to the parser.
+     ///
+@@ -1331,3 +1354,48 @@ test "delete range command 5" {
+     for (input) |c| try p.feed(c);
+     try testing.expectError(error.InvalidFormat, p.complete(alloc));
+ }
++
++test "feedSlice equals per-byte feed at every split point" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    // Control keys + payload, the video-frame shape (purrtty patch: the bulk lane).
++    const input = "a=T,q=2,i=1,p=1,f=32,s=2,v=2;QUJDREVGR0g=";
++
++    // Per-byte reference.
++    var ref = Parser.init(alloc, 1024 * 1024);
++    defer ref.deinit();
++    for (input) |c| try ref.feed(c);
++    const ref_cmd = try ref.complete(alloc);
++    defer ref_cmd.deinit(alloc);
++
++    // Every split point, fed as two slices, must produce the identical command.
++    var split: usize = 0;
++    while (split <= input.len) : (split += 1) {
++        var p = Parser.init(alloc, 1024 * 1024);
++        defer p.deinit();
++        try p.feedSlice(input[0..split]);
++        try p.feedSlice(input[split..]);
++        const cmd = try p.complete(alloc);
++        defer cmd.deinit(alloc);
++
++        try testing.expect(cmd.control == .transmit_and_display);
++        const t = cmd.transmission().?;
++        const rt = ref_cmd.transmission().?;
++        try testing.expectEqual(rt.format, t.format);
++        try testing.expectEqual(rt.width, t.width);
++        try testing.expectEqual(rt.height, t.height);
++        try testing.expectEqual(ref_cmd.quiet, cmd.quiet);
++        try testing.expectEqualSlices(u8, ref_cmd.data, cmd.data);
++    }
++}
++
++test "feedSlice respects the payload byte cap" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var p = Parser.init(alloc, 8);
++    defer p.deinit();
++    try p.feedSlice(";12345678"); // exactly max_bytes of payload — allowed
++    try testing.expectError(error.OutOfMemory, p.feedSlice("9"));
++}
+diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
+index 82a38a896..5e5b49035 100644
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -96,6 +96,24 @@ pub const LoadingImage = struct {
+ 
+         // Special case for the direct medium, we just add the chunk directly.
+         if (t.medium == .direct) {
++            // purrtty patch: for uncompressed formats the first chunk already
++            // fixes the total payload size (s×v×bpp), so presize the
++            // accumulator once instead of letting ArrayList growth memmove a
++            // multi-megabyte buffer ~1.5× at a time across a chunked video
++            // frame (~10–15 MB of pure copy per 5 MB frame).
++            if (t.compression == .none) presize: {
++                const bpp: usize = switch (t.format) {
++                    .rgb => 3,
++                    .rgba => 4,
++                    .gray_alpha => 2,
++                    .gray => 1,
++                    .png => break :presize, // dimensions come from the file data
++                };
++                const expected = @as(usize, t.width) * @as(usize, t.height) * bpp;
++                if (expected == 0 or expected > max_size) break :presize;
++                try result.data.ensureTotalCapacity(alloc, expected);
++            }
++
+             try result.addData(alloc, cmd.data);
+             return result;
+         }
+diff --git a/src/terminal/stream.zig b/src/terminal/stream.zig
+index 9771334f9..d0521eca1 100644
+--- a/src/terminal/stream.zig
++++ b/src/terminal/stream.zig
+@@ -570,6 +570,31 @@ pub fn Stream(comptime H: type) type {
+             var offset: usize = 0;
+             while (self.parser.state != .ground) {
+                 if (offset >= input.len) return input.len;
++
++                // Bulk lane for APC string payloads (purrtty patch): in the
++                // sos_pm_apc_string state, every byte below 0x80 other than
++                // CAN/SUB/ESC is a bare `apc_put` event with no state change
++                // (see parse_table.zig), so a whole run can be handed to an
++                // opted-in handler in one call instead of walking the
++                // per-byte state-machine dispatch. A kitty video frame is
++                // megabytes of base64 through exactly this state; handlers
++                // opt in by declaring `vtApcPutMany` (semantically identical
++                // to one vt(.apc_put, byte) per byte).
++                if (comptime @hasDecl(T, "vtApcPutMany")) {
++                    if (self.parser.state == .sos_pm_apc_string) {
++                        const start = offset;
++                        while (offset < input.len) : (offset += 1) {
++                            const c = input[offset];
++                            if (c >= 0x80 or c == 0x1B or c == 0x18 or c == 0x1A) break;
++                        }
++
++                        if (offset > start) {
++                            self.handler.vtApcPutMany(input[start..offset]);
++                            continue;
++                        }
++                    }
++                }
++
+                 self.nextNonUtf8(input[offset]);
+                 offset += 1;
+             }
+@@ -3447,3 +3472,71 @@ test "stream: tab clear with overflowing param" {
+     // CSI with a huge numeric param that saturates to 65535, followed by 'g'.
+     s.nextSlice("\x1b[388888888888888888888888888888888888g\x1b[0m");
+ }
++
++test "stream: APC bulk lane matches per-byte apc_put exactly" {
++    // purrtty patch: a handler declaring vtApcPutMany receives APC string
++    // payload runs in bulk; the bytes (and their order vs start/end) must be
++    // identical to the per-byte apc_put stream a plain handler sees.
++    const Recorder = struct {
++        bytes: std.ArrayListUnmanaged(u8) = .{},
++        starts: usize = 0,
++        ends: usize = 0,
++
++        pub fn vt(
++            self: *@This(),
++            comptime action: Action.Tag,
++            value: Action.Value(action),
++        ) void {
++            switch (action) {
++                .apc_start => self.starts += 1,
++                .apc_put => self.bytes.append(testing.allocator, value) catch unreachable,
++                .apc_end => self.ends += 1,
++                else => {},
++            }
++        }
++    };
++
++    const BulkRecorder = struct {
++        bytes: std.ArrayListUnmanaged(u8) = .{},
++        starts: usize = 0,
++        ends: usize = 0,
++        bulk_calls: usize = 0,
++
++        pub fn vt(
++            self: *@This(),
++            comptime action: Action.Tag,
++            value: Action.Value(action),
++        ) void {
++            switch (action) {
++                .apc_start => self.starts += 1,
++                .apc_put => self.bytes.append(testing.allocator, value) catch unreachable,
++                .apc_end => self.ends += 1,
++                else => {},
++            }
++        }
++
++        pub fn vtApcPutMany(self: *@This(), chunk: []const u8) void {
++            self.bulk_calls += 1;
++            self.bytes.appendSlice(testing.allocator, chunk) catch unreachable;
++        }
++    };
++
++    // Two APCs back to back with surrounding text, split-fed to exercise the
++    // resume path (consumeUntilGround entered mid-sequence).
++    const input = "pre\x1b_Ga=T,q=2,i=1,f=32,s=2,v=1;QUJDREVGR0g=\x1b\\mid\x1b_Xyz;123\x1b\\post";
++
++    var plain: Stream(Recorder) = .init(.{});
++    defer plain.handler.bytes.deinit(testing.allocator);
++    plain.nextSlice(input);
++
++    var bulk: Stream(BulkRecorder) = .init(.{});
++    defer bulk.handler.bytes.deinit(testing.allocator);
++    // Feed in two pieces that split inside the first APC payload.
++    bulk.nextSlice(input[0..20]);
++    bulk.nextSlice(input[20..]);
++
++    try testing.expectEqualSlices(u8, plain.handler.bytes.items, bulk.handler.bytes.items);
++    try testing.expectEqual(plain.handler.starts, bulk.handler.starts);
++    try testing.expectEqual(plain.handler.ends, bulk.handler.ends);
++    try testing.expect(bulk.handler.bulk_calls > 0); // the fast lane actually engaged
++}
+diff --git a/src/terminal/stream_terminal.zig b/src/terminal/stream_terminal.zig
+index e3d42c51e..38d308ea8 100644
+--- a/src/terminal/stream_terminal.zig
++++ b/src/terminal/stream_terminal.zig
+@@ -130,6 +130,16 @@ pub const Handler = struct {
+         };
+     }
+ 
++    /// Bulk APC payload hand-off (purrtty patch): the stream's APC fast lane
++    /// (terminal.Stream.consumeUntilGround) opts in via this declaration and
++    /// delivers whole payload runs instead of one vt(.apc_put, byte) per byte.
++    /// Behaviorally identical to the per-byte path — a kitty video frame is
++    /// megabytes of base64 that otherwise walks the full state-machine
++    /// dispatch for every byte.
++    pub fn vtApcPutMany(self: *Handler, bytes: []const u8) void {
++        self.apc_handler.feedSlice(self.terminal.gpa(), bytes);
++    }
++
+     inline fn vtFallible(
+         self: *Handler,
+         comptime action: Action.Tag,

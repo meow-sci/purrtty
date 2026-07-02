@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alex Sherwin <alex-sherwin@users.noreply.github.com>
+Date: Thu, 2 Jul 2026 11:14:31 -0400
+Subject: [PATCH 2/3] kitty: route zlib image decompression around the zig
+ 0.15.2 flate bugs (purrtty patch)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+zig 0.15.2 std.compress.flate.Decompress has two bugs in this family
+(ziglang/zig #25032, #25035 — open on master):
+
+1. Draining a WINDOWED Decompress through its Reader interface corrupts
+   memory once decompressed output exceeds the 64 KiB window with
+   back-references: streamIndirectInner wraps the window in a Writer whose
+   vtable declares rebase = unreachableRebase, but writeMatch legitimately
+   rebases via writableSlicePreserve when a match write straddles the window
+   end. Debug panics; ReleaseFast (the shipped native) silently corrupts the
+   heap — ANY real kitty o=z image payload triggered it (the purrTTY o=z
+   crash, purrtty gotcha 34).
+
+2. In the windowless direct mode, streamInner's `remaining -= length`
+   bookkeeping integer-underflows when a match write crosses a finite limit
+   boundary (Debug panic / ReleaseFast UB).
+
+decompressZlib now uses the windowless direct mode into a
+std.Io.Writer.Allocating — streamDirect hands the destination writer
+straight to the inflate core and Allocating's rebase actually reallocates —
+with an effectively unbounded per-call limit (dodging bug 2) and the
+max_size cap enforced per step; a decompression bomb fails through
+Allocating's clean OutOfMemory->WriteFailed path rather than UB.
+
+Verified standalone (zig run, Debug + ReleaseFast) against zlib of 230 KB of
+zeros (the minimal repro: old code panics at unreachableRebase, new code
+yields exactly 230400 zero bytes) and a 5.2 MB match-heavy pseudo-frame
+(exact length + content); zig build test-lib-vt green; the previously
+segfaulting purrTTY [Explicit] repro (real gatOS o=z frame) now decodes
+pixel-exact to the ground-truth PNG.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PKNTeh747EKUC19owSNpYc
+---
+ src/terminal/kitty/graphics_image.zig | 55 ++++++++++++++++++++-------
+ 1 file changed, 42 insertions(+), 13 deletions(-)
+
+diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
+index 8243a6323..82a38a896 100644
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -449,22 +449,51 @@ pub const LoadingImage = struct {
+     }
+ 
+     fn decompressZlib(self: *LoadingImage, alloc: Allocator) !void {
+-        // Open our zlib stream
+-        var buf: [std.compress.flate.max_window_len]u8 = undefined;
++        // purrtty patch (zig 0.15.2 std bug, ziglang/zig#25032/#25035): draining a
++        // WINDOWED Decompress through its Reader interface corrupts memory once the
++        // decompressed output exceeds the 64 KiB window with back-references —
++        // streamIndirectInner wraps the window in a Writer whose vtable declares
++        // `rebase = unreachableRebase`, but writeMatch legitimately rebases via
++        // writableSlicePreserve when a match write straddles the window end. Debug
++        // builds panic there; ReleaseFast (the shipped native) silently corrupts the
++        // heap — any real kitty o=z image payload triggered it.
++        //
++        // Use the WINDOWLESS (direct) mode instead and stream into an allocating
++        // writer: streamDirect hands the destination writer straight to the inflate
++        // core, the destination carries the history window, and Allocating's rebase
++        // actually reallocates — every match write is bounds-correct. This mirrors
++        // std.compress.flate's own test usage.
+         var reader: std.Io.Reader = .fixed(self.data.items);
+-        var stream: std.compress.flate.Decompress = .init(&reader, .zlib, &buf);
+-
+-        // Write it to an array list
+-        var list: std.ArrayList(u8) = .empty;
+-        errdefer list.deinit(alloc);
+-        stream.reader.appendRemaining(alloc, &list, .limited(max_size)) catch {
+-            log.warn("failed to read decompressed data: {?}", .{stream.err});
+-            return error.DecompressionFailed;
+-        };
++        var stream: std.compress.flate.Decompress = .init(&reader, .zlib, &.{});
++
++        var out: std.Io.Writer.Allocating = .init(alloc);
++        defer out.deinit();
++
++        // The limit must be effectively unbounded: streamInner's `remaining -= length`
++        // bookkeeping underflows (Debug panic / ReleaseFast UB — the second bug in this
++        // std family) whenever a match write crosses a finite limit boundary. The output
++        // cap is enforced after each step instead; a decompression bomb fails through
++        // Allocating's clean OutOfMemory→WriteFailed path rather than UB.
++        var total: usize = 0;
++        while (true) {
++            const n = stream.reader.stream(&out.writer, .limited(std.math.maxInt(u64) / 2)) catch |err| switch (err) {
++                error.EndOfStream => break,
++                error.ReadFailed, error.WriteFailed => {
++                    log.warn("failed to read decompressed data err={} inner={?}", .{ err, stream.err });
++                    return error.DecompressionFailed;
++                },
++            };
++            total += n;
++            if (total > max_size) {
++                log.warn("decompressed image data exceeds max size len={}", .{total});
++                return error.DecompressionFailed;
++            }
++        }
+ 
+-        // Empty our current data list, take ownership over managed array list
++        // Empty our current data list, take ownership of the decompressed bytes
++        const list = out.toArrayList();
+         self.data.deinit(alloc);
+-        self.data = .{ .items = list.items, .capacity = list.capacity };
++        self.data = list;
+ 
+         // Make sure we note that our image is no longer compressed
+         self.image.compression = .none;

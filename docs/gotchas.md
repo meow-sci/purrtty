@@ -493,7 +493,9 @@
     match-heavy payloads, exact output), by `zig build test-lib-vt`, and by the un-quarantined
     `ZlibRealFrame_DecodesToGroundTruth` (real o=z frame, pixel-exact decode). `o=z` is safe for
     purrTTY again; the gatOS stream default flipped back to `rgba-zlib` (gatOS perf plan P6).
-    The test stays as the standing pin-bump gate.
+    The test stays as the standing pin-bump gate. The patch itself is vendored as
+    `vendor/Ghostty.Vt/native-patches/0002-*.patch` (the ghostty checkout is disposable — see the
+    fork-free upgrade workflow in the vendored README).
 
 35. **Kitty images draw in the in-world (off-screen) terminals too — via main-backend textures.**
     `InWorldTerminalRenderer` mirrors `TerminalWindow`'s kitty integration (upload `NewImages`,
@@ -524,6 +526,7 @@
     the native and is patched at the next native rebuild (gatOS PERF_IMPROVEMENT_PLAN.md P0.4);
     until then the gatOS stream sends steady-state frames as `a=t` (transmit-only, no new
     placement) with an `a=T` keyframe ~1/s, so pin churn is bounded either way.
+    (The patch is vendored as `vendor/Ghostty.Vt/native-patches/0001-*.patch`.)
     **Patched 2026-07-02:** the rebuilt native (`purrtty/vt-video-fixes` `ac3fee170`) now
     untracks the replaced/evicted placement's pin in `addPlacement`/`evictImage`, so even
     per-frame `a=T` re-displays no longer leak; the keyframe cadence stays as belt-and-braces

@@ -135,11 +135,27 @@ After a pin bump: update the pinned commit in this README, rebuild all three, an
 purrTTY.Terminal.Tests suite — `RawCellLayout.Validate()` fails loudly if the native cell
 bit-layout changed.
 
-We **pin** the C library **plus the two local patches above** (the `purrtty/vt-video-fixes`
-branch); everything else lives in the managed binding (`src/`). Re-apply/rebase those patches on
-any future pin bump — building bare upstream re-introduces the video pin leak and the `o=z`
-corruption — and re-run `ZlibRealFrame_DecodesToGroundTruth` plus the full purrTTY.Terminal.Tests
-suite as the gate.
+We **pin** the C library **plus the local patches above**; everything else lives in the managed
+binding (`src/`). **The patches themselves are vendored in [`native-patches/`](./native-patches/)**
+(`git format-patch` output — the ghostty checkout/branch is disposable, purrtty is self-contained).
+Building bare upstream re-introduces the video pin leak, the `o=z` corruption, and drops the APC
+bulk lane.
+
+### Upgrading the native pin (the fork-free workflow)
+
+1. In any ghostty checkout: `git checkout <new upstream commit>` then
+   `git am <purrtty>/vendor/Ghostty.Vt/native-patches/*.patch` (a branch name is optional — the
+   patches carry the full commits). Resolve conflicts if upstream drifted; drop any patch upstream
+   has obsoleted (see the per-patch notes in `native-patches/README.md`).
+2. `zig build test-lib-vt` must be green (the patches carry their own equivalence tests).
+3. Cross-compile + vendor all three RIDs per "Rebuilding" below.
+4. Gates in this repo: the full `purrTTY.Terminal.Tests` suite (`RawCellLayout.Validate` catches
+   cell-layout drift; re-verify binding enums against the new headers on any mismatch),
+   `ZlibRealFrame_DecodesToGroundTruth`, and optionally the `[Explicit]`
+   `VtWriteThroughput_RawVideoUnits_Probe` before/after (the bulk lane is worth ~14×).
+5. Update the provenance table above and **regenerate the patch files** from the new base
+   (`git format-patch --no-signature --zero-commit -o <purrtty>/vendor/Ghostty.Vt/native-patches
+   <new-base>..HEAD`) so they stay conflict-free for the next bump.
 
 The library is loaded by `src/Native/NativeLibraryResolver.cs` (a purrtty addition) which
 resolves the native next to the consuming assembly — necessary inside KSA's plugin

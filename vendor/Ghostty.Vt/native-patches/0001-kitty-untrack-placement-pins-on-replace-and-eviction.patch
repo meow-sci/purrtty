@@ -1,0 +1,461 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alex Sherwin <alex-sherwin@users.noreply.github.com>
+Date: Thu, 2 Jul 2026 11:14:05 -0400
+Subject: [PATCH 1/3] kitty: untrack placement pins on replace and eviction
+ (purrtty patch)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Every a=T display step tracks a cursor pin for the new placement, but
+neither the same-(image id, placement id) overwrite in addPlacement nor the
+eviction path in evictImage ever untracked the pin of the placement being
+discarded. A kitty video stream that re-displays one fixed id per frame
+leaked ~1 tracked pin per frame without bound: PageList.tracked_pins grows
+forever, ~30 PageList operations degrade to O(leaked pins), and when
+trackPin eventually fails the display step errors — silently under q=2 —
+leaving the freshly stored image with no placement: the video goes
+permanently blank while text keeps working.
+
+addImage/addPlacement/evictImage now take the *Screen (the pattern
+clearPlacements already uses) and deinit the replaced/evicted placement,
+which untracks its pin. Call sites and in-file tests updated.
+
+Verified: zig build test-lib-vt (full suite) green.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PKNTeh747EKUC19owSNpYc
+---
+ src/terminal/kitty/graphics_exec.zig    |   3 +-
+ src/terminal/kitty/graphics_storage.zig | 191 +++++++++++++-----------
+ src/terminal/kitty/graphics_unicode.zig |  12 +-
+ 3 files changed, 112 insertions(+), 94 deletions(-)
+
+diff --git a/src/terminal/kitty/graphics_exec.zig b/src/terminal/kitty/graphics_exec.zig
+index a6a879e58..39f5453e7 100644
+--- a/src/terminal/kitty/graphics_exec.zig
++++ b/src/terminal/kitty/graphics_exec.zig
+@@ -251,6 +251,7 @@ fn display(
+     };
+     storage.addPlacement(
+         alloc,
++        terminal.screens.active,
+         img.id,
+         result.placement_id,
+         p,
+@@ -362,7 +363,7 @@ fn loadAndAddImage(
+     // Validate and store our image
+     var img = try loading.complete(alloc);
+     errdefer img.deinit(alloc);
+-    try storage.addImage(alloc, img);
++    try storage.addImage(alloc, terminal.screens.active, img);
+ 
+     // Get our display settings
+     const display_ = loading.display;
+diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
+index e017d5f79..57935cb84 100644
+--- a/src/terminal/kitty/graphics_storage.zig
++++ b/src/terminal/kitty/graphics_storage.zig
+@@ -101,7 +101,7 @@ pub const ImageStorage = struct {
+         if (limit < self.total_bytes) {
+             const req_bytes = self.total_bytes - limit;
+             log.info("evicting images to lower limit, evicting={}", .{req_bytes});
+-            if (!try self.evictImage(alloc, req_bytes)) {
++            if (!try self.evictImage(alloc, s, req_bytes)) {
+                 log.warn("failed to evict enough images for required bytes", .{});
+             }
+         }
+@@ -111,7 +111,11 @@ pub const ImageStorage = struct {
+ 
+     /// Add an already-loaded image to the storage. This will automatically
+     /// free any existing image with the same ID.
+-    pub fn addImage(self: *ImageStorage, alloc: Allocator, img: Image) Allocator.Error!void {
++    ///
++    /// The screen is required so that any placements removed by eviction
++    /// untrack their pins (purrtty patch: evicting without untracking leaked
++    /// one tracked pin per evicted placement).
++    pub fn addImage(self: *ImageStorage, alloc: Allocator, s: *terminal.Screen, img: Image) Allocator.Error!void {
+         // If the image itself is over the limit, then error immediately
+         if (img.data.len > self.total_limit) return error.OutOfMemory;
+ 
+@@ -120,7 +124,7 @@ pub const ImageStorage = struct {
+         if (total_bytes > self.total_limit) {
+             const req_bytes = total_bytes - self.total_limit;
+             log.info("evicting images to make space for {} bytes", .{req_bytes});
+-            if (!try self.evictImage(alloc, req_bytes)) {
++            if (!try self.evictImage(alloc, s, req_bytes)) {
+                 log.warn("failed to evict enough images for required bytes", .{});
+                 return error.OutOfMemory;
+             }
+@@ -152,6 +156,7 @@ pub const ImageStorage = struct {
+     pub fn addPlacement(
+         self: *ImageStorage,
+         alloc: Allocator,
++        s: *terminal.Screen,
+         image_id: u32,
+         placement_id: u32,
+         p: Placement,
+@@ -183,6 +188,15 @@ pub const ImageStorage = struct {
+         };
+ 
+         const gop = try self.placements.getOrPut(alloc, key);
++        if (gop.found_existing) {
++            // Replacing an external (image id, placement id) pair: untrack the
++            // old placement's pin first (purrtty patch). Without this, every
++            // same-id re-display — the kitty video pattern, one a=T per frame —
++            // leaked a tracked pin, growing PageList.tracked_pins without bound
++            // and eventually failing trackPin (silently under q=2: the stream
++            // goes permanently blank while text keeps working).
++            gop.value_ptr.deinit(s);
++        }
+         gop.value_ptr.* = p;
+ 
+         self.dirty = true;
+@@ -518,7 +532,7 @@ pub const ImageStorage = struct {
+     ///
+     /// This will evict as many images as necessary to make space for
+     /// req bytes.
+-    fn evictImage(self: *ImageStorage, alloc: Allocator, req: usize) !bool {
++    fn evictImage(self: *ImageStorage, alloc: Allocator, s: *terminal.Screen, req: usize) !bool {
+         assert(req <= self.total_limit);
+ 
+         // Ironically we allocate to evict. We should probably redesign the
+@@ -592,6 +606,9 @@ pub const ImageStorage = struct {
+             var p_it = self.placements.iterator();
+             while (p_it.next()) |entry| {
+                 if (entry.key_ptr.image_id == c.id) {
++                    // purrtty patch: untrack the placement's pin before dropping
++                    // it — the eviction path leaked one tracked pin per placement.
++                    entry.value_ptr.deinit(s);
+                     self.placements.removeByPtr(entry.key_ptr);
+                 }
+             }
+@@ -831,10 +848,10 @@ test "storage: add placement with zero placement id" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+-    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+-    try s.addPlacement(alloc, 1, 0, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+-    try s.addPlacement(alloc, 1, 0, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
++    try s.addPlacement(alloc, t.screens.active, 1, 0, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 0, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+ 
+     try testing.expectEqual(@as(usize, 2), s.placements.count());
+     try testing.expectEqual(@as(usize, 2), s.images.count());
+@@ -859,11 +876,11 @@ test "storage: delete all placements and images" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .all = true });
+@@ -883,11 +900,11 @@ test "storage: delete all placements and images preserves limit" {
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+     s.total_limit = 5000;
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .all = true });
+@@ -907,11 +924,11 @@ test "storage: delete all placements" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .all = false });
+@@ -930,11 +947,11 @@ test "storage: delete all placements by image id" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .id = .{ .image_id = 2 } });
+@@ -953,11 +970,11 @@ test "storage: delete all placements by image id and unused images" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .id = .{ .delete = true, .image_id = 2 } });
+@@ -976,12 +993,12 @@ test "storage: delete placement by specific id" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .id = .{
+@@ -1006,10 +1023,10 @@ test "storage: delete intersecting cursor" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+-    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+ 
+     t.screens.active.cursorAbsolute(12, 12);
+ 
+@@ -1038,10 +1055,10 @@ test "storage: delete intersecting cursor plus unused" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+-    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+ 
+     t.screens.active.cursorAbsolute(12, 12);
+ 
+@@ -1070,10 +1087,10 @@ test "storage: delete intersecting cursor hits multiple" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+-    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+ 
+     t.screens.active.cursorAbsolute(26, 26);
+ 
+@@ -1096,10 +1113,10 @@ test "storage: delete by column" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+-    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .column = .{
+@@ -1128,10 +1145,10 @@ test "storage: delete by column 1x1" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 1, .height = 1 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 3, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 2, .y = 0 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 1, .height = 1 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 3, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 2, .y = 0 }) } });
+ 
+     s.delete(alloc, &t, .{ .column = .{
+         .delete = false,
+@@ -1162,10 +1179,10 @@ test "storage: delete by row" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 50, .height = 50 });
+-    try s.addImage(alloc, .{ .id = 2, .width = 25, .height = 25 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 50, .height = 50 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2, .width = 25, .height = 25 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 0, .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 25, .y = 25 }) } });
+ 
+     s.dirty = false;
+     s.delete(alloc, &t, .{ .row = .{
+@@ -1194,10 +1211,10 @@ test "storage: delete by row 1x1" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1, .width = 1, .height = 1 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 0 }) } });
+-    try s.addPlacement(alloc, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 1 }) } });
+-    try s.addPlacement(alloc, 1, 3, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 2 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1, .width = 1, .height = 1 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 0 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 2, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 1, 3, .{ .location = .{ .pin = try trackPin(&t, .{ .y = 2 }) } });
+ 
+     s.delete(alloc, &t, .{ .row = .{
+         .delete = false,
+@@ -1226,11 +1243,11 @@ test "storage: delete images by range 1" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+     try testing.expectEqual(@as(usize, 3), s.images.count());
+     try testing.expectEqual(@as(usize, 2), s.placements.count());
+ 
+@@ -1251,11 +1268,11 @@ test "storage: delete images by range 2" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+     try testing.expectEqual(@as(usize, 3), s.images.count());
+     try testing.expectEqual(@as(usize, 2), s.placements.count());
+ 
+@@ -1276,11 +1293,11 @@ test "storage: delete images by range 3" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+     try testing.expectEqual(@as(usize, 3), s.images.count());
+     try testing.expectEqual(@as(usize, 2), s.placements.count());
+ 
+@@ -1301,11 +1318,11 @@ test "storage: delete images by range 4" {
+ 
+     var s: ImageStorage = .{};
+     defer s.deinit(alloc, t.screens.active);
+-    try s.addImage(alloc, .{ .id = 1 });
+-    try s.addImage(alloc, .{ .id = 2 });
+-    try s.addImage(alloc, .{ .id = 3 });
+-    try s.addPlacement(alloc, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+-    try s.addPlacement(alloc, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addImage(alloc, t.screens.active, .{ .id = 1 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 2 });
++    try s.addImage(alloc, t.screens.active, .{ .id = 3 });
++    try s.addPlacement(alloc, t.screens.active, 1, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
++    try s.addPlacement(alloc, t.screens.active, 2, 1, .{ .location = .{ .pin = try trackPin(&t, .{ .x = 1, .y = 1 }) } });
+     try testing.expectEqual(@as(usize, 3), s.images.count());
+     try testing.expectEqual(@as(usize, 2), s.placements.count());
+ 
+diff --git a/src/terminal/kitty/graphics_unicode.zig b/src/terminal/kitty/graphics_unicode.zig
+index a223797ba..2cb57bb17 100644
+--- a/src/terminal/kitty/graphics_unicode.zig
++++ b/src/terminal/kitty/graphics_unicode.zig
+@@ -1183,8 +1183,8 @@ test "unicode render placement: dog 4x2" {
+     defer s.deinit(alloc, t.screens.active);
+ 
+     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+-    try s.addImage(alloc, image);
+-    try s.addPlacement(alloc, 1, 0, .{
++    try s.addImage(alloc, t.screens.active, image);
++    try s.addPlacement(alloc, t.screens.active, 1, 0, .{
+         .location = .{ .virtual = {} },
+         .columns = 4,
+         .rows = 2,
+@@ -1250,8 +1250,8 @@ test "unicode render placement: dog 2x2 with blank cells" {
+     defer s.deinit(alloc, t.screens.active);
+ 
+     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+-    try s.addImage(alloc, image);
+-    try s.addPlacement(alloc, 1, 0, .{
++    try s.addImage(alloc, t.screens.active, image);
++    try s.addPlacement(alloc, t.screens.active, 1, 0, .{
+         .location = .{ .virtual = {} },
+         .columns = 2,
+         .rows = 2,
+@@ -1316,8 +1316,8 @@ test "unicode render placement: dog 1x1" {
+     defer s.deinit(alloc, t.screens.active);
+ 
+     const image: Image = .{ .id = 1, .width = 500, .height = 306 };
+-    try s.addImage(alloc, image);
+-    try s.addPlacement(alloc, 1, 0, .{
++    try s.addImage(alloc, t.screens.active, image);
++    try s.addPlacement(alloc, t.screens.active, 1, 0, .{
+         .location = .{ .virtual = {} },
+         .columns = 1,
+         .rows = 1,
