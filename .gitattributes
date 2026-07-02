@@ -1,0 +1,4 @@
+
+# Native patch files must check out verbatim (LF): they are consumed by `git am`
+# against LF-normalized ghostty sources on any host.
+vendor/Ghostty.Vt/native-patches/*.patch -text
