@@ -48,6 +48,14 @@ public sealed class InWorldTerminalRenderer : IDisposable
     // panel. Written from the session-creation pool thread.
     private volatile string? _sessionStartError;
 
+    // Kitty-graphics GPU textures for this instance's frame (lazy — most in-world
+    // terminals never show an image). Registered against the MAIN ImGui backend
+    // (ImGuiBackend.Vulkan.AddTexture): the ImTextureRef is the raw VkDescriptorSet
+    // handle, and the off-screen ImGui backend binds whatever set a draw command
+    // carries with its own (identical, therefore Vulkan-compatible) pipeline layout
+    // — so main-registered textures draw fine in the off-screen pass (gotcha 35).
+    private ImageTextureCache? _imageCache;
+
     // Lean cached font resolution. Unlike TerminalWindow we skip the ASCII
     // run-batch validation (the in-world grid uses per-cell placement via the
     // simple FrameFonts ctor — always correct, a few more draw calls). Recomputed
@@ -208,12 +216,33 @@ public sealed class InWorldTerminalRenderer : IDisposable
         // frame.
         var frame = session.Surface.BuildFrame();
 
+        // Kitty graphics, exactly as TerminalWindow does it: upload newly-decoded
+        // images (main thread, the only Vulkan owner) and draw below-text placements
+        // (z < 0) under the grid, above-text ones (z >= 0) over it. Zero-cost while
+        // the frame has no images.
+        if (frame.ImagePlacements.Length > 0 || frame.NewImages.Length > 0)
+        {
+            _imageCache ??= new ImageTextureCache();
+            _imageCache.BeginFrame();
+            _imageCache.Upload(frame.NewImages);
+            KittyImageRenderer.Draw(
+                frame, _imageCache, drawList, canvasPos, _cellWidth, _cellHeight,
+                cols, rows, _settings.ForegroundOpacity, belowText: true);
+        }
+
         // Solid block cursor when focused; the renderer forces a steady hollow box
         // when windowFocused is false (input is going elsewhere).
         FrameGridRenderer.Render(
             frame, drawList, canvasPos,
             _cellWidth, _cellHeight, fonts, fontSize, _selectionColor, cursorOn: true,
             _settings.ForegroundOpacity, _settings.CellBackgroundOpacity, windowFocused: HasFocus);
+
+        if (_imageCache is not null && frame.ImagePlacements.Length > 0)
+        {
+            KittyImageRenderer.Draw(
+                frame, _imageCache, drawList, canvasPos, _cellWidth, _cellHeight,
+                cols, rows, _settings.ForegroundOpacity, belowText: false);
+        }
     }
 
     private void StartDefaultSession()
@@ -513,7 +542,16 @@ public sealed class InWorldTerminalRenderer : IDisposable
         }
     }
 
-    public void Dispose()
+    public void Dispose() => Dispose(freeGpu: true);
+
+    /// <summary>
+    ///     Disposes the renderer. <paramref name="freeGpu"/> = false skips freeing the
+    ///     kitty-image GPU textures — used only at game shutdown, where the device is
+    ///     already gone and touching it faults (the instance's own GPU graph is skipped
+    ///     the same way); the process exit reclaims the VRAM. The shell session
+    ///     (device-free) is closed either way.
+    /// </summary>
+    public void Dispose(bool freeGpu)
     {
         if (_disposed)
         {
@@ -521,6 +559,12 @@ public sealed class InWorldTerminalRenderer : IDisposable
         }
 
         _disposed = true;
+        if (freeGpu)
+        {
+            _imageCache?.Dispose();
+        }
+        _imageCache = null;
+
         // Disposes the session manager: closes the shell + its native surface.
         // Must run on the tick thread (the in-world manager disposes on Unload).
         _sessions.Dispose();

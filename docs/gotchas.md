@@ -466,3 +466,16 @@
     commands in the vendored README), or (b) patch ghostty's `decompressZlib` to bypass the
     broken Reader plumbing (e.g. drive `streamRemaining` into a `Writer.Allocating`, whose
     rebase is real) and rebuild. Either way, the `[Explicit]` repro test is the gate.
+
+35. **Kitty images draw in the in-world (off-screen) terminals too — via main-backend textures.**
+    `InWorldTerminalRenderer` mirrors `TerminalWindow`'s kitty integration (upload `NewImages`,
+    draw z<0 placements under the grid, z>=0 over it) with its own per-instance `ImageTextureCache`.
+    The cache registers textures with the MAIN ImGui backend (`ImGuiBackend.Vulkan.AddTexture`),
+    and that is fine in the off-screen pass because KSA's `ImGuiBackendVulkanImpl` treats
+    `TextureId` as the raw `VkDescriptorSet` handle and binds whatever set a draw command carries
+    with its own pipeline layout — the two backends' descriptor-set layouts are identical, hence
+    Vulkan-compatible, so a set allocated from the main backend's pool binds cleanly in the
+    off-screen command buffer. Teardown ordering matters: the instance frees the renderer (and its
+    kitty textures) only AFTER `PerFrameRenderer.Dispose()` drains the off-screen fences (no
+    in-flight command buffer may still sample them), and the shutdown path (`Dispose(freeGpu:false)`,
+    device already destroyed) skips freeing them entirely — the OS reclaims the VRAM.

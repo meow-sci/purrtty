@@ -217,18 +217,14 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         }
 
         // Shutdown: close the shell (no device involved) but leave the GPU graph for
-        // the OS to reclaim — the device is gone.
-        try { _content?.Dispose(); } catch { /* best-effort */ }
+        // the OS to reclaim — the device is gone. freeGpu:false also keeps the
+        // renderer's kitty-image textures untouched for the same reason.
+        try { _content?.Dispose(freeGpu: false); } catch { /* best-effort */ }
         _content = null;
     }
 
     private void Teardown()
     {
-        // Dedicated terminal session: closes the shell + its native surface. Safe on
-        // the tick thread; the per-frame loop has already stopped.
-        _content?.Dispose();
-        _content = null;
-
         // The quad (pipeline + descriptor set referencing the off-screen image)
         // before the target it samples.
         _quad?.Dispose();
@@ -239,6 +235,13 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         // no in-flight command buffer references freed backend resources.
         _perFrame?.Dispose();
         _perFrame = null;
+
+        // Dedicated terminal session + the renderer's kitty-image textures. Closes
+        // the shell (safe on the tick thread; the per-frame loop has stopped) and
+        // frees the textures — AFTER the fence drain above, so no in-flight
+        // off-screen command buffer still samples them.
+        _content?.Dispose();
+        _content = null;
 
         // The ImGui backend's teardown mutates the secondary context's IO, so it
         // must run with that context current and before the context is destroyed.
