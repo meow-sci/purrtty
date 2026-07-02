@@ -191,6 +191,41 @@ public sealed class KittyScreenStreamAssetTests
     }
 
     [Test]
+    [Explicit("Throughput probe, not a correctness gate: reports the VTWrite-path rate for the "
+              + "raw video shape (Write + BuildFrame incl. hash + decode). Run before/after a "
+              + "native pin bump to quantify the APC bulk lane (gatOS perf plan P7).")]
+    public void VtWriteThroughput_RawVideoUnits_Probe()
+    {
+        var (w, h, frameA) = Png("gatos-frame-a.png");
+        var (_, _, frameB) = Png("gatos-frame-b.png");
+        using var surface = NewSurface();
+        var unitA = RawVideoUnit(frameA, w, h, withDelete: false);
+        var unitB = RawVideoUnit(frameB, w, h, withDelete: false);
+
+        // Warm the native storage, the decode path, and the JIT.
+        surface.Write(unitA);
+        surface.BuildFrame();
+        surface.Write(unitB);
+        surface.BuildFrame();
+
+        const int iterations = 200;
+        long bytes = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (var i = 0; i < iterations; i++)
+        {
+            var unit = (i & 1) == 0 ? unitA : unitB;
+            surface.Write(unit);
+            surface.BuildFrame();
+            bytes += unit.Length;
+        }
+
+        sw.Stop();
+        var mibps = bytes / (1024.0 * 1024.0) / sw.Elapsed.TotalSeconds;
+        Assert.Pass($"{iterations} units, {bytes / (1024.0 * 1024.0):F1} MiB in "
+                    + $"{sw.Elapsed.TotalSeconds:F2} s = {mibps:F0} MiB/s");
+    }
+
+    [Test]
     public void ZlibVideo_KeyframeThenTransmitOnlyReplace_ReEmitsPixelExact()
     {
         // The exact post-P6 gatOS wire shape: an o=z a=T keyframe establishes the placement,

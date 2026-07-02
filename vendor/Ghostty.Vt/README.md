@@ -23,7 +23,7 @@ bump** — it runs once at startup and as a test).
 | Binding commit | `68e8b3e75d612e2e658d18d9e9982b1f857f50f0` |
 | Native engine | `ghostty-org/ghostty` |
 | Native base commit (pinned) | `c22df09da` (main, 2026-07-02: "libghostty: fix utf-8 grapheme length overflow") |
-| **Native local patches** | branch `purrtty/vt-video-fixes` in the local ghostty checkout: `ac3fee170` (kitty: untrack placement pins on replace/eviction — the per-frame video pin leak, gotcha 36) + `bb9c398bf` (kitty: route zlib image decompression around the zig 0.15.2 std flate bugs, ziglang/zig #25032/#25035 — the `o=z` heap corruption, gotcha 34). **Rebuild from that branch, not bare upstream**, until both land upstream. |
+| **Native local patches** | branch `purrtty/vt-video-fixes` in the local ghostty checkout: `ac3fee170` (kitty: untrack placement pins on replace/eviction — the per-frame video pin leak, gotcha 36), `bb9c398bf` (kitty: route zlib image decompression around the zig 0.15.2 std flate bugs, ziglang/zig #25032/#25035 — the `o=z` heap corruption, gotcha 34), `d10bcee6d` (terminal: bulk lane for APC string payloads + kitty frame presize — the per-byte VTWrite parse of video payloads; ~14× consumption-path throughput, gatOS perf plan P7). **Rebuild from that branch, not bare upstream**, until they land upstream. |
 | Built with | zig 0.15.2, all three RIDs cross-compiled from one Windows host |
 | Vendored on | 2026-07-02 |
 | Previous pin | `7092b39445bebfd3178f562eb9e5fa9a95a32332` (1.3.2-dev, vendored 2026-06-07) |
