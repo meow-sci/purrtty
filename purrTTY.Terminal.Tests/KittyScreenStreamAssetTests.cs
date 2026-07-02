@@ -125,6 +125,54 @@ public sealed class KittyScreenStreamAssetTests
     }
 
     [Test]
+    public void DeleteFreeRetransmit_ReplacesTheImage_AndReEmits()
+    {
+        // The streaming pattern gatOS uses: NO delete — a=T with an existing id replaces the
+        // image atomically at commit (ghostty ImageStorage.addImage frees the old data), so the
+        // previous frame stays visible while the next one loads.
+        var (w, h, frameA) = Png("gatos-frame-a.png");
+        var (_, _, frameB) = Png("gatos-frame-b.png");
+
+        using var surface = NewSurface();
+        surface.Write(RawVideoUnit(frameA, w, h, withDelete: false));
+        Assert.That(surface.BuildFrame().NewImages.Length, Is.EqualTo(1), "frame A decoded");
+
+        surface.Write(RawVideoUnit(frameB, w, h, withDelete: false));
+        var second = surface.BuildFrame();
+        Assert.That(second.ImagePlacements.Length, Is.EqualTo(1));
+        Assert.That(second.NewImages.Length, Is.EqualTo(1), "replace must re-emit new pixels");
+        Assert.That(second.NewImages[0].Rgba, Is.EqualTo(frameB));
+    }
+
+    [Test]
+    public void MidTransmission_ThePreviousFrameStaysVisible()
+    {
+        // THE streaming-visibility property (the reason gatOS sends no delete): a render tick
+        // that lands mid-transmission must still see the previous frame's placement. With a
+        // per-frame delete, ~every tick lands between the delete and the commit (the unit spans
+        // several ticks at real data rates) and the video is permanently invisible.
+        var (w, h, frameA) = Png("gatos-frame-a.png");
+        var (_, _, frameB) = Png("gatos-frame-b.png");
+
+        using var surface = NewSurface();
+        surface.Write(RawVideoUnit(frameA, w, h, withDelete: false));
+        Assert.That(surface.BuildFrame().NewImages.Length, Is.EqualTo(1), "frame A decoded");
+
+        // Feed only the front half of frame B's unit (ends inside an m=1 chunk chain).
+        var unitB = RawVideoUnit(frameB, w, h, withDelete: false);
+        var half = unitB.Length / 2;
+        surface.Write(unitB.AsSpan(0, half).ToArray());
+        var mid = surface.BuildFrame();
+        Assert.That(mid.ImagePlacements.Length, Is.EqualTo(1), "frame A must STILL be placed mid-load");
+        Assert.That(mid.NewImages.Length, Is.EqualTo(0), "no new pixels yet (A unchanged)");
+
+        surface.Write(unitB.AsSpan(half).ToArray());
+        var done = surface.BuildFrame();
+        Assert.That(done.NewImages.Length, Is.EqualTo(1), "commit re-emits");
+        Assert.That(done.NewImages[0].Rgba, Is.EqualTo(frameB));
+    }
+
+    [Test]
     [Explicit("SEGFAULTS the test host: the pinned libghostty-vt native memory-corrupts when "
               + "committing a kitty o=z payload of compressible data (minimal repro: zlib of "
               + "230 KB of zeros; nondeterministic crash point — heap corruption). Run manually "
@@ -142,11 +190,17 @@ public sealed class KittyScreenStreamAssetTests
         Assert.That(frame.NewImages[0].Rgba, Is.EqualTo(expected));
     }
 
-    /// <summary>One gatOS-shaped raw video frame: ESC7 · ESC[H · delete i=1 · chunked a=T f=32 · ESC8.</summary>
-    private static byte[] RawVideoUnit(byte[] rgba, int w, int h)
+    /// <summary>
+    ///     One gatOS-shaped raw video frame: ESC7 · ESC[H · [optional delete i=1] · chunked a=T
+    ///     f=32 · ESC8. gatOS streams delete-free (replace-on-retransmit keeps the previous frame
+    ///     visible mid-load); the delete variant covers the terminal-doom-style pattern.
+    /// </summary>
+    private static byte[] RawVideoUnit(byte[] rgba, int w, int h, bool withDelete = true)
     {
         var b64 = Convert.ToBase64String(rgba);
-        var sb = new StringBuilder("\x1b7\x1b[H\x1b_Ga=d,d=I,i=1\x1b\\");
+        var sb = new StringBuilder("\x1b7\x1b[H");
+        if (withDelete)
+            sb.Append("\x1b_Ga=d,d=I,i=1\x1b\\");
         var offset = 0;
         var first = true;
         do
