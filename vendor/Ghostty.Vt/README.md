@@ -50,9 +50,15 @@ reference, **never** re-vendor wholesale (it would revert the fixes below). Grep
   enums + the `ghostty_kitty_graphics_*` P/Invokes). It was deleted as dead code in 91fedcf and
   rewritten clean against the pinned headers (`src/terminal/c/kitty_graphics.zig`): a reusable
   `KittyPlacementCursor` (Reset/MoveNext/Current using `placement_render_info`, plus GetImage /
-  CopyImageData). Read-only — the engine parses/stores graphics inside VTWrite; there is no
-  command-injection API. Enums (`KittyImageFormat`/`Compression`/`PlacementLayer`) are 0-based
-  C enums — re-verify against the headers on a pin bump. Used by purrtty's image compositing.
+  CopyImageData / **HashImageData** — an FNV-1a-64 content hash over the engine's stored payload,
+  no copy, the change signal for video-style same-id re-transmits; the payload *length* is not
+  usable, see repo gotcha 33). Read-only — the engine parses/stores graphics inside VTWrite;
+  there is no command-injection API. Enums (`KittyImageFormat`/`Compression`/`PlacementLayer`)
+  are 0-based C enums — re-verify against the headers on a pin bump.
+  **Known native bug (this pin):** committing a kitty `o=z` (zlib) payload of compressible data
+  memory-corrupts/segfaults inside `VTWrite` (repo gotcha 34; `[Explicit]` repro in
+  `KittyScreenStreamAssetTests`) — re-run that repro on any pin bump. Used by purrtty's image
+  compositing.
 - **`KeyEvent.UnshiftedCodepoint` is bound and set for printable keys.** The kitty keyboard
   protocol encoder builds `CSI <code>;<mods>u` from it (no `key.codepoint()` fallback, unlike
   legacy) and emits **nothing** without it — so a Ctrl/Alt+letter dropped silently for any app

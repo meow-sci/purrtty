@@ -423,3 +423,29 @@
       for both color and depth) that KSA's own `PartModelGlass.WriteCommandsColor` performs at this exact
       point in the frame, draws every live instance's quad, then `EndRendering`s — a self-contained
       second dynamic-rendering scope layered on top, not a modification of KSA's own pass.
+
+33. **Kitty video re-decode is content-hash-driven; the payload LENGTH is not a change signal.**
+    Video-style producers (terminal-doom, the gatOS `/sim/display` screen stream) delete and
+    re-transmit the *same* image id every frame. `GhosttyTerminalSurface.PopulateImages` used to
+    detect the re-transmit by comparing the stored payload's byte length — but raw-format (`f=32`)
+    frames of fixed dims **all have identical length**, and consecutive zlib frames often collide
+    too, so the frontend texture froze on frame 1 forever. It now compares an FNV-1a-64 content
+    hash computed straight over the engine's stored payload (`KittyPlacementCursor.HashImageData`,
+    a purrtty binding addition — 8-byte lanes, no copy, no allocation), and evicts hash entries
+    whose image lost its last visible placement (an id deleted and later re-created always
+    re-decodes). Pinned by `KittyScreenStreamAssetTests` using real gatOS frames vendored under
+    `purrTTY.Terminal.Tests/Assets/` (equal-length A→B re-transmit must re-emit; a still image
+    must NOT re-decode per tick).
+
+34. **The pinned libghostty-vt native memory-corrupts on kitty `o=z` (zlib) payloads of
+    compressible data — do not send it compressed streams.** Committing a chunked `a=T,o=z`
+    transmission whose deflate stream contains real back-references (any real image; minimal
+    repro: zlib of 230 KB of zeros → 2 239 B payload) corrupts the heap inside `VTWrite` —
+    usually a segfault, sometimes silent (the crash point is layout-dependent), which also
+    explains historic in-game misrendering. Payloads that barely compress (noise, ratio ≈ 1)
+    happen to survive, which is why small synthetic tests never caught it. Raw `f=32` is fully
+    correct end-to-end (pixel-exact vs ground truth) and is what the gatOS stream now sends;
+    PNG (`f=100`) transmits are silently ignored by this native build (no placement — treat as
+    unsupported). The repro is preserved as the `[Explicit]`
+    `KittyScreenStreamAssetTests.ZlibRealFrame_CrashesPinnedNative_KnownBug` — run it after any
+    native pin bump; when it passes, zlib may be re-enabled stream-side and gotcha updated.

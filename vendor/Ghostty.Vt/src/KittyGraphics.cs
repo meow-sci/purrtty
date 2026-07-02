@@ -266,6 +266,54 @@ public sealed unsafe class KittyPlacementCursor : IDisposable
     }
 
     /// <summary>
+    /// purrtty addition: FNV-1a-64 content hash of the stored image payload, computed straight
+    /// over the engine's buffer (8-byte lanes, no copy, no allocation), or null if absent/empty.
+    /// This is the change signal for video-style delete + re-transmit of one image id: the data
+    /// <b>length</b> alone is not usable (raw-format frames all have identical length, and
+    /// compressed frames collide), which froze the frontend texture on frame 1. Not
+    /// cryptographic — a change detector.
+    /// </summary>
+    public ulong? HashImageData(uint imageId)
+    {
+        ThrowIfDisposed();
+        if (_storage == nint.Zero)
+        {
+            return null;
+        }
+
+        nint image = NativeMethods.ghostty_kitty_graphics_image(_storage, imageId);
+        if (image == nint.Zero)
+        {
+            return null;
+        }
+
+        nint dataPtr = nint.Zero;
+        nuint dataLen = 0;
+        NativeMethods.ghostty_kitty_graphics_image_get(image, (int)KittyImageDataKey.DataPtr, &dataPtr);
+        NativeMethods.ghostty_kitty_graphics_image_get(image, (int)KittyImageDataKey.DataLen, &dataLen);
+        if (dataPtr == nint.Zero || dataLen == 0)
+        {
+            return null;
+        }
+
+        var span = new ReadOnlySpan<byte>((void*)dataPtr, (int)dataLen);
+        const ulong prime = 1099511628211;
+        ulong hash = 14695981039346656037;
+        var lanes = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, ulong>(span[..(span.Length & ~7)]);
+        foreach (ulong lane in lanes)
+        {
+            hash = (hash ^ lane) * prime;
+        }
+
+        for (int i = span.Length & ~7; i < span.Length; i++)
+        {
+            hash = (hash ^ span[i]) * prime;
+        }
+
+        return hash;
+    }
+
+    /// <summary>
     /// Copies the raw (possibly compressed/encoded) image payload for <paramref name="imageId"/>
     /// into a new array, or null if absent/empty. The engine owns the buffer only for
     /// the current tick, so the copy must happen before any further engine mutation.

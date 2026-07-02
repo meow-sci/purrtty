@@ -199,13 +199,18 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
 
     // Kitty graphics: the engine parses/stores images + placements inside VTWrite;
     // this reusable cursor only reads them on the tick (gotcha 1). Created lazily on
-    // first frame and reset each tick. `_emittedImageDataLen` maps image id → last-seen
-    // raw data length: a length change (same id, new content) means the app re-transmitted
-    // the image (e.g. terminal-doom sends a fresh frame to the same id every tick), so
-    // we re-decode it. `_prevPlacements` drives the change signal so a still image alone
-    // doesn't bump the frame generation every tick.
+    // first frame and reset each tick. `_emittedImageContent` maps image id → FNV-1a-64
+    // of the last-decoded payload: a hash change (same id, new content) means the app
+    // re-transmitted the image (terminal-doom and the gatOS screen stream send a fresh
+    // frame to the same id every tick), so we re-decode it. The data LENGTH is not a
+    // usable proxy — raw-format video frames all have identical length (and compressed
+    // ones collide), which froze the frontend texture on frame 1. `_prevPlacements`
+    // drives the change signal so a still image alone doesn't bump the frame generation
+    // every tick. The two scratch lists keep the per-tick bookkeeping allocation-free.
     private global::Ghostty.Vt.KittyPlacementCursor? _kittyCursor;
-    private readonly Dictionary<uint, long> _emittedImageDataLen = new();
+    private readonly Dictionary<uint, ulong> _emittedImageContent = new();
+    private readonly List<uint> _seenImageIds = new(4);
+    private readonly List<uint> _staleImageIds = new(4);
     private long _imageVersionCounter;
     private ImagePlacement[] _prevPlacements = [];
 
@@ -1020,6 +1025,7 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
         List<TerminalImage>? newImages = null;
         int totalSeen = 0; // for diagnostic: all placements (including filtered-out ones)
 
+        _seenImageIds.Clear();
         bool hasStorage = _kittyCursor.Reset();
         if (hasStorage)
         {
@@ -1052,28 +1058,31 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                     Z = p.Z,
                 });
 
-                // Re-decode when the image data length changed under the same id.
-                // Apps like terminal-doom delete and re-transmit the same id every
-                // frame; without this check the texture would freeze on frame 1.
-                // Length is a cheap proxy for content change (no byte copy).
-                // A decode failure still records the length so we don't re-attempt
-                // a broken payload every tick.
-                long dataLen = _kittyCursor.GetImageDataLen(p.ImageId);
-                bool needsDecode = !_emittedImageDataLen.TryGetValue(p.ImageId, out long prevLen)
-                                   || prevLen != dataLen;
-                if (needsDecode)
+                // Re-decode when the image CONTENT changed under the same id (FNV-1a over
+                // the engine's stored payload, no copy — see HashImageData). Apps like
+                // terminal-doom and the gatOS screen stream delete + re-transmit the same
+                // id every frame; without this the texture freezes on frame 1. The payload
+                // LENGTH is deliberately not the signal: raw-format video frames all have
+                // identical length, and compressed frames collide. A decode failure still
+                // records the hash so we don't re-attempt a broken payload every tick.
+                if (!_seenImageIds.Contains(p.ImageId))
+                {
+                    _seenImageIds.Add(p.ImageId);
+                }
+
+                ulong contentHash = _kittyCursor.HashImageData(p.ImageId) ?? 0;
+                bool hadPrevious = _emittedImageContent.TryGetValue(p.ImageId, out ulong prevHash);
+                if (!hadPrevious || prevHash != contentHash)
                 {
                     if (DecodeImage(p.ImageId) is { } img)
                     {
                         newImages ??= new List<TerminalImage>(1);
                         newImages.Add(img);
                     }
-                    _emittedImageDataLen[p.ImageId] = dataLen;
-                    if (prevLen != 0 && prevLen != dataLen)
+                    _emittedImageContent[p.ImageId] = contentHash;
+                    if (hadPrevious)
                     {
-                        _logger.LogDebug(
-                            "kitty image {Id} re-transmitted ({Prev}→{New} bytes)",
-                            p.ImageId, prevLen, dataLen);
+                        _logger.LogDebug("kitty image {Id} re-transmitted (content changed)", p.ImageId);
                     }
                 }
             }
@@ -1093,6 +1102,26 @@ public sealed class GhosttyTerminalSurface : ITerminalSurface
                 _logger.LogWarning(
                     "kitty diag img: storage={HasStorage} total={Total} visible={Visible} decoded={New}",
                     hasStorage, totalSeen, placements?.Count ?? 0, newImages?.Count ?? 0);
+            }
+        }
+
+        // Evict content entries whose image no longer has a visible placement, so an id
+        // that is deleted and later re-created is always re-decoded (and the map stays
+        // bounded across id churn). A scrolled-off image re-decodes on scroll-back — fine.
+        if (_emittedImageContent.Count > _seenImageIds.Count)
+        {
+            _staleImageIds.Clear();
+            foreach (uint id in _emittedImageContent.Keys)
+            {
+                if (!_seenImageIds.Contains(id))
+                {
+                    _staleImageIds.Add(id);
+                }
+            }
+
+            foreach (uint id in _staleImageIds)
+            {
+                _emittedImageContent.Remove(id);
             }
         }
 

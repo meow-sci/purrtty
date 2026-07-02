@@ -22,4 +22,9 @@
     <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Real gatOS screen-stream frames (kitty unit + ground-truth PNG pairs) — see Assets/README.md. -->
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
