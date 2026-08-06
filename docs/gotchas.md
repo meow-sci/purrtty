@@ -427,19 +427,27 @@
     offenders, so the quad survives. Two consequences baked into the fix:
     - **The pipelines are built for dynamic rendering, not a classic `VkRenderPass`.**
       `RenderTranslucencyPass(useCustomRenderPass:true)` uses `vkCmdBeginRendering`/`EndRendering`, not
-      `Program.OffScreenPass.Pass` — a pipeline bound to that render pass handle is not valid inside a
+      a classic `VkRenderPass` handle — a pipeline bound to one is not valid inside a
       dynamic-rendering scope. `SharedQuadResource`'s pipelines instead chain a
-      `VkPipelineRenderingCreateInfo` (color format = `Program.OffscreenTarget.ColorImage.Format`, depth
-      format = `Program.OffscreenTarget.DepthImage.Format`, no `RenderPass`/`Subpass`), mirroring KSA's
-      own `PartModelGlass` pipeline (which draws in this same post-atmosphere slot).
+      `VkPipelineRenderingCreateInfo` (color/depth formats + `RasterizationSamples` all sourced from
+      `Program.OffscreenTarget`'s `ColorAttachment`/`DepthAttachment`/`Samples`, no `RenderPass`/`Subpass`),
+      mirroring KSA's own `PartModelGlass` pipeline (which draws in this same post-atmosphere slot).
+      `Program.OffscreenTarget` is the same object as `Program.MainViewport.OffscreenTarget`, which is what
+      the patch binds — so the pipeline always matches the attachments. (KSA 2026.8.5.5168 / rev 5154
+      deleted `Program.OffScreenPass`, `KSA.OffscreenTarget`, `KSA.RenderTarget` and `KSA.Framebuffer`;
+      `ColorAttachment`/`DepthAttachment` on the replacement `KSA.Rendering.RenderTarget` already resolve
+      to the MSAA images when multisampled, so no separate `msaa ? … : …` probe is needed.)
     - **The postfix reopens its own dynamic-rendering scope.** Unlike `RenderMainPass` (which leaves its
       render pass open for the caller to `EndRenderPass`), `RenderTranslucencyPass` calls its own
       `BeginRendering`/`EndRendering` internally and returns with the scope already closed — a postfix
       can't simply append draws into it. `RenderTranslucencyPassPatch` instead issues the same
-      `ColorAttachmentWrite`→`ColorAttachmentRead` barrier plus a second `BeginRendering` (`LoadOp.Load`
-      for both color and depth) that KSA's own `PartModelGlass.WriteCommandsColor` performs at this exact
+      `ColorAttachmentRead` barrier plus a second `BeginRendering` (`LoadOp.Load` for both color and
+      depth) that KSA's own `OrbitLinePass` / `PartModelGlass.WriteCommandsColor` perform at this exact
       point in the frame, draws every live instance's quad, then `EndRendering`s — a self-contained
-      second dynamic-rendering scope layered on top, not a modification of KSA's own pass.
+      second dynamic-rendering scope layered on top, not a modification of KSA's own pass. Since rev 5154
+      every `RenderImage` tracks its own layout/access state, so the barrier names only the *destination*
+      state (`commandBuffer.PipelineBarrier2(colorImage, ImageBarrierInfo.Presets.ColorAttachmentRead)`)
+      and the source state comes from the image — no hard-coded source state to drift.
 
 33. **Kitty video re-decode is content-hash-driven; the payload LENGTH is not a change signal.**
     Video-style producers (terminal-doom, the gatOS `/sim/display` screen stream) delete and
@@ -531,3 +539,19 @@
     untracks the replaced/evicted placement's pin in `addPlacement`/`evictImage`, so even
     per-frame `a=T` re-displays no longer leak; the keyframe cadence stays as belt-and-braces
     (and still matters for external terminals running unpatched ghostty).
+
+37. **`ImageEx` is a `readonly struct` whose `Dispose()` NREs on `default` — never dispose one
+    unguarded.** `Brutal.VulkanApi.Abstractions.ImageEx.Dispose()` is a bare
+    `_allocator.FreeAllocation(in AllocationInfo)`, and `_allocator` is a private reference field: on
+    `default(ImageEx)` it is `null`, so calling `Dispose()` throws a bare
+    `NullReferenceException` with no useful message. This bites in the recreate-in-place idiom, where
+    the constructor calls `Resize()` and `Resize()` starts by tearing down the previous allocation —
+    on the *first* call there is no previous allocation. It killed **every** in-world terminal
+    creation during the KSA 2026.8.5.5168 upgrade (`OffscreenRenderTarget` had just taken over the
+    attachment allocation from the deleted `KSA.RenderTarget`/`KSA.Framebuffer`, whose `Target != null`
+    class check the struct rewrite silently dropped). The fix is to hold the allocations as
+    `ImageEx?` so `null` unambiguously means "nothing allocated" and teardown is `?.Dispose()`; a
+    handle check (`.VkImage.VkHandle != 0`) happens to work too but relies on `ImageAllocationInfo`
+    staying a struct. Both in-world catch sites log the full exception (`{ex}`, not `ex.Message`) so
+    the next such failure names its frame instead of just "Object reference not set to an instance of
+    an object."

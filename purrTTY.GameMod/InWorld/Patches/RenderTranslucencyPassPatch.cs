@@ -65,28 +65,40 @@ internal static class RenderTranslucencyPassPatch
 
         try
         {
-            if (viewport.OffscreenTarget is not OffscreenTarget offscreenTarget)
+            if (viewport.OffscreenTarget is not { } offscreenTarget)
             {
                 return;
             }
 
-            bool msaa = GameSettings.GetSampleCount() != VkSampleCountFlags._1Bit;
+            // KSA 2026.8.5.5168 (rev 5154) moved offscreen rendering off VkRenderPass/framebuffers
+            // onto Vulkan dynamic rendering and deleted KSA.OffscreenTarget (and its
+            // MultisampleColorImage/MultisampleDepthImage pair). The replacement,
+            // KSA.Rendering.RenderTarget, exposes ColorAttachment/DepthAttachment, which already
+            // resolve to the MSAA image when multisampled and the single-sampled output otherwise —
+            // exactly the choice the old `msaa ? Multisample... : ...` ternaries made, so the sample
+            // count no longer has to be probed separately. Both are nullable (a target may carry only
+            // colour or only depth); this pass needs both.
+            if (offscreenTarget.ColorAttachment is not { } colorImage
+                || offscreenTarget.DepthAttachment is not { } depthImage)
+            {
+                return;
+            }
 
             // Grant blend-read access to whatever atmosphere/ocean/RenderTranslucencyPass
             // just wrote (dynamic rendering does not insert this barrier automatically
             // between separate BeginRendering/EndRendering scopes) — mirrors the entry
             // transition KSA's own PartModelGlass.WriteCommandsColor performs at this
             // same point in the frame.
-            ImageTransition colorWriteToRead = new ImageTransition(
-                msaa ? offscreenTarget.MultisampleColorImage : offscreenTarget.ColorImage,
-                ImageBarrierInfo.Presets.ColorAttachmentWrite,
-                ImageBarrierInfo.Presets.ColorAttachmentRead);
-            commandBuffer.TransitionImages2(new ReadOnlySpan<ImageTransition>(ref colorWriteToRead));
+            //
+            // Rev 5154 gave every RenderImage a tracked layout/access state, so the barrier now names
+            // only the state this pass needs; the source state comes from the image itself instead of
+            // being hard-coded here, which removes a whole class of silent drift.
+            commandBuffer.PipelineBarrier2(colorImage, ImageBarrierInfo.Presets.ColorAttachmentRead);
 
             var colorAttachment = new VkRenderingAttachmentInfo
             {
                 ImageLayout = VkImageLayout.ColorAttachmentOptimal,
-                ImageView   = msaa ? offscreenTarget.MultisampleColorImage.ImageView : offscreenTarget.ColorImage.ImageView,
+                ImageView   = colorImage.ImageView,
                 ResolveMode = VkResolveModeFlags.None,
                 LoadOp      = VkAttachmentLoadOp.Load,
                 StoreOp     = VkAttachmentStoreOp.Store,
@@ -94,7 +106,7 @@ internal static class RenderTranslucencyPassPatch
             var depthAttachment = new VkRenderingAttachmentInfo
             {
                 ImageLayout = VkImageLayout.DepthStencilAttachmentOptimal,
-                ImageView   = msaa ? offscreenTarget.MultisampleDepthImage.ImageView : offscreenTarget.DepthImage.ImageView,
+                ImageView   = depthImage.ImageView,
                 ResolveMode = VkResolveModeFlags.None,
                 LoadOp      = VkAttachmentLoadOp.Load,
                 StoreOp     = VkAttachmentStoreOp.Store,

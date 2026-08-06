@@ -160,22 +160,37 @@ public sealed class SharedQuadResource : IDisposable
         // why. RasterizationSamples must match the scene framebuffer's MSAA. Cull none:
         // a user-orientable single quad should never be invisible from its back face.
         // Two pipelines differ only in depth state.
+        // Rev 5154 deleted Program.OffScreenPass (the VkRenderPass-era RenderPassState) along with
+        // KSA.OffscreenTarget. The offscreen scene target itself now carries both the sample count and
+        // the attachment formats, and it is the same object the quad is drawn into
+        // (Program.MainViewport.OffscreenTarget == Program._offscreenTarget), so sourcing all three
+        // from it keeps the pipeline matched to the attachments RenderTranslucencyPassPatch binds.
+        // ColorAttachment/DepthAttachment resolve to the MSAA images when multisampled, which is what
+        // that pass renders into — so their samples/formats are the authoritative ones here.
+        var offscreen = Program.OffscreenTarget;
+        if (offscreen.ColorAttachment is not { } offscreenColor
+            || offscreen.DepthAttachment is not { } offscreenDepth)
+        {
+            throw new InvalidOperationException(
+                "purrTTY in-world quad: KSA's offscreen target is missing a colour or depth attachment.");
+        }
+
         var multisample = new VkPipelineMultisampleStateCreateInfo
         {
-            RasterizationSamples = Program.OffScreenPass.SampleCount,
+            RasterizationSamples = offscreen.Samples,
         };
 
         // Dynamic-rendering pipeline info (mirrors KSA's own PartModelGlass pipeline,
         // which draws translucent geometry in this same post-atmosphere slot): no
         // VkRenderPass handle, just the attachment formats the pipeline must be
         // compatible with.
-        var colorFormat = Program.OffscreenTarget.ColorImage.Format;
+        var colorFormat = offscreenColor.Format;
         var renderingInfo = stackalloc VkPipelineRenderingCreateInfo[1];
         renderingInfo[0] = new VkPipelineRenderingCreateInfo
         {
             ColorAttachmentCount    = 1,
             ColorAttachmentFormats  = &colorFormat,
-            DepthAttachmentFormat   = Program.OffscreenTarget.DepthImage.Format,
+            DepthAttachmentFormat   = offscreenDepth.Format,
             StencilAttachmentFormat = VkFormat.Undefined,
             ViewMask                = 0,
         };

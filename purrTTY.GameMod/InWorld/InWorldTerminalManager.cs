@@ -130,7 +130,10 @@ public sealed class InWorldTerminalManager : IDisposable
             }
             catch (Exception ex)
             {
-                ModLog.Log.Error($"purrTTY in-world: shared quad build failed ({ex.Message})");
+                // Full exception (type + stack), not just Message: a bare
+                // "Object reference not set to an instance of an object." from deep in the
+                // GPU build chain is undiagnosable without the frame it came from.
+                ModLog.Log.Error($"purrTTY in-world: shared quad build failed\n{ex}");
                 return null;
             }
         }
@@ -148,7 +151,7 @@ public sealed class InWorldTerminalManager : IDisposable
         }
         catch (Exception ex)
         {
-            ModLog.Log.Error($"purrTTY in-world: create failed ({ex.Message})");
+            ModLog.Log.Error($"purrTTY in-world: create failed\n{ex}");
             return null;
         }
     }
