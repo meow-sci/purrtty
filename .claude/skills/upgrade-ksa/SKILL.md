@@ -104,7 +104,7 @@ semantics of the arm you depend on**.
 | `Patch02` (`Patcher.cs`) — optional, menu fallback | `KSA.Program.DrawProgramMenusHook()` postfix | It being an empty public method KSA calls inside its `BeginMenuBar()` right after the View menu; also `Program.MainViewport.MenuBarInUse` | Hook removed/renamed → fallback menu disappears (only matters when ModMenu absent). `MainViewport.MenuBarInUse` gone → menu auto-hides / game hotkeys leak while open. |
 | `Patch03_HotkeyGuard` (`Patcher.cs`) — **required**, typing guard | `GameSettings.OnKeyAll` prefix (`ref bool __result`) | `Program.ConsoleWindow` static + `ConsoleWindow.IsOpen`; `ImGui.GetIO().WantTextInput` | `OnKeyAll` signature/return-model change → typing in mod text fields fires game hotkeys. `ConsoleWindow`/`IsOpen` rename → NRE guard or console-exemption logic wrong. |
 | `ConsoleWindowPrintPatch` (`Patches/ConsoleWindowPrintPatch.cs`) — optional, game-console capture | `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` postfix | **The single-sink funnel**: all string/char console output routing through this exact overload | **Brutal-version-sensitive.** Older API was `Print(string, uint, int, ConsoleLineType)`. If a new build prints via `u8`/byte-span/`ImString` overloads that call `AddPendingMessage` directly, capture silently escapes. Re-verify every `ConsoleWindow.Print*` overload and which call sites use which. |
-| `RenderTranslucencyPassPatch` (`InWorld/Patches/RenderTranslucencyPassPatch.cs`) — optional, in-world quad inject | `SuperMeshRenderSystem.RenderTranslucencyPass(CommandBuffer, bool useCustomRenderPass, Viewport)` postfix | `Viewport.OffscreenTarget` as `OffscreenTarget`; `OffscreenTarget.{ColorImage,MultisampleColorImage,DepthImage,MultisampleDepthImage}`; `GameSettings.GetSampleCount()`; `ImageBarrierInfo.Presets.ColorAttachmentWrite/Read`; `CommandBuffer.{TransitionImages2,BeginRendering,EndRendering}`; the **draw-order** guarantee (runs after atmosphere/cloud/ocean) | Highest-risk render coupling. Signature drift → in-world terminals vanish. **Draw-order change** (KSA moves atmosphere/ocean after this pass, or restructures `OffscreenTarget`) → planet-silhouette cutout returns (gotcha 32). Diff `SuperMeshRenderSystem`, `PlanetTransparenciesRenderer`, `OceanRenderer`, `PartModelGlass.WriteCommandsColor`, and `OffscreenTarget`. |
+| `RenderTranslucencyPassPatch` (`InWorld/Patches/RenderTranslucencyPassPatch.cs`) — optional, in-world quad inject | `SuperMeshRenderSystem.RenderTranslucencyPass(CommandBuffer, bool useCustomRenderPass, Viewport)` postfix | `Viewport.OffscreenTarget` as `KSA.Rendering.RenderTarget`; `RenderTarget.{ColorAttachment,DepthAttachment}` (resolve to the MSAA images when multisampled); `Viewport.Size`; `ImageBarrierInfo.Presets.ColorAttachmentRead`; `CommandBuffer.{PipelineBarrier2,BeginRendering,EndRendering}` (dynamic rendering, `LoadOp.Load`); the **draw-order** guarantee (runs after atmosphere/cloud/ocean) and the fact that the method **closes its own** `BeginRendering`/`EndRendering` scope before returning | Highest-risk render coupling. Signature drift → in-world terminals vanish. **Draw-order change** (KSA moves atmosphere/ocean after this pass, or restructures `RenderTarget`) → planet-silhouette cutout returns (gotcha 32). Diff `SuperMeshRenderSystem`, `PlanetTransparenciesRenderer`, the ocean renderer, `PartModelGlass.WriteCommandsColor`, and `KSA.Rendering/RenderTarget`. |
 
 After the diff, if in doubt, confirm the patch still applies by checking the mod log for
 `REQUIRED/optional Harmony patch '…' failed to apply` at runtime.
@@ -121,9 +121,12 @@ semantic changes to formats, sample counts, layouts, or draw order.
     (UV out at location 0, a single `mat4` MVP vertex push constant) is assumed by the
     custom frag `QuadFragGlsl` and the pipeline layout — if KSA changes UnlitMesh's vertex
     layout or push-constant, the quad renders garbage. Check `UnlitMesh.vert` in decomp.
-  - `Program.OffScreenPass.SampleCount`, `Program.OffscreenTarget.ColorImage.Format`,
-    `Program.OffscreenTarget.DepthImage.Format` — pipeline MSAA + attachment formats.
-    Format/MSAA change → validation error or silent depth misbehavior.
+  - `Program.OffscreenTarget` (a `KSA.Rendering.RenderTarget`, same object as
+    `Program.MainViewport.OffscreenTarget`): `.Samples`, `.ColorAttachment.Format`,
+    `.DepthAttachment.Format` — pipeline MSAA + attachment formats fed into a
+    `VkPipelineRenderingCreateInfo` (dynamic rendering; there is **no** `VkRenderPass` — KSA rev
+    5154 deleted `Program.OffScreenPass`/`Core.RenderPassState`; `Program.MainPass` is now a
+    `Core.SwapchainPassState`). Format/MSAA change → validation error or silent depth misbehavior.
   - `RenderCore.ShaderModuleUtils.FromString(...)` — runtime shaderc compile (needs
     `Brutal.ShaderC`).
   - Presets: `RenderingPresets.ReverseZDepthStencil.{DepthTestNoWrite,NoDepthTest}`,
@@ -136,7 +139,7 @@ semantic changes to formats, sample counts, layouts, or draw order.
     gamma-decodes (`pow(2.2)`) → re-premultiplies, because KSA's ImGui backend blends over
     a transparent clear (premultiplied output) and the stock frag would force alpha=1.
     If KSA's ImGui compositing or gamma handling changes, the quad's color/opacity is wrong.
-- **`OffscreenRenderTarget.cs`** (`InWorld/`): `RenderTarget(renderer, name, extent, colorFormat, depthFormat, depthSlices, inMipLevels)` ctor; `RenderTarget.CreateRenderPass()` (finalizes color to `ShaderReadOnlyOptimal`), `.BuildFramebuffer`, `.ColorImage`, `.FrameBuffer`, `.Dispose`; `Presets.Sampler.SamplerLinearClamped`. A `RenderTarget` API/behavior change breaks the sampleable target.
+- **`OffscreenRenderTarget.cs`** (`InWorld/`): purrTTY's **own** sampleable colour+depth target (KSA rev 5154 deleted the old `KSA.RenderTarget`/`Framebuffer` it used to wrap). It reproduces the usage flags of the deleted `RenderTarget.BuildAttachments` directly on `ImageEx` and uses `Presets.Sampler.SamplerLinearClamped`. Low KSA coupling now; only the `Presets` sampler and the Brutal Vulkan image/allocator API matter.
 - **`InWorldQuad.cs`** (`InWorld/Display/`): `Program.GetMainCamera()`, `Camera.MVP.{projection,viewProjection}`, `Camera.VPInv.view`, `Program.SetViewport(cmd)`. Camera matrix conventions (row-vector `mvp = model * viewProjection`) are load-bearing — a handedness/convention change silently mislocates/mirrors the quad.
 - **`PerFrameRenderer.cs`** / **`InWorldTerminalInstance.cs`**: `Program.GetRenderer()` (null before renderer live), device queue submit, `Device.WaitIdle()`.
 - **`InWorldTerminalManager.cs`**: `Program.GetRenderer()?.Device.WaitIdle()`; `GameSettings.GetSampleCount()`.
