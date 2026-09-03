@@ -175,7 +175,7 @@ public sealed class InWorldQuad : IDisposable
     ///     Ego-space ray vs. quad pick (click-to-focus + app-mouse mapping). Works in both
     ///     anchor modes: part mode is already ego-space; billboard mode composes its
     ///     view-space model and folds the inverse-view rotation (<c>VPInv.view</c>) so the
-    ///     panel is tested in the same ego space as <c>Cursor.InputRay</c>. The local
+    ///     panel is tested in the same ego space as <c>Cursor.GetEgoRay(viewport)</c>. The local
     ///     corners MUST match the shared vertex buffer.
     /// </summary>
     public bool TryRaycast(Ray ray, out double t, out float2 uv)
@@ -257,7 +257,7 @@ public sealed class InWorldQuad : IDisposable
 
     /// <summary>
     ///     Composes the model matrix in <b>ego</b> space for both anchor modes, for
-    ///     ray-picking against the ego-space <c>Cursor.InputRay</c>. Part mode is already
+    ///     ray-picking against the ego-space <c>Cursor.GetEgoRay(viewport)</c>. Part mode is already
     ///     ego-space; billboard mode builds its view-space model and right-multiplies the
     ///     inverse-view rotation (<c>VPInv.view</c>, view→ego) — exact because the view
     ///     matrix is a pure rotation about the ego origin. Returns false when no model can

@@ -108,7 +108,9 @@ static class Patch02
     if (ImGui.BeginMenu("purrTTY"))
     {
       // Keep the (possibly auto-hidden) menu bar shown while our menu is open.
-      Program.MainViewport.MenuBarInUse = true;
+      // KSA 5402 made IGameViewport.MenuBarInUse read-only; the setter lives on the
+      // public IGameViewportLifecycle interface (same call KSA's DrawMenuBar makes).
+      ((IGameViewportLifecycle)Program.MainViewport).SetMenuBarInUse(true);
 
       TerminalMenus.DrawMenuContent();
 

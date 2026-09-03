@@ -117,7 +117,7 @@ kittenEva.UpdatePerFrameData();
 
 Static parts have no native tint. `PartModel.PerInstanceData` is 80 bytes; a Harmony **prefix on
 `PartModel.AddInstance`** (actual signature:
-`AddInstance(PerInstanceData instanceData, Viewport viewport, int frameIndex)` — Harmony still
+`AddInstance(PerInstanceData instanceData, IViewport viewport, int frameIndex)` — `IViewport` since KSA 5402; Harmony still
 injects the first parameter as `ref`) reinterprets the struct and writes paint data into the
 padding; a runtime-patched shader reads it.
 

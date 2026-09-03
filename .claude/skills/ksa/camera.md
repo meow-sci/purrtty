@@ -7,7 +7,7 @@ KSA has two camera controller types that can be patched via Harmony to intercept
 - `OrbitController` — orbit/follow camera mode
 - `FlyController` — free-fly camera mode
 
-Both override `Controller.OnFrame(Viewport inViewport, double inDeltaTime)` (virtual on the
+Both override `Controller.OnFrame(IViewport inViewport, double inDeltaTime)` (virtual on the
 `Controller` base), which drives the camera each frame.
 
 ## Harmony Patch Pattern
@@ -20,12 +20,12 @@ The camera transform IS the camera: `Camera` derives from `Transform3D`
 ```csharp
 [HarmonyPatch(typeof(OrbitController), "OnFrame")]
 [HarmonyPrefix]
-private static bool OrbitController_OnFrame_Prefix(OrbitController __instance, Viewport inViewport, double inDeltaTime)
+private static bool OrbitController_OnFrame_Prefix(OrbitController __instance, IViewport inViewport, double inDeltaTime)
     => HandleOnFramePrefix(__instance, inDeltaTime);
 
 [HarmonyPatch(typeof(FlyController), "OnFrame")]
 [HarmonyPrefix]
-private static bool FlyController_OnFrame_Prefix(FlyController __instance, Viewport inViewport, double inDeltaTime)
+private static bool FlyController_OnFrame_Prefix(FlyController __instance, IViewport inViewport, double inDeltaTime)
     => HandleOnFramePrefix(__instance, inDeltaTime);
 
 // Return false to suppress default camera logic; return true to run it normally.
@@ -74,7 +74,7 @@ double3 targetPos = controller.Camera.Following.GetPositionEcl();
 double3 up = double3.UnitY.Transform(transform.LocalRotation);
 transform.LocalRotation = Camera.LookAtRotation(lookDirection, up);
 
-// Viewport camera reference (e.g., in UpdateRenderData patches):
+// Viewport camera reference (e.g., in UpdateRenderData patches; `viewport` is an IViewport since KSA 5402):
 Camera camera = viewport.GetCamera();
 double3 egoPos = camera.GetPositionEgo(vehicle); // vehicle position in camera ego space
 ```

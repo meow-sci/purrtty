@@ -2,7 +2,7 @@
 
 ## How the Game Menu Bar Works
 
-The game draws its menu bar in `Program.DrawMenuBar(Viewport viewport, int windowWidth)` (an
+The game draws its menu bar in `Program.DrawMenuBar(IGameViewport viewport, int windowWidth)` (an
 instance method). It creates a borderless ImGui window with `ImGuiWindowFlags.MenuBar` and calls
 `ImGui.BeginMenuBar()` / `ImGui.EndMenuBar()` inside it. The built-in menus rendered inside that
 block are, in order:
@@ -41,7 +41,9 @@ static class MyMenuPatch
         {
             // REQUIRED: keeps the (possibly auto-hidden) menu bar shown and
             // suppresses game hotkeys/camera while the menu is open.
-            Program.MainViewport.MenuBarInUse = true;
+            // KSA 5402: MenuBarInUse is read-only on IGameViewport; the setter is on
+            // the public IGameViewportLifecycle interface (what DrawMenuBar itself calls).
+            ((IGameViewportLifecycle)Program.MainViewport).SetMenuBarInUse(true);
 
             if (ImGui.MenuItem("Do Something", default, _enabled))
                 _enabled = !_enabled;
@@ -64,8 +66,9 @@ Notes:
 
 - The hook is called once per frame for the **MainViewport** menu bar, right after the View menu
   and before the right-aligned version string + `EndMenuBar()`.
-- Set `MenuBarInUse = true` **inside** the `BeginMenu` block (only while the menu is open).
-  Omitting it lets the game steal keyboard/mouse input from your menu.
+- Call `SetMenuBarInUse(true)` **inside** the `BeginMenu` block (only while the menu is open).
+  Omitting it lets the game steal keyboard/mouse input from your menu. (Pre-5402 builds exposed
+  a settable `Viewport.MenuBarInUse` property instead.)
 - Apply patches in `[StarMapAllModsLoaded]`, not the mod constructor, and apply each patch class
   independently (`harmony.CreateClassProcessor(type).Patch()` with try/catch) so one drifted
   target cannot take down the whole mod.
@@ -93,7 +96,7 @@ opcode pattern-matching breaks silently on every reshuffle. purrTTY replaced its
 the postfix above for exactly this reason.
 
 If you must inject elsewhere in `DrawMenuBar`, note it is an **instance** method, so `Ldarg_1`
-is the `Viewport` parameter.
+is the `IGameViewport` parameter.
 
 ## ImGui Calls Available Inside the Menu
 

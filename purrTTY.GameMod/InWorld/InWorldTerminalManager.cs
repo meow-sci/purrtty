@@ -296,8 +296,11 @@ public sealed class InWorldTerminalManager : IDisposable
         // opted into click-to-focus (both are ego-space ray-pickable).
         if (focused != null && IsClickPickable(focused))
         {
+            // KSA 5402 dropped the per-frame `Cursor.InputRay`; the ray is now derived on
+            // demand per viewport. Quads are placed with the main camera, so pick against
+            // the main viewport's ray.
             float2? hitUv = null;
-            if (focused.TryRaycast(Cursor.InputRay, out _, out float2 uv))
+            if (focused.TryRaycast(Cursor.GetEgoRay(Program.MainViewport), out _, out float2 uv))
             {
                 hitUv = uv;
             }
@@ -348,6 +351,7 @@ public sealed class InWorldTerminalManager : IDisposable
 
         InWorldTerminalInstance? nearest = null;
         double nearestT = double.MaxValue;
+        Ray inputRay = Cursor.GetEgoRay(Program.MainViewport);
         for (int i = 0; i < _instances.Count; i++)
         {
             var instance = _instances[i];
@@ -356,7 +360,7 @@ public sealed class InWorldTerminalManager : IDisposable
                 continue;
             }
 
-            if (instance.TryRaycast(Cursor.InputRay, out double t, out _) && t < nearestT)
+            if (instance.TryRaycast(inputRay, out double t, out _) && t < nearestT)
             {
                 nearestT = t;
                 nearest = instance;

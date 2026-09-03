@@ -51,7 +51,7 @@ namespace purrTTY.GameMod.InWorld.Patches;
 internal static class RenderTranslucencyPassPatch
 {
     [HarmonyPostfix]
-    public static unsafe void Postfix(CommandBuffer commandBuffer, bool useCustomRenderPass, Viewport viewport)
+    public static unsafe void Postfix(CommandBuffer commandBuffer, bool useCustomRenderPass, IViewport viewport)
     {
         if (!useCustomRenderPass || viewport == null)
         {

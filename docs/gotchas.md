@@ -238,7 +238,7 @@
     moved to the terminal *is* tracked and released (no stuck controls). NB: in current KSA the game
     only receives input at all when `ImGuiBackend.InputFallthrough` is set — the backend
     (`ImGuiBackendGlfwImpl`) forwards GLFW key/mouse to `Program.OnKey`/`OnMouseButton` **only** while
-    the 3D-viewport ImGui window is hovered (`Viewport.DrawImGui` sets it + `SetNextFrameWantCaptureKeyboard(false)`);
+    the 3D-viewport ImGui window is hovered (`GameViewport.DrawImGui` — the `IGameViewport` implementation since KSA 5402 — sets it + `SetNextFrameWantCaptureKeyboard(false)`);
     `Patch01` gates `Program.OnKey` itself, so it works regardless of how the game routes input to it.
     `Patch03_HotkeyGuard` null-guards the `Program.ConsoleWindow` static; the toggle hotkey is
     `repeat:false` and skipped while any ImGui text field has focus.

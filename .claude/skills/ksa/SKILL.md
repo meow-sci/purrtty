@@ -484,9 +484,11 @@ Notable names: `Custard`, `RadioactiveGreen`, `Orangeish`, `GreenApple`, `Orangi
 Custom top-level menus are injected via a plain Harmony **postfix on
 `Program.DrawProgramMenusHook()`** — an empty public extension point the game calls inside its
 `BeginMenuBar()` block right after the View menu (no IL rewriting; the old `DrawMenuBar`
-transpiler approach is obsolete and breaks on IL reshuffles). Setting
-`Program.MainViewport.MenuBarInUse = true` inside the open menu is required to suppress game
-hotkeys and prevent the bar from auto-hiding.
+transpiler approach is obsolete and breaks on IL reshuffles). Calling
+`((IGameViewportLifecycle)Program.MainViewport).SetMenuBarInUse(true)` inside the open menu is
+required to suppress game hotkeys and prevent the bar from auto-hiding (`MenuBarInUse` became a
+read-only flag on `IGameViewport` in KSA 5402; the public `IGameViewportLifecycle` interface
+carries the setter).
 
 See [game-menus.md](game-menus.md) for the complete pattern and all available ImGui menu calls.
 
@@ -509,7 +511,7 @@ Key gotchas:
 - Don't bake `part.MatrixAsmb2Ego` directly — it includes the part's scale, which you usually want to exclude.
 - If the source texture is gamma-encoded (as ImGui output is), use `R8G8B8A8UNorm` for the source; SRGB formats double-decode and darken the result.
 
-See [quad.md](quad.md) for the complete pipeline setup, vertex/index layout, per-frame model-matrix composition, ray-vs-quad picking via `Cursor.InputRay`, and lifecycle / disposal rules.
+See [quad.md](quad.md) for the complete pipeline setup, vertex/index layout, per-frame model-matrix composition, ray-vs-quad picking via `Cursor.GetEgoRay(Program.MainViewport)`, and lifecycle / disposal rules.
 
 # Numerics
 
