@@ -18,6 +18,15 @@ namespace purrTTY.GameMod.InWorld.Patches;
 ///     the same images), both of which run right after the opaque pass and have no idea
 ///     a translucent, depth-test-no-write quad already drew there.
 ///     <para>
+///         Since KSA 5482 (rev 5408, "bloom renders after translucency") the main flight pass
+///         runs the MSAA colour resolve, the underwater tint, sun/global bloom and the
+///         selected-part outline <b>after</b> this pass, so the quad is now post-processed like
+///         KSA's own glass and particles (the editor pass already bloomed translucency before
+///         5482). That is intended: the quad reads as world geometry. Every one of those passes
+///         consumes the colour image through KSA's tracked barrier state, which is why the
+///         entry barriers below must declare write access (see there).
+///     </para>
+///     <para>
 ///         Rationale for hooking here instead of <c>SuperMeshRenderSystem.RenderMainPass</c>
 ///         (the original approach): a quad drawn during the opaque pass is correctly
 ///         depth-tested against vehicle parts and the planet's solid body (all of which
@@ -25,17 +34,18 @@ namespace purrTTY.GameMod.InWorld.Patches;
 ///         still-unwritten-by-us depth buffer, and unconditionally repaint every pixel
 ///         they decide belongs to the planet — including the quad's — producing a hard
 ///         cutout that exactly follows the planet's screen-space silhouette. Postfixing
-///         the translucency pass instead means the quad is the last thing to touch color
-///         for the frame (besides gizmos/orbit lines/UI, which are 2D overlays that don't
-///         re-derive color from depth), so it survives.
+///         the translucency pass instead means the quad draws after every pass that
+///         re-derives color from depth, so it survives (what runs after it — bloom,
+///         underwater, orbit lines, gizmos, UI — filters or overlays the image instead of
+///         repainting it from depth).
 ///     </para>
 ///     <para>
 ///         Unlike <c>RenderMainPass</c>, <c>RenderTranslucencyPass</c> closes its own
 ///         dynamic-rendering scope (<c>BeginRendering</c>/<c>EndRendering</c>) before
 ///         returning, so a postfix can't simply append draws into it — it must reopen a
 ///         second dynamic-rendering scope of its own (<c>LoadOp.Load</c> for color+depth,
-///         matching KSA's own <c>PartModelGlass.WriteCommandsColor</c>, which draws in
-///         this exact spot). <see cref="SharedQuadResource"/>'s pipelines are built with
+///         matching KSA's own <c>PartModelGlass.WriteCommandsColor</c>, which draws
+///         immediately before this pass). <see cref="SharedQuadResource"/>'s pipelines are built with
 ///         <c>VkPipelineRenderingCreateInfo</c> (no <c>VkRenderPass</c> handle) to be
 ///         valid inside that scope, mirroring the same KSA convention.
 ///     </para>
@@ -84,16 +94,21 @@ internal static class RenderTranslucencyPassPatch
                 return;
             }
 
-            // Grant blend-read access to whatever atmosphere/ocean/RenderTranslucencyPass
-            // just wrote (dynamic rendering does not insert this barrier automatically
-            // between separate BeginRendering/EndRendering scopes) — mirrors the entry
-            // transition KSA's own PartModelGlass.WriteCommandsColor performs at this
-            // same point in the frame.
+            // Order this scope after RenderTranslucencyPass's (dynamic rendering does not insert
+            // a dependency between separate BeginRendering/EndRendering scopes): the quad blends
+            // over (reads) and writes colour, and depth-tests against (loads) the depth that pass
+            // just stored. These are exactly the entry states RenderTranslucencyPass and
+            // PartModelGlass.WriteCommandsColor declare for their identical scopes.
             //
-            // Rev 5154 gave every RenderImage a tracked layout/access state, so the barrier now names
-            // only the state this pass needs; the source state comes from the image itself instead of
-            // being hard-coded here, which removes a whole class of silent drift.
-            commandBuffer.PipelineBarrier2(colorImage, ImageBarrierInfo.Presets.ColorAttachmentRead);
+            // Rev 5154 gave every RenderImage a tracked layout/access state: the barrier's source
+            // is the image's recorded state and the state named here becomes the source of the NEXT
+            // barrier. It must therefore include the WRITE access this pass performs — declaring a
+            // read-only state (as this used to) leaves the quad's writes out of the next barrier's
+            // source scope, and since 5482 that next consumer is the MSAA resolve / bloom compute
+            // read. A state with write access also defeats RenderImage.CreateBarrier's "same state,
+            // no writes" skip, so the barrier is emitted every frame.
+            commandBuffer.PipelineBarrier2(colorImage, ImageBarrierInfo.Presets.ColorAttachmentReadWrite);
+            commandBuffer.PipelineBarrier2(depthImage, ImageBarrierInfo.Presets.DepthStencilAttachmentReadWrite);
 
             var colorAttachment = new VkRenderingAttachmentInfo
             {

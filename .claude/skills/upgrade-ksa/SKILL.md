@@ -45,6 +45,12 @@ necessarily `<previous-ksa>`'s `toRevision` (the 5402 snapshot listed only rev 5
 previous snapshot ended at 5348). If the two don't chain, the decomp diff is the only complete
 record — never conclude "nothing moved" from a short `commits[]`.
 
+The baseline is purrTTY's **last validated** build, not whatever the `<previous-ksa>` folder happens
+to hold: if an intermediate build was never reviewed (the 5482 review found `<previous-ksa>` at 5438
+while purrTTY was last validated on 5402), diff from the last validated build instead. Snapshot trees
+that are git repos (one commit per build) make this easy:
+`git diff <validated-sha> <current-sha> -- current/decomp/<path>`.
+
 ## The core insight — compile ≠ safe
 
 purrTTY references some KSA members **directly** (the compiler catches those if they
@@ -104,14 +110,28 @@ semantics of the arm you depend on**.
 
 | Patch (file) | KSA target & signature | Depends on | If KSA changes… |
 |---|---|---|---|
-| `Patch01` (`Patcher.cs`) — **required**, input gate | `KSA.Program.OnKey(GlfwWindow, GlfwKey, int, GlfwKeyAction, GlfwModifier)` prefix | The `Press`/`Repeat`/`Release` **switch arms** inside `Program.OnKey`; that release-arm toggles (`ToggleFps`/`ToggleUi`/…) fire on `Release` | Signature drift → gate stops applying → terminal typing leaks into game controls. Semantics change (which actions fire on which arm) → the held-key model in `s_gameHeldKeys` may leak or strand keys. Re-read `Program.OnKey` in full. |
+| `Patch01` (`Patcher.cs`) — **required**, input gate | `KSA.Program.OnKey(GlfwWindow, GlfwKey, int, GlfwKeyAction, GlfwModifier)` prefix | `OnKey` being the single keyboard entry: since KSA 5482 it runs the gate chain and then calls the private `DispatchKeyEvent`, which holds the `Press`/`Repeat`/`Release` **switch arms**; that release-arm toggles (`ToggleFps`/`ToggleUi`/…) fire on `Release` | Signature drift → gate stops applying → terminal typing leaks into game controls. Semantics change (which actions fire on which arm) → the held-key model in `s_gameHeldKeys` may leak or strand keys. A new caller of `DispatchKeyEvent` (or another action dispatcher) that bypasses `OnKey` → that input leaks past the gate (this is how mouse bindings arrived — see `Patch04`). Re-read `Program.OnKey` **and** `DispatchKeyEvent` in full. |
 | `Patch02` (`Patcher.cs`) — optional, menu fallback | `KSA.Program.DrawProgramMenusHook()` postfix | It being an empty public method KSA calls inside its `BeginMenuBar()` right after the View menu; also `Program.MainViewport` (an `IGameViewport` since KSA 5402) whose `MenuBarInUse` is **read-only** — it is set via the public `IGameViewportLifecycle.SetMenuBarInUse(bool)` (the same call KSA's `DrawMenuBar` makes) | Hook removed/renamed → fallback menu disappears (only matters when ModMenu absent). `IGameViewportLifecycle`/`SetMenuBarInUse` gone → compile break; semantics drift → menu auto-hides / game hotkeys leak while open. |
 | `Patch03_HotkeyGuard` (`Patcher.cs`) — **required**, typing guard | `GameSettings.OnKeyAll` prefix (`ref bool __result`) | `Program.ConsoleWindow` static + `ConsoleWindow.IsOpen`; `ImGui.GetIO().WantTextInput` | `OnKeyAll` signature/return-model change → typing in mod text fields fires game hotkeys. `ConsoleWindow`/`IsOpen` rename → NRE guard or console-exemption logic wrong. |
+| `Patch04_MouseBindingGate` (`Patcher.cs`) — **required**, mouse-binding gate | private `KSA.Program.DispatchKeyEvent(in GlfwKeyEvent keyEvent)` prefix (`ref bool __result`; the patch takes `GlfwKeyEvent keyEvent` **by value** — Harmony dereferences the `in` arg) | `Program.OnMouseButton` dispatching mouse-bound actions via `Input.MouseBound(button) && DispatchKeyEvent(new GlfwKeyEvent(window, action, button, mods))` (KSA 5482, rev 5449); `GlfwKeyEvent.{IsMouse,Button,Action}` (mouse `Press`/`Release` only); returning `false` = "not handled" so `OnMouseButton` falls through to ordinary click/camera handling; the swallowed-press model `s_swallowedButtons` | Private target — rename/signature drift → patch fails (logged) → clicking a player-bound mouse button while a terminal owns the keyboard fires game actions. A new mouse-dispatch path that skips `DispatchKeyEvent`, or `GlfwKeyEvent` losing `IsMouse`, → same leak. |
 | `ConsoleWindowPrintPatch` (`Patches/ConsoleWindowPrintPatch.cs`) — optional, game-console capture | `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` postfix | **The single-sink funnel**: all string/char console output routing through this exact overload | **Brutal-version-sensitive.** Older API was `Print(string, uint, int, ConsoleLineType)`. If a new build prints via `u8`/byte-span/`ImString` overloads that call `AddPendingMessage` directly, capture silently escapes. Re-verify every `ConsoleWindow.Print*` overload and which call sites use which. |
-| `RenderTranslucencyPassPatch` (`InWorld/Patches/RenderTranslucencyPassPatch.cs`) — optional, in-world quad inject | `SuperMeshRenderSystem.RenderTranslucencyPass(CommandBuffer, bool useCustomRenderPass, IViewport?)` postfix (`IViewport` replaced the deleted `Viewport` class in KSA 5402; `GameViewport`/`PartThumbnailViewport` implement it) | `IViewport.OffscreenTarget` as `KSA.Rendering.RenderTarget`; `RenderTarget.{ColorAttachment,DepthAttachment}` (resolve to the MSAA images when multisampled); `IViewport.Size` (`int2`); `ImageBarrierInfo.Presets.ColorAttachmentRead`; `CommandBuffer.{PipelineBarrier2,BeginRendering,EndRendering}` (dynamic rendering, `LoadOp.Load`); the **draw-order** guarantee (runs after atmosphere/cloud/ocean) and the fact that the method **closes its own** `BeginRendering`/`EndRendering` scope before returning; and that the postfix fires for **every** visible viewport KSA renders through `RenderViewport` (secondary kitten cams / crew portraits, whose owned targets share the main target's formats + `GameSettings.GetSampleCount()`) — purrTTY draws with the main camera regardless (`ViewportEx.IsMain()` is the filter if that ever needs gating) | Highest-risk render coupling. Signature drift → in-world terminals vanish. **Draw-order change** (KSA moves atmosphere/ocean after this pass, or restructures `RenderTarget`) → planet-silhouette cutout returns (gotcha 32). Diff `SuperMeshRenderSystem`, `PlanetTransparenciesRenderer`, the ocean renderer, `PartModelGlass.WriteCommandsColor`, and `KSA.Rendering/RenderTarget`. |
+| `RenderTranslucencyPassPatch` (`InWorld/Patches/RenderTranslucencyPassPatch.cs`) — optional, in-world quad inject | `SuperMeshRenderSystem.RenderTranslucencyPass(IViewport viewport, CommandBuffer commandBuffer, bool useCustomRenderPass)` postfix (params reordered in KSA 5482 — harmless because the postfix binds **by name** and the attribute names no arg types; `IViewport` replaced the deleted `Viewport` class in KSA 5402; `GameViewport`/`PartThumbnailViewport` implement it) | `IViewport.OffscreenTarget` as `KSA.Rendering.RenderTarget`; `RenderTarget.{ColorAttachment,DepthAttachment}` (resolve to the MSAA images when multisampled); `IViewport.Size` (`int2`); `ImageBarrierInfo.Presets.{ColorAttachmentReadWrite,DepthStencilAttachmentReadWrite}` (tracked `RenderImage` state — the declared state is the next barrier's source, so it must include the quad's writes; gotcha 32); `CommandBuffer.{PipelineBarrier2,BeginRendering,EndRendering}` (dynamic rendering, `LoadOp.Load`); the **draw-order** guarantee (runs after atmosphere/cloud/ocean; since KSA 5482 rev 5408 the main pass runs MSAA resolve → underwater → sun/global bloom → part-select outline **after** it, so the quad is bloomed — accepted) and the fact that the method **closes its own** `BeginRendering`/`EndRendering` scope before returning; and that the postfix fires for **every** visible viewport KSA renders through `RenderViewport` (secondary kitten cams / crew portraits, whose owned targets share the main target's formats + `GameSettings.GetSampleCount()`) — purrTTY draws with the main camera regardless (`ViewportEx.IsMain()` is the filter if that ever needs gating) | Highest-risk render coupling. Signature drift → in-world terminals vanish. **Draw-order change** (KSA moves atmosphere/ocean after this pass, or restructures `RenderTarget`) → planet-silhouette cutout returns (gotcha 32); a new post-process moved after it changes how the quad looks and consumes its writes through the tracked barrier state. Diff `SuperMeshRenderSystem`, `PlanetTransparenciesRenderer`, the ocean renderer, `PartModelGlass.WriteCommandsColor`, and `KSA.Rendering/RenderTarget`. |
 
 After the diff, if in doubt, confirm the patch still applies by checking the mod log for
 `REQUIRED/optional Harmony patch '…' failed to apply` at runtime.
+
+**Offline patch-apply check (no game needed).** A throwaway console app (same `Lib.Harmony`
+version as `purrTTY.GameMod.csproj`) can load the built `purrTTY.GameMod.dll` plus the
+`<current-ksa>/dll` assemblies and run `harmony.CreateClassProcessor(type).Patch()` on every patch
+class exactly as `Patcher` does — this catches target/param-name drift that the compiler can't. It
+can also invoke a patched private method on a `RuntimeHelpers.GetUninitializedObject` instance to
+exercise a prefix that skips the original (a pass-through faults in the uninitialized original,
+which is itself the signal). Gotchas: register the `AssemblyLoadContext.Default.Resolving` probe
+(mod bin dir + KSA dll dir) **before** any method that mentions KSA types is JIT-compiled (keep the
+body in a separate `NoInlining` method); `Patch()` returns the generated *replacement* methods
+(`DeclaringType == null`) — use `Harmony.GetPatchInfo`/`GetPatchedMethods` to report targets; and
+`KSA.dll` is **IL-only but flagged x64** (PE32+, no ReadyToRun), so on an arm64 host copy the dll
+folder to scratch and set the copy's COFF `Machine` to `0xAA64` (never touch the snapshot itself).
 
 ### 2. Render / GPU pipeline (Brutal Vulkan + KSA render objects)
 
@@ -182,11 +202,15 @@ Diff `Universe`, `Vehicle`, `Part`, `Program` (ControlledVehicle/GetMainCamera/G
 
 Beyond the Harmony patches (§1), purrTTY assumes KSA's **key short-circuit order**:
 `GameSettings.OnKeyAll → Popup.OnKeyAll → ConsoleWindow.OnKey → … → Program.OnKey`. If a
-handler returns `true`, downstream is skipped. `Patch03` (`OnKeyAll`) and `Patch01`
+handler returns `true`, downstream is skipped. Since KSA 5482 `Program.OnKey` runs that
+chain and then calls the private `DispatchKeyEvent`, and **mouse** input has a second way in:
+`Program.OnMouseButton` → `Popup.OnMouseAll` → ImGui `WantCaptureMouse` → (if
+`Input.MouseBound(button)`) `DispatchKeyEvent` — bypassing `OnKeyAll`/`OnKey` entirely, which is
+why `Patch04` gates `DispatchKeyEvent` itself. `Patch03` (`OnKeyAll`) and `Patch01`
 (`Program.OnKey`) sit at two ends of this chain; a reorder or a new early handler can
 change whether the gate/guard actually intercepts. Diff `Program.cs`'s key dispatch and
 `GameSettings.OnKeyAll`. GLFW enums (`GlfwKey/GlfwKeyAction/GlfwModifier/GlfwWindow` from
-`Brutal.GlfwApi`) are used in `Patch01`.
+`Brutal.GlfwApi`) are used in `Patch01`; `GlfwMouseButton` + `RenderCore.Input.GlfwKeyEvent` in `Patch04`.
 
 ### 6. Menu injection
 
@@ -259,7 +283,9 @@ engine), so they exercise almost none of the KSA coupling.
 ## Severity triage
 
 - **Critical** — a **required** Harmony patch (`Patch01`, `Patch03`) target drifted, or the
-  input chain reordered: core typing/gating breaks for every user.
+  input chain reordered: core typing/gating breaks for every user. (`Patch04` is required too, but
+  its drift only leaks *player-bound* mouse actions — no defaults bind a mouse button — so rate it
+  **Medium**.)
 - **High** — render-pipeline coupling (`RenderTranslucencyPassPatch`, `SharedQuadResource`,
   `OffscreenRenderTarget`, camera conventions) or the ImGui backend changed: in-world
   terminals break or misrender.

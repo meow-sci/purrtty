@@ -219,8 +219,13 @@ planet's silhouette (looks like normal depth occlusion, isn't). Two fixes:
 - If it must stay `DepthTestNoWrite` (e.g. several overlapping translucent quads), postfix
   `SuperMeshRenderSystem.RenderTranslucencyPass` instead — KSA's own slot for translucent scene geometry,
   which runs after atmosphere/ocean. It closes its own dynamic-rendering scope before returning though, so
-  the postfix must reopen a second `BeginRendering`/`EndRendering` (`LoadOp.Load` for color+depth, plus a
-  `ColorAttachmentWrite`→`ColorAttachmentRead` barrier), mirroring KSA's own `PartModelGlass.WriteCommandsColor`.
+  the postfix must reopen a second `BeginRendering`/`EndRendering` (`LoadOp.Load` for color+depth, plus
+  `ColorAttachmentReadWrite` + `DepthStencilAttachmentReadWrite` barriers — the same entry states
+  `RenderTranslucencyPass` and `PartModelGlass.WriteCommandsColor` declare). `RenderImage` barrier state is
+  *tracked*: the state you name becomes the next barrier's source, so it must include the write access you
+  perform — a read-only state (`ColorAttachmentRead`) hides your writes from the next consumer (since KSA
+  5482 that is the MSAA resolve / bloom compute, which now run **after** the translucency pass, so the quad
+  is also bloomed like glass/particles).
   This also means the pipeline must be built with `VkPipelineRenderingCreateInfo` (no `RenderPass` handle)
   instead of `RenderPass = Program.OffScreenPass.Pass`, since dynamic rendering and classic render passes
   are not pipeline-compatible. purrTTY's in-world terminal quad (`purrTTY.GameMod/InWorld/`) hit exactly

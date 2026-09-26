@@ -167,7 +167,7 @@ public sealed class InWorldQuad : IDisposable
             0,
             new ReadOnlySpan<VkBuffer>(ref vb),
             new ReadOnlySpan<ByteSize64>(ref vbOffset));
-        cmd.BindIndexBuffer(_shared.IndexBuffer.VkBuffer, (ByteSize64)_shared.IndexBuffer.BindOffset, VkIndexType.Uint16);
+        cmd.BindIndexBuffer(_shared.IndexBuffer.VkBuffer, (ByteSize64)_shared.IndexBuffer.BindOffset, VkIndexType.UInt16);
         cmd.DrawIndexed(6, 1, 0, 0, 0);
     }
 

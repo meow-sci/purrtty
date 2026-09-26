@@ -222,7 +222,8 @@
     on `Program.DrawProgramMenusHook()`** (KSA's empty public menu-bar extension point — called once
     per frame for `MainViewport` right after the View menu) rather than an IL transpiler. The
     `Harmony` instance is created lazily so a StarMap reload after `unload()` re-patches, and
-    `unload()` also resets `Patch02`'s cached ModMenu-presence probe and `Patch01`'s held-key model
+    `unload()` also resets `Patch02`'s cached ModMenu-presence probe, `Patch01`'s held-key model and
+    `Patch04_MouseBindingGate`'s swallowed-button model
     (statics survive a reload without an ALC unload — any cached environment probe must be
     re-evaluated). `Patch01` gates `Program.OnKey` while a terminal is active but **must forward a
     key release only for a key whose press it forwarded** — it tracks the game's held keys in a
@@ -240,6 +241,18 @@
     (`ImGuiBackendGlfwImpl`) forwards GLFW key/mouse to `Program.OnKey`/`OnMouseButton` **only** while
     the 3D-viewport ImGui window is hovered (`GameViewport.DrawImGui` — the `IGameViewport` implementation since KSA 5402 — sets it + `SetNextFrameWantCaptureKeyboard(false)`);
     `Patch01` gates `Program.OnKey` itself, so it works regardless of how the game routes input to it.
+    **Mouse-bound game actions take a second path (KSA 5482+):** rev 5449 added mouse-button
+    bindings, and `Program.OnMouseButton` now feeds a bound button straight into the private
+    `Program.DispatchKeyEvent` (the same action switch `OnKey` dispatches into after its gate chain),
+    bypassing both `Patch01` and `Patch03`. `Patch04_MouseBindingGate` prefixes `DispatchKeyEvent`,
+    passes keyboard events through untouched (`GlfwKeyEvent.IsMouse == false` — `Patch01` already gated
+    them), and applies the same "never deliver the release of a press the game didn't see" rule to
+    mouse buttons — but tracked from the other side: it only sees presses that survived
+    `OnMouseButton`'s own filters (popups, ImGui mouse capture), so it records the presses it
+    **swallowed** (`s_swallowedButtons`) and swallows exactly their releases; unknown releases pass
+    (vanilla traffic), and a press the game does see clears any stale entry. Swallowing reports
+    "not handled", so `OnMouseButton` falls through to its ordinary click/camera handling. It is its
+    own patch class (required list) so a drift of the private target can't take `Patch01` down with it.
     `Patch03_HotkeyGuard` null-guards the `Program.ConsoleWindow` static; the toggle hotkey is
     `repeat:false` and skipped while any ImGui text field has focus.
 
@@ -424,14 +437,22 @@
     wherever it overlaps a planet, producing a hard cutout following the planet's silhouette (looks like
     normal depth occlusion but isn't). Postfixing `SuperMeshRenderSystem.RenderTranslucencyPass` instead
     — the pass KSA itself uses for translucent scene geometry (glass, particles) — runs after both
-    offenders, so the quad survives. Two consequences baked into the fix:
+    offenders, so the quad survives. **Since KSA 5482 (rev 5408, "bloom renders after translucency")**
+    the main flight pass runs the MSAA colour resolve, the underwater tint, sun + global bloom (global
+    Kawase bloom is on by default and touches every pixel) and the selected-part outline *after* this
+    pass, so the quad is now post-processed like KSA's own glass/particles — slightly softened and
+    dimmed by bloom. That is accepted as intended (the quad reads as world geometry); the VAB editor
+    pass already bloomed translucency before 5482, and secondary viewports (kitten cams) still bloom
+    before it. None of those later passes re-derive colour from depth, so gotcha 32's cutout can't
+    return through them. Three consequences baked into the fix:
     - **The pipelines are built for dynamic rendering, not a classic `VkRenderPass`.**
       `RenderTranslucencyPass(useCustomRenderPass:true)` uses `vkCmdBeginRendering`/`EndRendering`, not
       a classic `VkRenderPass` handle — a pipeline bound to one is not valid inside a
       dynamic-rendering scope. `SharedQuadResource`'s pipelines instead chain a
       `VkPipelineRenderingCreateInfo` (color/depth formats + `RasterizationSamples` all sourced from
       `Program.OffscreenTarget`'s `ColorAttachment`/`DepthAttachment`/`Samples`, no `RenderPass`/`Subpass`),
-      mirroring KSA's own `PartModelGlass` pipeline (which draws in this same post-atmosphere slot).
+      mirroring KSA's own `PartModelGlass` pipeline (which draws in the same post-atmosphere slot,
+      immediately before the translucency pass).
       `Program.OffscreenTarget` is the same object as `Program.MainViewport.OffscreenTarget`, which is what
       the patch binds — so the pipeline always matches the attachments. (KSA 2026.8.5.5168 / rev 5154
       deleted `Program.OffScreenPass`, `KSA.OffscreenTarget`, `KSA.RenderTarget` and `KSA.Framebuffer`;
@@ -440,14 +461,23 @@
     - **The postfix reopens its own dynamic-rendering scope.** Unlike `RenderMainPass` (which leaves its
       render pass open for the caller to `EndRenderPass`), `RenderTranslucencyPass` calls its own
       `BeginRendering`/`EndRendering` internally and returns with the scope already closed — a postfix
-      can't simply append draws into it. `RenderTranslucencyPassPatch` instead issues the same
-      `ColorAttachmentRead` barrier plus a second `BeginRendering` (`LoadOp.Load` for both color and
-      depth) that KSA's own `OrbitLinePass` / `PartModelGlass.WriteCommandsColor` perform at this exact
-      point in the frame, draws every live instance's quad, then `EndRendering`s — a self-contained
-      second dynamic-rendering scope layered on top, not a modification of KSA's own pass. Since rev 5154
-      every `RenderImage` tracks its own layout/access state, so the barrier names only the *destination*
-      state (`commandBuffer.PipelineBarrier2(colorImage, ImageBarrierInfo.Presets.ColorAttachmentRead)`)
-      and the source state comes from the image — no hard-coded source state to drift.
+      can't simply append draws into it. `RenderTranslucencyPassPatch` instead issues the same entry
+      barriers plus a second `BeginRendering` (`LoadOp.Load` for both color and depth) that KSA's own
+      `RenderTranslucencyPass` / `PartModelGlass.WriteCommandsColor` use for their identical scopes,
+      draws every live instance's quad, then `EndRendering`s — a self-contained second dynamic-rendering
+      scope layered on top, not a modification of KSA's own pass.
+    - **The entry barriers must declare the write access the quad performs.** Since rev 5154 every
+      `RenderImage` tracks its own layout/access state: `PipelineBarrier2(image, state)` takes its
+      *source* from the image's recorded state and records `state` as the source of the **next**
+      barrier (so no hard-coded source state can drift). The quad blends (reads + writes) colour and
+      depth-tests against depth the translucency pass just stored, so the patch declares
+      `ColorAttachmentReadWrite` + `DepthStencilAttachmentReadWrite` — exactly what
+      `RenderTranslucencyPass` declares. It used to declare the read-only `ColorAttachmentRead` (and no
+      depth barrier), which left the quad's writes out of the next barrier's source scope; harmless-ish
+      while the next consumers were other colour-attachment passes, but since 5482 the next consumer is
+      the MSAA resolve / bloom **compute** read. A write-access state also defeats
+      `RenderImage.CreateBarrier`'s "same state and no writes → skip" shortcut, so the barrier is
+      always emitted.
 
 33. **Kitty video re-decode is content-hash-driven; the payload LENGTH is not a change signal.**
     Video-style producers (terminal-doom, the gatOS `/sim/display` screen stream) delete and

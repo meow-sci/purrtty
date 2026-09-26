@@ -8,6 +8,7 @@ using purrTTY.GameMod.InWorld;
 using purrTTY.GameMod.Patches;
 using purrTTY.GameMod.InWorld.Patches;
 using purrTTY.Logging;
+using RenderCore.Input;
 
 internal static class Patcher
 {
@@ -23,6 +24,7 @@ internal static class Patcher
   {
     typeof(Patch01),
     typeof(Patch03_HotkeyGuard),
+    typeof(Patch04_MouseBindingGate),
   };
 
   private static readonly Type[] s_optionalPatches =
@@ -79,6 +81,7 @@ internal static class Patcher
     // the held-key model must not carry stale entries across a reload.
     Patch02.Reset();
     Patch01.Reset();
+    Patch04_MouseBindingGate.Reset();
   }
 }
 
@@ -164,7 +167,8 @@ class Patch01
 
   // The terminal owns the keyboard while a 2D window is focused OR the in-world
   // quad is focused — game keys are gated and routed to a shell in either case.
-  private static bool TerminalOwnsKeyboard =>
+  // Shared with Patch04_MouseBindingGate so mouse-bound game actions gate identically.
+  internal static bool TerminalOwnsKeyboard =>
     GhosttyTerminalController.IsAnyTerminalActive || InWorldTerminalManager.IsInputFocused;
 
   [HarmonyPrefix]
@@ -205,6 +209,83 @@ class Patch01
         // Forward iff the game believes this key is held; remove either way so
         // the held-key model drains as keys come back up.
         return s_gameHeldKeys.Remove(key);
+
+      default:
+        return true;
+    }
+  }
+}
+
+/// <summary>
+/// Extends <see cref="Patch01"/>'s gate to mouse buttons the player has bound to game
+/// actions. KSA 5482 (rev 5449) added mouse-button bindings: <c>Program.OnMouseButton</c>
+/// now feeds a bound button straight into the private <c>Program.DispatchKeyEvent</c> —
+/// the same action switch <c>Program.OnKey</c> dispatches into — bypassing both the
+/// <c>OnKey</c> gate (Patch01) and the <c>OnKeyAll</c> guard (Patch03). Without this,
+/// clicking a bound button while a terminal owns the keyboard fires the game action
+/// (release-arm toggles, staging, vehicle controls). Keyboard events also flow through
+/// <c>DispatchKeyEvent</c>, but Patch01 already gated them at <c>OnKey</c>, so they pass
+/// straight through here.
+/// <para>
+/// Same invariant as Patch01 — the game never sees the release of a press it didn't see —
+/// tracked from the other side. Patch01 sits at <c>OnKey</c>'s entry and sees every key
+/// press, so it forwards a release iff it forwarded the press. This prefix only sees
+/// presses that survived <c>OnMouseButton</c>'s own filters (popups, ImGui mouse
+/// capture), so a release with no recorded press is ordinary KSA traffic and must pass.
+/// It therefore records the presses it <b>swallowed</b> and swallows exactly their
+/// releases: a toggle can't leak after the terminal ate its press (even if focus moves
+/// before the button comes up), a button the game saw go down still gets its release (no
+/// stuck hold actions), and behaviour is unchanged whenever no terminal owns the keyboard.
+/// </para>
+/// <para>
+/// Swallowing reports "not handled" (<c>__result = false</c>), so <c>OnMouseButton</c>
+/// carries on with its ordinary click/camera handling exactly as it did before mouse
+/// bindings existed. Kept out of Patch01's class so a drift of this private target can't
+/// take the keyboard gate down with it.
+/// </para>
+/// </summary>
+[HarmonyPatch(typeof(KSA.Program), "DispatchKeyEvent")]
+static class Patch04_MouseBindingGate
+{
+  // Mouse buttons whose PRESS this prefix swallowed; their release is swallowed too.
+  // Accessed only from the GLFW poll thread (same as Patch01's s_gameHeldKeys).
+  private static readonly HashSet<GlfwMouseButton> s_swallowedButtons = new();
+
+  /// <summary>Drops the swallowed-press model (called on unload; statics survive a StarMap reload).</summary>
+  internal static void Reset() => s_swallowedButtons.Clear();
+
+  // The original takes `in GlfwKeyEvent keyEvent`; Harmony dereferences a by-ref
+  // original argument into a by-value patch parameter (read-only use here).
+  [HarmonyPrefix]
+  static bool Prefix(GlfwKeyEvent keyEvent, ref bool __result)
+  {
+    if (!keyEvent.IsMouse)
+    {
+      return true;
+    }
+
+    switch (keyEvent.Action)
+    {
+      case GlfwKeyAction.Press:
+        if (Patch01.TerminalOwnsKeyboard)
+        {
+          s_swallowedButtons.Add(keyEvent.Button);
+          __result = false;
+          return false;
+        }
+        // The game sees this press; drop any stale entry (a swallowed press whose release
+        // never reached DispatchKeyEvent, e.g. it came up over an ImGui window) so it
+        // can't eat this press's release.
+        s_swallowedButtons.Remove(keyEvent.Button);
+        return true;
+
+      case GlfwKeyAction.Release:
+        if (s_swallowedButtons.Remove(keyEvent.Button))
+        {
+          __result = false;
+          return false;
+        }
+        return true;
 
       default:
         return true;
