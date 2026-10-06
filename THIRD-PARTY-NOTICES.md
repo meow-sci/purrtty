@@ -3,6 +3,26 @@
 purrTTY incorporates the third-party components below. Full license texts ship in the
 `third-party-licenses/` folder of the mod distribution (and live at the same path in this repo).
 
+## Optional ImGuiPlayground developer harness (not part of the mod distribution)
+
+- **Dear ImGui:** https://github.com/ocornut/imgui, MIT, copyright Omar Cornut and
+  contributors. The managed renderer follows the OpenGL backend's contracts/shader math
+  at `v1.92.2-docking` (`04c3466d23a72abee3696dcba698b0e02fee6057`), adapted to C#.
+  No C++ sources are downloaded/compiled. License: `ImGuiPlayground/licenses/LICENSE.imgui.txt`.
+- **GLFW:** https://www.glfw.org/, zlib/libpng license. Native library supplied by the
+  developer and copied to local output, not vendored. License: `ImGuiPlayground/licenses/LICENSE.glfw.txt`.
+- **Microsoft.Extensions.Logging / ObjectPool and dependencies:** standard Microsoft .NET
+  packages, MIT; see `ImGuiPlayground/licenses/LICENSE.dotnet.txt` and package metadata.
+- **JetBrains Mono Regular:** unmodified default game font from
+  `ksa-linux/Content/Core/JetBrainsMono-Regular.ttf`, vendored in `ImGuiPlayground/fonts/`.
+  Copyright 2020 The JetBrains Mono Project Authors; SIL OFL 1.1. The accompanying
+  `JetBrainsMono-Regular-license.txt` and provenance are beside the font. Font and all
+  playground notices are copied to build/publish output.
+- **KSA/BRUTAL:** original managed assemblies and native ImGui runtime supplied by the
+  developer's KSA setup. Copied to local playground output, not checked in or included
+  in purrTTY mod releases. No redistribution permission is implied; do not publish
+  the playground output without resolving the game-component licensing separately.
+
 ## Ghostty.Vt (libghostty-vt-dotnet)
 
 - **Path in repo:** `vendor/Ghostty.Vt/`

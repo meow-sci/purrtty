@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../ImGuiPlayground/ImGuiPlayground.csproj" />
+        <Reference Include="Brutal.Glfw"><HintPath>$(KSAFolder)Brutal.Glfw.dll</HintPath></Reference>
+        <Reference Include="Brutal.ImGui"><HintPath>$(KSAFolder)Brutal.ImGui.dll</HintPath></Reference>
+        <Reference Include="Brutal.Core.Common"><HintPath>$(KSAFolder)Brutal.Core.Common.dll</HintPath></Reference>
+        <Reference Include="Brutal.Core.Numerics"><HintPath>$(KSAFolder)Brutal.Core.Numerics.dll</HintPath></Reference>
+    </ItemGroup>
+</Project>

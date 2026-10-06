@@ -52,6 +52,23 @@ purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; Sta
 > `purrTTY.Terminal/Pty/` (its types keep the `purrTTY.Core.Terminal` namespace, which is shared
 > with `CustomShellContract`). There is no longer a `purrTTY.Core` project.
 
+### Standalone ImGui playground (optional developer tool)
+
+`ImGuiPlayground/` is an all-C# .NET 10 hello-world UI harness, independent of purrTTY and
+**outside `purrtty.slnx`**. Real BRUTAL ImGui/GLFW bindings plus a managed OpenGL 3.2 renderer
+share one source path for macOS/Linux/Windows (runtime validated on macOS arm64 so far).
+No custom C++ bridge, CMake, KSA startup, StarMap, Harmony, or Vulkan renderer. It bundles the
+unmodified `JetBrainsMono-Regular.ttf` default game font and its OFL license, loading it at
+18 logical pixels. Run `dotnet run --project ImGuiPlayground`; edit `Program.DrawHelloWorld()`.
+`PlaygroundHost.Run(Action)` / `Capture(Action)` are future library-extraction boundaries,
+not a packaged library yet. `--capture file.png` reads the framebuffer into owned RGBA/PNG
+without Orca/OS screenshot permissions; a graphical session/driver is still required.
+Supply matching native ImGui/GLFW through `KSA_NATIVE_DIR` / optional `KSA_GLFW_DIR` (or ignored
+`Playground.local.props`). Never bypass ABI checks; current native-version limitations are
+in [ImGuiPlayground/README.md](ImGuiPlayground/README.md). Optional quiet main-thread checks:
+`dotnet run --project ImGuiPlayground.Checks` (also outside the solution). Normal mod CI/deploy
+must remain independent of these optional desktop dependencies.
+
 ### Named terminals, per-target theming, and N in-world terminals
 
 Every terminal — a 2D `TerminalWindow` **or** an in-world render-to-texture instance — is an
