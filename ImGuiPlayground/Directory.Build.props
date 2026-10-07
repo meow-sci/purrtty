@@ -1,0 +1,29 @@
+<Project>
+    <!-- This folder is a build boundary, not an extension of any enclosing repo.
+         ImGuiPlayground.Checks imports this file explicitly to share only our settings. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>13.0</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+        <ImportDirectoryPackagesProps>false</ImportDirectoryPackagesProps>
+        <RestoreConfigFile Condition="'$(RestoreConfigFile)' == ''">$(MSBuildThisFileDirectory)NuGet.Config</RestoreConfigFile>
+
+        <!-- Explicit user-supplied managed references; no enclosing-repo or machine defaults.
+             Keep KSAFolder as an alias, including when passed without a trailing separator. -->
+        <KSAFolder Condition="'$(KSAFolder)' == ''">$(KSA_DLL_DIR)</KSAFolder>
+        <_PlaygroundKsaFolder Condition="'$(KSAFolder)' != ''">$([MSBuild]::EnsureTrailingSlash('$(KSAFolder)'))</_PlaygroundKsaFolder>
+    </PropertyGroup>
+    <ItemGroup>
+        <_PlaygroundRequiredAssembly Include="Brutal.ImGui;Brutal.Glfw;Brutal.Core.Common;Brutal.Core.Strings;Brutal.Core.Numerics" />
+    </ItemGroup>
+    <Target Name="ValidatePlaygroundManagedAssemblies" BeforeTargets="ResolveAssemblyReferences" Condition="'$(DesignTimeBuild)' != 'true'">
+        <Error Condition="'$(_PlaygroundKsaFolder)' == ''"
+               Text="Set KSA_DLL_DIR (environment or -p:KSA_DLL_DIR=...) or -p:KSAFolder=... to the directory containing the managed BRUTAL assemblies. See ImGuiPlayground/README.md." />
+        <Error Condition="!Exists('$(_PlaygroundKsaFolder)%(_PlaygroundRequiredAssembly.Identity).dll')"
+               Text="Managed game assembly not found: '$(_PlaygroundKsaFolder)%(_PlaygroundRequiredAssembly.Identity).dll'. Set KSA_DLL_DIR or KSAFolder to your game/assemblies directory." />
+    </Target>
+</Project>

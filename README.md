@@ -26,22 +26,6 @@ headless backend) and `THIRD-PARTY-NOTICES.md` for licensing.
 Delete the old `purrTTY/` folder from your mods directory first — unzipping over an existing
 install leaves files from the previous version behind.
 
-# Standalone ImGui development
-
-[`ImGuiPlayground/`](ImGuiPlayground/README.md) is an optional all-C# .NET 10
-hello-world app using KSA's actual BRUTAL ImGui API and default JetBrains Mono font.
-A managed GLFW/OpenGL host targets macOS, Linux, and Windows without launching the game
-(macOS arm64 validated so far). No custom C++ bridge or native build toolchain.
-After the one-time native-library setup:
-
-```bash
-dotnet run --project ImGuiPlayground
-dotnet run --project ImGuiPlayground -- --capture .tmp/hello.png
-```
-
-Edit `ImGuiPlayground/Program.cs` to iterate on UI. It is independent of the terminal
-mod and is the starting point for a reusable mod-UI test library, not yet a packaged library.
-
 # Fonts
 
 Fonts come from https://www.nerdfonts.com/

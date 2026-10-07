@@ -5,9 +5,15 @@ using Brutal.Numerics;
 using ImGuiPlayground;
 
 // Console checks intentionally run on Main: macOS GLFW cannot run on NUnit worker threads.
-// Quiet on pass, no sleeps, hidden windows; opt-in and outside the normal mod solution.
+// Quiet on pass, no sleeps, hidden windows; independent of any mod test suite.
 try
 {
+    if (args is ["--packaging"] or ["--packaging", _])
+    {
+        PackagingChecks.Run(args.Length == 2 ? args[1] : null);
+        return 0;
+    }
+    if (args.Length != 0) throw new ArgumentException("Usage: ImGuiPlayground.Checks [--packaging [path/to/ImGuiPlayground.csproj]]");
     int frames = 0;
     try
     {

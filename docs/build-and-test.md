@@ -16,30 +16,6 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 (`ValidateKSAAssemblies` in `Directory.Build.props`; projects with KSA refs set
 `RequiresKSAAssemblies=true`) instead of a CS0246 avalanche.
 
-## Standalone ImGui playground (C# / GLFW / OpenGL)
-
-The optional `ImGuiPlayground/` hosts BRUTAL UI without KSA. It and `ImGuiPlayground.Checks/`
-are **outside `purrtty.slnx`**: mod builds/tests/releases do not acquire desktop requirements.
-Setup: .NET 10, desktop OpenGL 3.2, matching native ImGui/GLFW via `KSA_NATIVE_DIR` and optional
-`KSA_GLFW_DIR`, plus the usual managed KSA assemblies. No CMake/C++ toolchain. The game’s default
-JetBrains Mono font is bundled under OFL; no external Content directory is needed at runtime.
-The same C# host targets macOS/Linux/Windows; only macOS arm64 is runtime-validated so far.
-
-```bash
-dotnet run --project ImGuiPlayground
-dotnet run --project ImGuiPlayground --no-build -- --smoke-test
-dotnet run --project ImGuiPlayground --no-build -- --capture .tmp/hello.png
-dotnet run --project ImGuiPlayground.Checks --nologo -v quiet
-```
-
-Smoke mode validates three nonempty frames and GL completion/errors, quietly on success.
-Capture reads the framebuffer into RGBA/PNG before swap, without OS screenshot permissions.
-The optional main-thread checks assert pixels/orientation/scissors/large-mesh offsets, PNG
-round-trip, dynamic font updates, callback reset, input mapping and exception recovery. No
-fixed sleeps. Hidden capture windows still require a graphics session/driver (Linux CI can
-supply Xvfb + Mesa; not yet tested here). Native files are not in the managed-only assemblies
-checkout. Full setup and compatibility limits: [ImGuiPlayground/README.md](../ImGuiPlayground/README.md).
-
 ## CI / releases (`.github/workflows/release.yml`)
 
 Two jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,

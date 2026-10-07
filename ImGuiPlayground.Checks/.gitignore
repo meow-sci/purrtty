@@ -1,6 +1,5 @@
 bin/
 obj/
 .tmp/
-imgui.ini
 *.log
 .DS_Store

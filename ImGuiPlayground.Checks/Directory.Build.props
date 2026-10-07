@@ -1,0 +1,5 @@
+<Project>
+    <!-- Stop the enclosing repository's automatic props search. Share only the
+         standalone playground's settings, never the enclosing repository's. -->
+    <Import Project="../ImGuiPlayground/Directory.Build.props" />
+</Project>

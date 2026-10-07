@@ -1,46 +1,42 @@
 <Project Sdk="Microsoft.NET.Sdk">
-    <Import Project="Playground.local.props" Condition="Exists('Playground.local.props')" />
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
-        <NativeOs Condition="$([MSBuild]::IsOSPlatform('OSX'))">osx</NativeOs>
-        <NativeOs Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux</NativeOs>
-        <NativeOs Condition="$([MSBuild]::IsOSPlatform('Windows'))">win</NativeOs>
-        <NativeArch>$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</NativeArch>
-        <ImGuiNativeName Condition="'$(NativeOs)' == 'osx'">libimgui.dylib</ImGuiNativeName>
-        <ImGuiNativeName Condition="'$(NativeOs)' == 'linux'">libimgui.so</ImGuiNativeName>
-        <ImGuiNativeName Condition="'$(NativeOs)' == 'win'">imgui.dll</ImGuiNativeName>
-        <GlfwNativeName Condition="'$(NativeOs)' == 'osx'">libglfw.dylib</GlfwNativeName>
-        <GlfwNativeName Condition="'$(NativeOs)' == 'linux'">libglfw.so</GlfwNativeName>
-        <GlfwNativeName Condition="'$(NativeOs)' == 'win'">glfw3.dll</GlfwNativeName>
-        <KSA_NATIVE_DIR Condition="'$(KSA_NATIVE_DIR)' == '' AND Exists('$(KSAFolder)runtimes/$(NativeOs)-$(NativeArch)/native/$(ImGuiNativeName)')">$(KSAFolder)runtimes/$(NativeOs)-$(NativeArch)/native</KSA_NATIVE_DIR>
-        <KSA_NATIVE_DIR Condition="'$(KSA_NATIVE_DIR)' == ''">$(KSAFolder)</KSA_NATIVE_DIR>
-        <KSA_GLFW_DIR Condition="'$(KSA_GLFW_DIR)' == ''">$(KSA_NATIVE_DIR)</KSA_GLFW_DIR>
-        <ImGuiNativePath>$([MSBuild]::EnsureTrailingSlash('$(KSA_NATIVE_DIR)'))$(ImGuiNativeName)</ImGuiNativePath>
-        <GlfwNativePath>$([MSBuild]::EnsureTrailingSlash('$(KSA_GLFW_DIR)'))$(GlfwNativeName)</GlfwNativePath>
+        <!-- Explicit build/publish RID takes precedence over the SDK host. -->
+        <PlaygroundNativeRid>$(RuntimeIdentifier)</PlaygroundNativeRid>
+        <PlaygroundNativeRid Condition="'$(PlaygroundNativeRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</PlaygroundNativeRid>
     </PropertyGroup>
+    <Import Project="runtimes/NativeLibraries.props" />
 
-    <!-- Real KSA bindings. No purrTTY/game-renderer dependency or custom native build. -->
+    <!-- Real KSA managed bindings remain external, resolved by our local build config. -->
     <ItemGroup>
         <InternalsVisibleTo Include="ImGuiPlayground.Checks" />
         <None Update="licenses/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <None Update="fonts/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <None Update="LICENSE;THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <!-- Stage only the selected native pair, with the filenames BRUTAL expects.
+             ExcludeAssets avoids NuGet also copying its default/all-RID native layout. -->
+        <PackageReference Include="Ultz.Native.GLFW" Version="3.4.0" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
+        <None Remove="runtimes/**" />
+        <None Include="runtimes/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <!-- Always refresh: a newly pinned package can have OLDER timestamps than a
+             previously staged runtime. PreserveNewest would silently keep the wrong DLL. -->
+        <None Include="@(_PlaygroundNative)" Link="%(_PlaygroundNative.TargetPath)" CopyToOutputDirectory="Always" CopyToPublishDirectory="Always" />
         <!-- Dependencies of the current BRUTAL GLFW/logging/string assemblies. -->
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
         <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="11.0.0-rc.1.26425.128" />
-        <Reference Include="Brutal.ImGui"><HintPath>$(KSAFolder)Brutal.ImGui.dll</HintPath><Private>true</Private></Reference>
-        <Reference Include="Brutal.Glfw"><HintPath>$(KSAFolder)Brutal.Glfw.dll</HintPath><Private>true</Private></Reference>
-        <Reference Include="Brutal.Core.Common"><HintPath>$(KSAFolder)Brutal.Core.Common.dll</HintPath><Private>true</Private></Reference>
-        <Reference Include="Brutal.Core.Strings"><HintPath>$(KSAFolder)Brutal.Core.Strings.dll</HintPath><Private>true</Private></Reference>
-        <Reference Include="Brutal.Core.Numerics"><HintPath>$(KSAFolder)Brutal.Core.Numerics.dll</HintPath><Private>true</Private></Reference>
-        <None Include="$(ImGuiNativePath)" Link="$(ImGuiNativeName)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <None Include="$(GlfwNativePath)" Link="$(GlfwNativeName)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Reference Include="Brutal.ImGui"><HintPath>$(_PlaygroundKsaFolder)Brutal.ImGui.dll</HintPath><Private>true</Private></Reference>
+        <Reference Include="Brutal.Glfw"><HintPath>$(_PlaygroundKsaFolder)Brutal.Glfw.dll</HintPath><Private>true</Private></Reference>
+        <Reference Include="Brutal.Core.Common"><HintPath>$(_PlaygroundKsaFolder)Brutal.Core.Common.dll</HintPath><Private>true</Private></Reference>
+        <Reference Include="Brutal.Core.Strings"><HintPath>$(_PlaygroundKsaFolder)Brutal.Core.Strings.dll</HintPath><Private>true</Private></Reference>
+        <Reference Include="Brutal.Core.Numerics"><HintPath>$(_PlaygroundKsaFolder)Brutal.Core.Numerics.dll</HintPath><Private>true</Private></Reference>
     </ItemGroup>
-    <Target Name="ValidatePlaygroundNative" BeforeTargets="ResolveAssemblyReferences" Condition="'$(DesignTimeBuild)' != 'true'">
-        <Error Condition="'$(NativeOs)' == ''" Text="ImGuiPlayground supports macOS, Linux, and Windows." />
-        <Error Condition="!Exists('$(ImGuiNativePath)')" Text="BRUTAL native ImGui not found: '$(ImGuiNativePath)'. Set KSA_NATIVE_DIR to the matching $(NativeOs)-$(NativeArch) KSA native runtime. See ImGuiPlayground/README.md." />
-        <Error Condition="!Exists('$(GlfwNativePath)')" Text="Native GLFW not found: '$(GlfwNativePath)'. Set KSA_GLFW_DIR (defaults to KSA_NATIVE_DIR) to a matching GLFW runtime directory." />
+    <Target Name="ValidatePlaygroundNative" BeforeTargets="PrepareForBuild;ResolveAssemblyReferences;GetCopyToOutputDirectoryItems;GetCopyToPublishDirectoryItems" Condition="'$(DesignTimeBuild)' != 'true'">
+        <Error Condition="'$(PlaygroundNativeRid)' != 'osx-arm64' AND '$(PlaygroundNativeRid)' != 'linux-x64' AND '$(PlaygroundNativeRid)' != 'win-x64'"
+               Text="Unsupported playground runtime '$(PlaygroundNativeRid)'. Supported RIDs: osx-arm64, linux-x64, win-x64. Use -r to select a supported target." />
+        <Error Condition="!Exists('%(_PlaygroundNative.Identity)')"
+               Text="Pinned playground native asset is missing: '%(_PlaygroundNative.Identity)'. Restore NuGet packages and ensure the vendored runtimes are present. See ImGuiPlayground/runtimes/README.md." />
+        <VerifyFileHash File="%(_PlaygroundNative.Identity)" Hash="%(_PlaygroundNative.Sha256)" Algorithm="SHA256" />
     </Target>
 </Project>

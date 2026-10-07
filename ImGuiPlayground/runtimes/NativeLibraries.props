@@ -1,0 +1,34 @@
+<Project>
+    <!-- Pinned runtime manifest. Provenance and update rules are in runtimes/README.md.
+         TargetPath is deliberately flat: BRUTAL GLFW installs its own native resolver. -->
+    <ItemGroup Condition="'$(PlaygroundNativeRid)' == 'osx-arm64'">
+        <_PlaygroundNative Include="$(MSBuildThisFileDirectory)osx-arm64/native/libimgui.dylib">
+            <TargetPath>libimgui.dylib</TargetPath>
+            <Sha256>19e99251a2511477ab60365e3fa8613f8d56565c06feab67be17fd277ec2409c</Sha256>
+        </_PlaygroundNative>
+        <_PlaygroundNative Include="$(PkgUltz_Native_GLFW)/runtimes/osx-arm64/native/libglfw.3.dylib">
+            <TargetPath>libglfw.dylib</TargetPath>
+            <Sha256>c2057028e3f9310b23c1b9a8da2e57839aa98066d1d6fa928d8cdfa7b4813258</Sha256>
+        </_PlaygroundNative>
+    </ItemGroup>
+    <ItemGroup Condition="'$(PlaygroundNativeRid)' == 'linux-x64'">
+        <_PlaygroundNative Include="$(MSBuildThisFileDirectory)linux-x64/native/libimgui.so">
+            <TargetPath>libimgui.so</TargetPath>
+            <Sha256>3a7983b30f4e2f6c2bf3fda5b6757a81053a71e54349033f454317e99d8ea45b</Sha256>
+        </_PlaygroundNative>
+        <_PlaygroundNative Include="$(PkgUltz_Native_GLFW)/runtimes/linux-x64/native/libglfw.so.3">
+            <TargetPath>libglfw.so</TargetPath>
+            <Sha256>abd1e55084037754c954e3a35db13744e939bdda7c42b235ba6466eb89bc88de</Sha256>
+        </_PlaygroundNative>
+    </ItemGroup>
+    <ItemGroup Condition="'$(PlaygroundNativeRid)' == 'win-x64'">
+        <_PlaygroundNative Include="$(MSBuildThisFileDirectory)win-x64/native/imgui.dll">
+            <TargetPath>imgui.dll</TargetPath>
+            <Sha256>6bbed31165a33c587333cad17582294a4691f68a2085c4c2a21cf7f513c1e9fc</Sha256>
+        </_PlaygroundNative>
+        <_PlaygroundNative Include="$(PkgUltz_Native_GLFW)/runtimes/win-x64/native/glfw3.dll">
+            <TargetPath>glfw3.dll</TargetPath>
+            <Sha256>a107a8e8378527897d5e99f3a53d01a7289ef5fda564952fbec2769386eccd58</Sha256>
+        </_PlaygroundNative>
+    </ItemGroup>
+</Project>

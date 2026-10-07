@@ -5,20 +5,6 @@ Start here:
 - Shared build config + KSA DLL paths (per-OS): `Directory.Build.props`
 - Migration plan + status: `LIBGHOSTTY_ANALYSIS.md`; provenance/licensing: `vendor/Ghostty.Vt/README.md`, `THIRD-PARTY-NOTICES.md`
 
-## Standalone UI harness (`ImGuiPlayground/`, outside the mod solution)
-
-- `Program.cs` — hello-world BRUTAL UI callback; change this for fast UI iteration.
-- `PlaygroundHost.cs` — synchronous `Run(Action)` / `Capture(Action)` lifecycle, native resolution,
-  ABI checks, bundled JetBrains Mono font, frame-scoped strings and teardown.
-- `GlfwInput.cs` — BRUTAL GLFW input events, layout-aware key mapping, full-width character callback,
-  clipboard lifetime; `OpenGl.cs` — GL function pointers loaded through GLFW.
-- `OpenGlRenderer.cs` — managed GL renderer, dynamic font textures, scissors/base-vertex offsets,
-  resource cleanup and framebuffer readback; `CapturedFrame.cs` — owned top-down RGBA + PNG.
-- `fonts/` — unmodified game `JetBrainsMono-Regular.ttf`, OFL license and provenance.
-- `ImGuiPlayground.Checks/` (sibling) — optional main-thread executable checks; also outside the solution.
-  `README.md` covers setup, cross-platform validation limits, smoke/capture/check commands.
-  No C++ bridge/native compilation, purrTTY, StarMap, Harmony, game-renderer or libghostty dependency.
-
 ## Vendored binding (`vendor/Ghostty.Vt/`)
 
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)

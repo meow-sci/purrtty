@@ -1,0 +1,4 @@
+<Solution>
+    <Project Path="ImGuiPlayground.csproj" />
+    <Project Path="../ImGuiPlayground.Checks/ImGuiPlayground.Checks.csproj" />
+</Solution>
