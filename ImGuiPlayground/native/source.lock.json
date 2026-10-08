@@ -1,0 +1,48 @@
+{
+  "schema": "playground_imgui.native-source-lock",
+  "schemaVersion": 1,
+  "upstream": {
+    "repository": "https://github.com/ocornut/imgui.git",
+    "tag": "v1.92.2-docking",
+    "tagObject": "04c3466d23a72abee3696dcba698b0e02fee6057",
+    "sourceCommit": "031a18c417158427217bc5890e0ec0cb7e7b4b63",
+    "archiveUrl": "https://codeload.github.com/ocornut/imgui/tar.gz/031a18c417158427217bc5890e0ec0cb7e7b4b63",
+    "archiveSha256": "2d1c175790496529ed8e90e0fba5b9dc852769f959edb9ef145e8f82d4dcc3be",
+    "license": "MIT"
+  },
+  "configuration": {
+    "header": "include/playground_imgui_config.h",
+    "sha256": "18e6ca90823b36a891eca1c182eba6deb8a35d64431d03db3b91477a1e5049f3",
+    "defines": {
+      "IMGUI_USE_WCHAR32": true,
+      "IMGUI_DISABLE_OBSOLETE_FUNCTIONS": true,
+      "ImDrawIdx": "upstream default unsigned short",
+      "ImTextureID": "upstream default ImU64"
+    },
+    "status": "measured prototype hypotheses; confirm against the external BRUTAL ABI before making compatibility claims"
+  },
+  "toolchain": {
+    "zigVersion": "0.17.0",
+    "python": "3.9 or newer, standard library only",
+    "downloadTool": "curl",
+    "macosSdk": "Xcode Command Line Tools or Xcode SDK via xcrun (only for osx-arm64 build)",
+    "windowsAbi": "Zig/LLVM x86_64-windows-gnu target; no Windows execution validated",
+    "linuxAbi": "Zig/LLVM x86_64-linux-gnu.2.17 target; no Linux execution validated"
+  },
+  "targets": {
+    "osx-arm64": { "zigTarget": "aarch64-macos.11.0", "file": "libimgui.dylib", "minimumOs": "macOS 11.0 (build target; not runtime-tested)" },
+    "linux-x64": { "zigTarget": "x86_64-linux-gnu.2.17", "file": "libimgui.so", "minimumOs": "glibc 2.17 target (dependencies require audit)" },
+    "win-x64": { "zigTarget": "x86_64-windows-gnu", "file": "imgui.dll", "minimumOs": "Windows x64; native execution unvalidated" }
+  },
+  "build": {
+    "sourceFiles": ["imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp", "imgui_widgets.cpp", "imgui_demo.cpp", "src/PlaygroundBrutalAdapter.cpp"],
+    "omitted": ["C++ rendering backends", "platform backends", "GLFW"],
+    "defaultOptimization": "ReleaseFast / -O2",
+    "visibility": "hidden except explicitly exported adapter ABI",
+    "exceptions": false,
+    "rtti": false,
+    "threadSafeLocalStaticInitialization": false,
+    "threadingConstraint": "ImGui-facing calls and first-use static initialization stay on the single host UI thread",
+    "artifactsStayIn": ".tmp/native/<rid>/; never promoted into runtimes/ automatically"
+  }
+}

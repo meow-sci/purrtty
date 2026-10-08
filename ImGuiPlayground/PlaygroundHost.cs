@@ -128,6 +128,14 @@ public static class PlaygroundHost
         }
     }
 
+    // Friend-only opt-in checks call this only after their identity/layout guard.
+    // The existing Host remains the sole owner/resolver; no unload or new public API.
+    internal static nint PrepareNativeLibraryForChecks()
+    {
+        EnsureNativeLibrary();
+        return s_imgui;
+    }
+
     private static void EnsureNativeLibrary()
     {
         if (s_imgui != 0) return;

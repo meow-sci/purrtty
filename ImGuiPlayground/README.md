@@ -5,8 +5,13 @@ launching Kitten Space Agency. The initial window displays **Hello world!**
 
 It uses the actual **`Brutal.ImGui.dll` API and original native ImGui library**,
 plus `Brutal.Glfw.dll` for windowing/input and a small **managed OpenGL renderer**.
-There is **no custom C++ bridge, native compilation, CMake, Metal backend, Vulkan
-SDK, ImGui.NET, or Hexa.NET**. No external game Content directory, StarMap, or Harmony dependency.
+The ordinary host, checks, and packaging path has **no custom production C++ bridge,
+native compilation, CMake, Metal backend, Vulkan SDK, ImGui.NET, or Hexa.NET**. A separate,
+explicit maintainer-only [full native qualification runner](native/full/qualification/README.md)
+and the historical bounded prototype are separate opt-in tools; neither is used by ordinary
+app builds or promoted to runtime files. Full-image macOS fixture/renderer/input/capture gates
+are exercised through the real Host/Checks boundary; Windows/Linux execution remains pending.
+No external game Content directory, StarMap, or Harmony dependency.
 Native ImGui is vendored per platform; GLFW restores from NuGet. Only the managed
 KSA/BRUTAL assemblies remain external. A system graphics driver is still required.
 
@@ -35,6 +40,8 @@ Configure the external managed-assembly directory first.
 The same C# source requests desktop OpenGL **3.2 core / GLSL 150** on **macOS arm64,
 Linux x64, and Windows x64**. **Runtime validated on macOS Apple Silicon only so far**;
 all three RIDs have packaging checks, but Windows/Linux execution still needs validation.
+The separate full-native effort's target checklist and current gate status are in
+[VALIDATE_PLATFORMS.md](VALIDATE_PLATFORMS.md).
 Other RIDs (including Intel macOS, Windows ARM and Linux musl) are not packaged.
 
 - .NET 10 SDK. Standard Microsoft logging/object-pool packages restore through NuGet;
@@ -46,7 +53,9 @@ Other RIDs (including Intel macOS, Windows ARM and Linux musl) are not packaged.
   by this folder's own `Directory.Build.props`. There is no machine-specific fallback.
 - Native ImGui comes from the checked-in **`runtimes/<rid>/native/`** files; native
   GLFW comes from pinned **`Ultz.Native.GLFW` 3.4.0**. No native installation path,
-  Homebrew GLFW, native compiler, or custom bridge is required.
+  Homebrew GLFW, native compiler, or custom bridge is required for ordinary builds/runs.
+  Only explicit maintainer native **builds** need Zig 0.17.0; extracted full-qualification
+  bundles execute target probes without installing a native toolchain.
 - Normal OS runtime dependencies still apply: Linux requires glibc (the supplied
   ImGui imports symbols through 2.29), libstdc++, window-system libraries and GL;
   Windows requires the Microsoft Visual C++ x64 Redistributable. See
@@ -195,6 +204,63 @@ Also manually verify input, resizing, minimize/restore and closing on each platf
 Checks belong only to the standalone solution. See [the checks README](../ImGuiPlayground.Checks/README.md)
 for execution details and an extraction verification recipe.
 
+## Experimental native layout/ABI feasibility prototype
+
+The prototype is an opt-in maintainer experiment, not a replacement native runtime and not a
+production compatibility claim. Its current `osx-arm64` artifact was built from pinned vanilla
+Dear ImGui commit `031a18c417158427217bc5890e0ec0cb7e7b4b63` using the measured prototype config
+hypotheses. On this Apple Silicon host, the managed staged runner passed its pre-context
+identity/schema/config/export gates, required public-subset layout gate, managed calls, all 13
+negative fixtures, unchanged render/input checks, and hello-world capture. The observed native
+SHA-256 is `d1481c0c62ef24b125934523f5f0c90c8f9819841e1c780acc0d62a567e7ae3b`; the external
+`Brutal.ImGui.dll` SHA-256 was `9040dc5d410043c53dbea10d94995b6712240be37f9251b016f6cff66a76339f`.
+
+The 1,146 reflected managed imports were checked individually: only 54 are present in this
+72-symbol prototype (54 managed imports, three data slots, 15 other functions); the other 1,092
+imports, including `TextV`, remain unsupported. All 30 native layout records mapped to reflected
+managed types, but only 28 of 30 measured type sizes matched. `ImGuiContext` is 11,312 native
+bytes versus 11,320 managed bytes; `ImGuiStackLevelInfo` is 64 versus 72 bytes. Across the 195
+measured native fields, 190 matched; the five reported offset mismatches are in risky internal
+types (`ImGuiBoxSelectState`, `ImGuiContext`, and `ImGuiStackLevelInfo`). These internal size
+and field mismatches are outside the required host/public subset gate. The 24 individual native
+bitfield locations/widths remain unmeasured and unproven by this prototype. An independent managed inventory
+requires every raw field used by the current host/checks, including draw-list buffers and their
+concrete vector headers. Missing fields and schema-valid offset/size mismatches fail before
+context creation. This gate is narrower than complete layout parity; sample field offsets do
+not imply all-layout parity. The `IMGUI_USE_WCHAR32` and obsolete-field settings
+are not authenticated KSA build metadata.
+
+Linux x64 and Windows x64 artifacts were rebuilt and statically inspected, but **not** loaded
+or executed. No Wine-as-native claim is made. On a matching native target host, build its
+artifact explicitly and run the portable staged check as described in
+[Checks README](../ImGuiPlayground.Checks/README.md); exact prototype implementation, current
+hashes, omissions, and target-side commands are in [native prototype README](native/README.md).
+All prototype libraries remain in ignored `.tmp/native/`; production `runtimes/` and native pins
+are untouched. Ordinary builds still populate their standard `bin/` outputs with pinned
+production assets; only disposable copies are replaced with the prototype by the staged runner.
+
+## Full native API work — in progress
+
+The accepted prototype above is historical, bounded evidence, not the full implementation.
+The expanded effort keeps the external managed DLL unchanged and permits narrowly scoped,
+hash-pinned native declaration/configuration patches plus owned native-backed C# helpers.
+It does not authorize rewriting ImGui widget behavior or promoting artifacts into `runtimes/`.
+
+The [metadata exporter](../ImGuiPlayground.Checks/README.md#maintainer-only-managed-binding-contract-no-native-loading)
+now audits the actual selected DLL without loading native ImGui. The current ImGui DLL hash is
+`b76777a4ef3399d6353b9dba1982e3afb84b5da2aa2500da1c062db0bfad827c`, different from the
+prototype-tested input despite the same ImGui version and 1,146 import names. Native mapping,
+complete classified layout evidence, safe helpers and full behavioral qualification are still
+being implemented; the exporter alone certifies none of them.
+
+Some unchanged managed fields are overlapping full-width aliases for distinct native bitfields.
+They cannot be made independently writable by a native layout patch. Other records have wrong
+managed element strides or represent opaque native storage. The planned helpers must use real
+native accessors/indexing, while reports retain those original raw limitations explicitly.
+Do not treat the original aliases as repaired or use metadata size agreement as semantic proof.
+See [the platform validation checklist](VALIDATE_PLATFORMS.md) for separate coverage, behavior
+and per-target execution gates.
+
 ## Implementation and limits
 
 ```text
@@ -218,8 +284,11 @@ CapturedFrame → owned RGBA bytes / PNG via .NET APIs
 
 The renderer follows the contracts/shader math of upstream `imgui_impl_opengl3.cpp`
 at `v1.92.2-docking` (`04c3466d23a72abee3696dcba698b0e02fee6057`), ported to C#.
-It uploads full RGBA textures on atlas updates for simplicity. No upstream C++
-sources are downloaded or compiled during builds.
+It uploads full RGBA textures on atlas updates for simplicity. Ordinary app/checks builds do
+not download or compile upstream C++ sources. Only explicit invocation of the isolated,
+maintainer-only native ABI prototype downloads the hash-pinned vanilla source and compiles its
+core/demo plus the owned subset adapter into ignored `.tmp/native/` scratch; no output is
+promoted into `runtimes/`.
 
 **Older macOS native-runtime limitation:** the available arm64 ImGui library was
 observed to use 16-bit `ImWchar` despite the current generated binding declaring
@@ -229,7 +298,8 @@ separate truncation in BRUTAL's `OnChar` wrapper, but cannot add native-engine U
 support. It does not read wchar-backed native vectors. **Do not use the generated
 `InputQueueCharacters.Span` or assume arbitrary raw wchar-backed structures are safe
 with this older library.** A fully matching native build is needed for unrestricted
-binding/Unicode parity; no such build is supplied or compiled by this project.
+binding/Unicode parity; the experimental source build preserves WCHAR32 input but does not
+establish full-binding parity and is not shipped as a runtime.
 
 Not reproduced: the rest of KSA's font setup/theme/game services/Vulkan texture handles, multi-viewport
 platform windows, gamepads, OS cursor-shape changes/warping, full IME composition UI,

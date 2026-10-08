@@ -5,6 +5,17 @@ Start here:
 - Shared build config + KSA DLL paths (per-OS): `Directory.Build.props`
 - Migration plan + status: `LIBGHOSTTY_ANALYSIS.md`; provenance/licensing: `vendor/Ghostty.Vt/README.md`, `THIRD-PARTY-NOTICES.md`
 
+## Standalone ImGui playground (`ImGuiPlayground/`, `ImGuiPlayground.Checks/`)
+
+Independent sibling projects, not a replacement terminal renderer or a mod dependency:
+
+- Host/render/input/capture: `PlaygroundHost.cs`, `OpenGlRenderer.cs`, `GlfwInput.cs`, `CapturedFrame.cs` in `ImGuiPlayground/`; uses the real external BRUTAL DLLs with GLFW/OpenGL.
+- Configuration and usage: `ImGuiPlayground/README.md`, its local solution/props, and `VALIDATE_PLATFORMS.md`; explicit assembly selection, no game-installation fallback or deployment.
+- Opt-in native tooling: `ImGuiPlayground/native/full/{api,layout,manual,profile,accessors,combined}/`; complete import wrappers, measured layout/enum transport, native-backed helpers and one-core combined artifacts. `NativeFieldAccessors.cs` exposes helpers without repairing unsafe original managed aliases.
+- Portable qualification: `ImGuiPlayground/native/full/qualification/README.md`, `run.py`, `verify.py`, `extract_bundle.py`, `test.py`, `ordinary.py`; independently anchored bundle, pre-import integrity checks, actual target-local CLR/probe validation and separate fixture/production processes.
+- Managed checks: `ImGuiPlayground.Checks/BindingContractExporter.cs`, `Full*Checks.cs` and `CombinedComponentChecks.cs`; `Program.cs` keeps opt-in qualification separate from normal renderer/input/capture checks.
+- Ordinary assets remain under `ImGuiPlayground/runtimes/`; native tooling never runs implicitly during .NET builds or promotes its outputs there. Automated macOS qualification has passed; Windows/Linux native-host execution remains pending.
+
 ## Vendored binding (`vendor/Ghostty.Vt/`)
 
 - Engine surface: `src/Terminal.cs`, `src/RenderState.cs`, `src/TerminalOptions.cs`, encoders (`src/KeyEncoder.cs`, `src/MouseEncoder.cs`)

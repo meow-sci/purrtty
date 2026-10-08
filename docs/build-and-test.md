@@ -16,6 +16,29 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 (`ValidateKSAAssemblies` in `Directory.Build.props`; projects with KSA refs set
 `RequiresKSAAssemblies=true`) instead of a CS0246 avalanche.
 
+## Standalone ImGui playground (separate configuration)
+
+`ImGuiPlayground/` and `ImGuiPlayground.Checks/` use their own props, NuGet configuration
+and solution; the mod's KSA path fallbacks above do **not** apply. Supply `KSAFolder` or
+`KSA_DLL_DIR` explicitly and retain both folders as siblings when extracting them:
+
+```bash
+export KSA_DLL_DIR='/absolute/path/to/matching/KSA/assemblies'
+dotnet build ImGuiPlayground/ImGuiPlayground.slnx --nologo -v quiet
+dotnet run --project ImGuiPlayground.Checks --no-build -v quiet
+dotnet run --project ImGuiPlayground.Checks --no-build -v quiet -- --packaging
+```
+
+These executable checks are separate from the mod's NUnit suites. Ordinary builds need no
+native compiler and do not deploy to the game. Full source-built native API qualification
+is an explicit maintainer path, documented in
+[the qualification guide](../ImGuiPlayground/native/full/qualification/README.md).
+Its portable consumer bundle needs no native toolchain; native builds use pinned Zig.
+[Platform status and commands](../ImGuiPlayground/VALIDATE_PLATFORMS.md) distinguish passing
+automated macOS gates from pending Windows/Linux execution and manual desktop checks.
+Cross-building/publishing is not foreign execution; source-built artifacts are not promoted
+into the shipped runtime assets.
+
 ## CI / releases (`.github/workflows/release.yml`)
 
 Two jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,

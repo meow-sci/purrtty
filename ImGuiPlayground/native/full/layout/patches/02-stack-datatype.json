@@ -1,0 +1,5 @@
+{
+  "path": "imgui_internal.h",
+  "old": "    ImGuiDataType           DataType : 8;",
+  "new": "    ImGuiDataType           DataType;"
+}

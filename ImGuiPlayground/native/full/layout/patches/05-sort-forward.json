@@ -1,0 +1,5 @@
+{
+  "path": "imgui.h",
+  "old": "enum ImGuiSortDirection : ImU8;",
+  "new": "enum ImGuiSortDirection : int;"
+}

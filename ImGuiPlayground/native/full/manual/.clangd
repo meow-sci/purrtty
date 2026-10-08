@@ -1,0 +1,9 @@
+CompileFlags:
+  Add:
+    - -xc++
+    - -std=c++11
+    - -fno-strict-aliasing
+    - -I../api
+    - -I../../../.tmp/native/source/031a18c417158427217bc5890e0ec0cb7e7b4b63
+    - -include
+    - ../../include/playground_imgui_config.h

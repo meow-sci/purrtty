@@ -1,0 +1,56 @@
+{
+  "schema": "playground_imgui.layout-patches",
+  "version": 1,
+  "archiveSha256": "2d1c175790496529ed8e90e0fba5b9dc852769f959edb9ef145e8f82d4dcc3be",
+  "sourceCommit": "031a18c417158427217bc5890e0ec0cb7e7b4b63",
+  "patches": [
+    {
+      "id": "01-keymods",
+      "file": "patches/01-keymods.json",
+      "sha256": "afcb5ca482506d32ad9291b4db6e5b7f958b5dd3abc6909d3faff474931c15a2",
+      "path": "imgui_internal.h",
+      "preimageSha256": "88ab1cb4e376e7a7789eb04481dc0b315f88b765d299c800d69a36dc45f9ffec",
+      "postimageSha256": "343d1e09e8a74f987260a0a62c25060d43125b707e2763167fb1d275a72a87b1"
+    },
+    {
+      "id": "02-stack-datatype",
+      "file": "patches/02-stack-datatype.json",
+      "sha256": "2f59d83d7e5b7c6735c8b9b6062b7b0f2da9cf58a8cd0fd09901dc6aee71ffb2",
+      "path": "imgui_internal.h",
+      "preimageSha256": "343d1e09e8a74f987260a0a62c25060d43125b707e2763167fb1d275a72a87b1",
+      "postimageSha256": "ad8435931716b6dba85455e39e331a7186bf9ff23e4429dabacc55e55ea486fa"
+    },
+    {
+      "id": "03-active-mouse",
+      "file": "patches/03-active-mouse.json",
+      "sha256": "9860f7ae6568603ab56272fe1fd3cb923267f6b4a048ab3775083ca5737e126d",
+      "path": "imgui_internal.h",
+      "preimageSha256": "ad8435931716b6dba85455e39e331a7186bf9ff23e4429dabacc55e55ea486fa",
+      "postimageSha256": "62502b108557404bd84bb8292fdb919ab07487e6dba61919c5b34ce55304701d"
+    },
+    {
+      "id": "04-dock-boundary",
+      "file": "patches/04-dock-boundary.json",
+      "sha256": "8d495808c8d253545c4c196eb1898919075cee488e62fc2a038ace2795284a3b",
+      "path": "imgui_internal.h",
+      "preimageSha256": "62502b108557404bd84bb8292fdb919ab07487e6dba61919c5b34ce55304701d",
+      "postimageSha256": "b2776134aa9d987af6c3125b77a6c50cad9fe75d75453da7e332d2afa6abf07e"
+    },
+    {
+      "id": "05-sort-forward",
+      "file": "patches/05-sort-forward.json",
+      "sha256": "8c3037b3bf7d80d173335c3253d0f43ac374ba202596b89d482eb090e96b6348",
+      "path": "imgui.h",
+      "preimageSha256": "16a258c0724c0dc7a249347c3f58170a432d0a202abbbed766959ee48e7ed3f1",
+      "postimageSha256": "4ce9f6142af74893ecf75f9dba5fc592d2609b6091e3273bc71bef264dd7213b"
+    },
+    {
+      "id": "06-sort-definition",
+      "file": "patches/06-sort-definition.json",
+      "sha256": "7ab3f230519330141aed4669a7a81b0946ec85974d540b9124ad1333168f1f4f",
+      "path": "imgui.h",
+      "preimageSha256": "4ce9f6142af74893ecf75f9dba5fc592d2609b6091e3273bc71bef264dd7213b",
+      "postimageSha256": "95a0ff5ccf138f015e72dcd3cdabd5e0ea7ee887c3db7820dbec19297d13115f"
+    }
+  ]
+}

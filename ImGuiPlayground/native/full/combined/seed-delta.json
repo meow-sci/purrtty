@@ -1,0 +1,806 @@
+{
+  "schema": "purr.combined.seed-delta.v1",
+  "seedFiles": 133,
+  "unchanged": 130,
+  "adapted": 3,
+  "rows": [
+    {
+      "path": "ImGuiPlayground.Checks/.editorconfig",
+      "seedSha256": "36cdc4027e1f9ffca74c9098954289a23c66544020c5bad44130147cc7ce8732",
+      "currentSha256": "36cdc4027e1f9ffca74c9098954289a23c66544020c5bad44130147cc7ce8732",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/.gitignore",
+      "seedSha256": "89f306c5f29ecb624818137151c3f0c5cc0400f29fa378f3971efc848bb33c07",
+      "currentSha256": "89f306c5f29ecb624818137151c3f0c5cc0400f29fa378f3971efc848bb33c07",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/BindingContractExporter.cs",
+      "seedSha256": "faf362e037bffd5415525d69cfb02dc257b06f75e5ab93d47a8c4249ac66f61e",
+      "currentSha256": "faf362e037bffd5415525d69cfb02dc257b06f75e5ab93d47a8c4249ac66f61e",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/BindingContractExporterChecks.cs",
+      "seedSha256": "ba1423284e76d1f0d8dcedfb613d95d2f64048ac569a7603457e91643ac8caeb",
+      "currentSha256": "ba1423284e76d1f0d8dcedfb613d95d2f64048ac569a7603457e91643ac8caeb",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/Directory.Build.props",
+      "seedSha256": "9462a543ac728ac9b91fa8c5bc29ba80886581432df697a15d53faac96a682b2",
+      "currentSha256": "9462a543ac728ac9b91fa8c5bc29ba80886581432df697a15d53faac96a682b2",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/FullAccessorChecks.cs",
+      "seedSha256": "75dec3160b84f4f20ef0309798a68eecdb9c1fd9c8c0d3960da8f47897afd6ae",
+      "currentSha256": "75dec3160b84f4f20ef0309798a68eecdb9c1fd9c8c0d3960da8f47897afd6ae",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/FullEnumAbiChecks.cs",
+      "seedSha256": "2d02973a9a2eca9b0b9c1ff4338f73153ca2c262b4457227789c09b6f557efdc",
+      "currentSha256": "2d02973a9a2eca9b0b9c1ff4338f73153ca2c262b4457227789c09b6f557efdc",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/FullManualAbiChecks.cs",
+      "seedSha256": "a16c9da40db8e1c52083fc855b1078d2651a1f52e4402c495581aa61a04c671b",
+      "currentSha256": "a16c9da40db8e1c52083fc855b1078d2651a1f52e4402c495581aa61a04c671b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/FullProfileAbiChecks.cs",
+      "seedSha256": "e0502ab4ec7802f5009cfa02838038dea569b7fd7ad8ff33d23e8c992094d3e8",
+      "currentSha256": "e0502ab4ec7802f5009cfa02838038dea569b7fd7ad8ff33d23e8c992094d3e8",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/ImGuiPlayground.Checks.csproj",
+      "seedSha256": "6f276ca42db0b1260607e9373499b35a78e231bc3bf6b78c108a00a35822a882",
+      "currentSha256": "6f276ca42db0b1260607e9373499b35a78e231bc3bf6b78c108a00a35822a882",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/InteropChecks.cs",
+      "seedSha256": "d07fed9c2d90b08986548fc8b24a528168037009719e442a9503584ec7db28b7",
+      "currentSha256": "d07fed9c2d90b08986548fc8b24a528168037009719e442a9503584ec7db28b7",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/LICENSE",
+      "seedSha256": "a5463762ae9f9e522ed79b220238851bd7cba920baeb76cc5f5c6f084ce1c880",
+      "currentSha256": "a5463762ae9f9e522ed79b220238851bd7cba920baeb76cc5f5c6f084ce1c880",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/PackagingChecks.cs",
+      "seedSha256": "50d145bbc3b124f0960da4ce9e3a9668b7bc9f340d20b034c84e9b87d40690e1",
+      "currentSha256": "50d145bbc3b124f0960da4ce9e3a9668b7bc9f340d20b034c84e9b87d40690e1",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/Program.cs",
+      "seedSha256": "fff0efdf0766c88d2c11a6297248fed2f450c572fe91cadf38f6e071dde67425",
+      "currentSha256": "365f8769e1140f8da6a06165f74d1351ed5cb9195adc68c7cdd2902c8d2c8608",
+      "disposition": "minimally-adapted"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/PrototypeAbiChecks.cs",
+      "seedSha256": "3577038f47c545bcbe88407ca35a5d2e324ef6c4ab6071525bcbd67e74dead6b",
+      "currentSha256": "3577038f47c545bcbe88407ca35a5d2e324ef6c4ab6071525bcbd67e74dead6b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/README.md",
+      "seedSha256": "06171b32e35e3a4b99647ebc8940e2279f1714d53534b04f4649ccc3b828322d",
+      "currentSha256": "06171b32e35e3a4b99647ebc8940e2279f1714d53534b04f4649ccc3b828322d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/prototype_runner.py",
+      "seedSha256": "feaa67d2114e0bd7756ad4bdde71a49607437815d3bf49d941fd46ed5339d2bd",
+      "currentSha256": "feaa67d2114e0bd7756ad4bdde71a49607437815d3bf49d941fd46ed5339d2bd",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground.Checks/prototype_tooling_checks.py",
+      "seedSha256": "226005c9e89f36c857dd46562689c9898d2adf5382264685aa49674ae0f0bb80",
+      "currentSha256": "226005c9e89f36c857dd46562689c9898d2adf5382264685aa49674ae0f0bb80",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/.editorconfig",
+      "seedSha256": "36cdc4027e1f9ffca74c9098954289a23c66544020c5bad44130147cc7ce8732",
+      "currentSha256": "36cdc4027e1f9ffca74c9098954289a23c66544020c5bad44130147cc7ce8732",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/.gitignore",
+      "seedSha256": "9ffdbbf3f5afa2c02495111d1298667f5ae2c1e5dfb74e8395f7d1a370a1b4fe",
+      "currentSha256": "9ffdbbf3f5afa2c02495111d1298667f5ae2c1e5dfb74e8395f7d1a370a1b4fe",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/CapturedFrame.cs",
+      "seedSha256": "0cdd2424b38853da33e4ae71dc542cc07be05a5256c4a57cf25846c70e9166b3",
+      "currentSha256": "0cdd2424b38853da33e4ae71dc542cc07be05a5256c4a57cf25846c70e9166b3",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/Directory.Build.props",
+      "seedSha256": "9eafd6d63b5d5b762277679d7678d03ccdd78280ddfdea3e0fcc16c04a215d12",
+      "currentSha256": "9eafd6d63b5d5b762277679d7678d03ccdd78280ddfdea3e0fcc16c04a215d12",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/GlfwInput.cs",
+      "seedSha256": "c950c09d014d7c3b7edd96841afb5386db972c6b38669dbc06518441b4fc81f7",
+      "currentSha256": "c950c09d014d7c3b7edd96841afb5386db972c6b38669dbc06518441b4fc81f7",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/ImGuiPlayground.csproj",
+      "seedSha256": "6d9a279a270f2046261a91e4d2ea2d6755b17489c2366e66bfd62522e9cdd8c7",
+      "currentSha256": "6d9a279a270f2046261a91e4d2ea2d6755b17489c2366e66bfd62522e9cdd8c7",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/ImGuiPlayground.slnx",
+      "seedSha256": "a83d5dab04a4090e58a23b167399a5f24c89c98868a6ce7995bd63c2b89554d8",
+      "currentSha256": "a83d5dab04a4090e58a23b167399a5f24c89c98868a6ce7995bd63c2b89554d8",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/LICENSE",
+      "seedSha256": "a5463762ae9f9e522ed79b220238851bd7cba920baeb76cc5f5c6f084ce1c880",
+      "currentSha256": "a5463762ae9f9e522ed79b220238851bd7cba920baeb76cc5f5c6f084ce1c880",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/NativeFieldAccessors.cs",
+      "seedSha256": "cea9449e80c9946801a32f8e5de9f90781f25acc6ad4a21ad59fe22c6b719581",
+      "currentSha256": "cea9449e80c9946801a32f8e5de9f90781f25acc6ad4a21ad59fe22c6b719581",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/NuGet.Config",
+      "seedSha256": "2b8595f771480754cc7a6914e134522a0520040cadd0d30462d965c94302e8da",
+      "currentSha256": "2b8595f771480754cc7a6914e134522a0520040cadd0d30462d965c94302e8da",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/OpenGl.cs",
+      "seedSha256": "2eda251a683acbd127aed778cfe54f9ab53094f02f60327ff3699d23a55786c5",
+      "currentSha256": "2eda251a683acbd127aed778cfe54f9ab53094f02f60327ff3699d23a55786c5",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/OpenGlRenderer.cs",
+      "seedSha256": "2b5212923d11d6e380af227e8a8dec55d70350adfcfbbefbf5320dbb390f7c82",
+      "currentSha256": "2b5212923d11d6e380af227e8a8dec55d70350adfcfbbefbf5320dbb390f7c82",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/PlaygroundHost.cs",
+      "seedSha256": "6ac92e98783e1249cb25e767489073a63cad5f32e06a5935c5fbf2bb55118363",
+      "currentSha256": "6ac92e98783e1249cb25e767489073a63cad5f32e06a5935c5fbf2bb55118363",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/Program.cs",
+      "seedSha256": "6f3ce76e8facc810eb00876570c38584ed56a84976a39f33eb0b82f73e8949bc",
+      "currentSha256": "6f3ce76e8facc810eb00876570c38584ed56a84976a39f33eb0b82f73e8949bc",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/README.md",
+      "seedSha256": "016a69ea1e073b49568b9649759ec2b243d3415bcc76996eb209ad65ace6f6c6",
+      "currentSha256": "016a69ea1e073b49568b9649759ec2b243d3415bcc76996eb209ad65ace6f6c6",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/THIRD-PARTY-NOTICES.md",
+      "seedSha256": "1b14dd83b4ef42ca203e5d47bcc558d7e51e0ecaba0c525b1688c57503faee71",
+      "currentSha256": "1b14dd83b4ef42ca203e5d47bcc558d7e51e0ecaba0c525b1688c57503faee71",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/VALIDATE_PLATFORMS.md",
+      "seedSha256": "2157f9beadf175c07c2d63f4d1175014c5c81476e120fa1cf5f0c5c693486f75",
+      "currentSha256": "2157f9beadf175c07c2d63f4d1175014c5c81476e120fa1cf5f0c5c693486f75",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/fonts/JetBrainsMono-Regular-license.txt",
+      "seedSha256": "656d165b3bf8ee23e1cbb0b359a77498f1c854c6353814903375ac4046fd43d9",
+      "currentSha256": "656d165b3bf8ee23e1cbb0b359a77498f1c854c6353814903375ac4046fd43d9",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/fonts/JetBrainsMono-Regular.ttf",
+      "seedSha256": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+      "currentSha256": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/fonts/README.md",
+      "seedSha256": "44a8792331851716859daff90ac23e15f6cfe1bd4ececafccb6f24c131e99470",
+      "currentSha256": "44a8792331851716859daff90ac23e15f6cfe1bd4ececafccb6f24c131e99470",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/licenses/LICENSE.dotnet.txt",
+      "seedSha256": "ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b",
+      "currentSha256": "ae48df11a335dc1a615f4f938b69cba73bcf4485c4f97af49b38efb0f216353b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/licenses/LICENSE.glfw.txt",
+      "seedSha256": "f6ffd11251b457bfe6627c0c8e2fe6f99dec9f4b175c9f578e5c35d69bae5065",
+      "currentSha256": "f6ffd11251b457bfe6627c0c8e2fe6f99dec9f4b175c9f578e5c35d69bae5065",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/licenses/LICENSE.imgui.txt",
+      "seedSha256": "c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf",
+      "currentSha256": "c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/LICENSE.adapter.txt",
+      "seedSha256": "34442d4408a138b6776a44aff1e0496a8a2353fb9affe2c2c8cbcfa8290276df",
+      "currentSha256": "34442d4408a138b6776a44aff1e0496a8a2353fb9affe2c2c8cbcfa8290276df",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/LICENSE.imgui.txt",
+      "seedSha256": "c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf",
+      "currentSha256": "c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/README.md",
+      "seedSha256": "c1f5e20eaff5119c61a7c6871e517a7da1c7dad87a394ed8ec02b573b179621e",
+      "currentSha256": "c1f5e20eaff5119c61a7c6871e517a7da1c7dad87a394ed8ec02b573b179621e",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/__init__.py",
+      "seedSha256": "f1a102aa43a38dca798f9706d65a416a2f8dba1e6ac3186241ec59bbfe783de8",
+      "currentSha256": "f1a102aa43a38dca798f9706d65a416a2f8dba1e6ac3186241ec59bbfe783de8",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/build.py",
+      "seedSha256": "169cd57bccb88961f773fc5d29d86cf7a75d2eba234857e9c3c2b79e394e1a6d",
+      "currentSha256": "169cd57bccb88961f773fc5d29d86cf7a75d2eba234857e9c3c2b79e394e1a6d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/exports.json",
+      "seedSha256": "54f4a0f2a52bf9450d4174c9c98a2ba29b39e2bdc5f9f50e3f379fd52920e720",
+      "currentSha256": "54f4a0f2a52bf9450d4174c9c98a2ba29b39e2bdc5f9f50e3f379fd52920e720",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/.clangd",
+      "seedSha256": "e8c4cf65a86cd63ef37942984afed2addf09ea0cfc2210f36480d457f7549935",
+      "currentSha256": "e8c4cf65a86cd63ef37942984afed2addf09ea0cfc2210f36480d457f7549935",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/README.md",
+      "seedSha256": "208afd1f1c296b795de05d27d9bf406371a9e7dd068141469cdf7103dcea26fd",
+      "currentSha256": "208afd1f1c296b795de05d27d9bf406371a9e7dd068141469cdf7103dcea26fd",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/accessors.cpp",
+      "seedSha256": "dc33206608e826b8c4dad0a2d1aa375fc055f52143cf3b9b1e913a20b834f611",
+      "currentSha256": "dc33206608e826b8c4dad0a2d1aa375fc055f52143cf3b9b1e913a20b834f611",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/accessors.h",
+      "seedSha256": "edca1c18f7426244971a7dbc698ef72788473605529eef50c24cb283b6ed94e8",
+      "currentSha256": "edca1c18f7426244971a7dbc698ef72788473605529eef50c24cb283b6ed94e8",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/fixture.cpp",
+      "seedSha256": "652a20961f29f6ba94be2536b5dac0ff4f0e296fd9c0d9798204def2c5c3c0a2",
+      "currentSha256": "a0b8367e6bcd8779238e8a2661dd82f5eeaba1030fb872fee5cac011f67c2d63",
+      "disposition": "minimally-adapted"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/fixture.h",
+      "seedSha256": "f651ca4f2ea983aa93d143a0a212509418db271db2b1965d8b47db012ac3f709",
+      "currentSha256": "f651ca4f2ea983aa93d143a0a212509418db271db2b1965d8b47db012ac3f709",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/generate.py",
+      "seedSha256": "61a8fce26e6214c64bdc27d147b66a0b5dcbf1f75c115943fd17de6f2b17fd69",
+      "currentSha256": "61a8fce26e6214c64bdc27d147b66a0b5dcbf1f75c115943fd17de6f2b17fd69",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/input_self_test.py",
+      "seedSha256": "6005b7809437e9e49dfea9cfdc3eebb2196cc74707a20c7c1bc523a407c30d7f",
+      "currentSha256": "6005b7809437e9e49dfea9cfdc3eebb2196cc74707a20c7c1bc523a407c30d7f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/path_guard.py",
+      "seedSha256": "5f4c570d47b09ac86b51dc81516e134ae9b4140b74f70b284337bb5c12418192",
+      "currentSha256": "5f4c570d47b09ac86b51dc81516e134ae9b4140b74f70b284337bb5c12418192",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/run.py",
+      "seedSha256": "0530c09e218ea8b18282ad26bbdb643642fd186908045e6f210efea673b7f3b9",
+      "currentSha256": "0530c09e218ea8b18282ad26bbdb643642fd186908045e6f210efea673b7f3b9",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/run_managed.py",
+      "seedSha256": "344d16c9f544bba373bd9d9253fb5229a36c3cffef329c434e61e8fda441a916",
+      "currentSha256": "344d16c9f544bba373bd9d9253fb5229a36c3cffef329c434e61e8fda441a916",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/accessors/self_test.py",
+      "seedSha256": "f3feea864ca6763044301e4f345168d6f752f4d8e847a92cb72b8cb63466b2fe",
+      "currentSha256": "f3feea864ca6763044301e4f345168d6f752f4d8e847a92cb72b8cb63466b2fe",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/.clangd",
+      "seedSha256": "8a22330d767d6105bd0e0c7a5ad459df280540f7d7c55b8744a7203442b61600",
+      "currentSha256": "8a22330d767d6105bd0e0c7a5ad459df280540f7d7c55b8744a7203442b61600",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/README.md",
+      "seedSha256": "20beba0f442a53697b152b32d006dc31049048119b6ca365ee77f27ac8873ccd",
+      "currentSha256": "20beba0f442a53697b152b32d006dc31049048119b6ca365ee77f27ac8873ccd",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/abi_c_test.c",
+      "seedSha256": "9bf52194a6daa427437afb44c026e0665b618c7bb4f0c0ad1115aa36f0ad8c0c",
+      "currentSha256": "9bf52194a6daa427437afb44c026e0665b618c7bb4f0c0ad1115aa36f0ad8c0c",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/api_library_test.py",
+      "seedSha256": "313a264161bd5ff2e2eb018098265177369453d78b4cd6ecb871fb19af0cc608",
+      "currentSha256": "313a264161bd5ff2e2eb018098265177369453d78b4cd6ecb871fb19af0cc608",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/api_native_test.cpp",
+      "seedSha256": "f383458d4ffb21e09b8aa57e2998d37236a257cb056344606131fe7456b4ba33",
+      "currentSha256": "f383458d4ffb21e09b8aa57e2998d37236a257cb056344606131fe7456b4ba33",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/bool_pointer_test.cpp",
+      "seedSha256": "c778352703ac9110c6de798c16c0cd82d088c33ba33146238cc14774f1177bd1",
+      "currentSha256": "c778352703ac9110c6de798c16c0cd82d088c33ba33146238cc14774f1177bd1",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/bool_view_proof.cpp",
+      "seedSha256": "9f8cdcb2786237f5ae63ac79890976383e3281dc37612ee9c9faf02edb4b424c",
+      "currentSha256": "9f8cdcb2786237f5ae63ac79890976383e3281dc37612ee9c9faf02edb4b424c",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/check.py",
+      "seedSha256": "f8d894ee76aef4ccad6c344464edc75d1cd8f65f265af1e69a7580cf84c4705d",
+      "currentSha256": "f8d894ee76aef4ccad6c344464edc75d1cd8f65f265af1e69a7580cf84c4705d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/declarations.py",
+      "seedSha256": "d5ab980125f9b124cff2a8d9aacc17b03b311d211a02031b9b59231120a83f91",
+      "currentSha256": "d5ab980125f9b124cff2a8d9aacc17b03b311d211a02031b9b59231120a83f91",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/generate.py",
+      "seedSha256": "2d2f5d218ea313781194e33855b5fdf0f2849852a5b2d90a1d84dcf2a457eabd",
+      "currentSha256": "2d2f5d218ea313781194e33855b5fdf0f2849852a5b2d90a1d84dcf2a457eabd",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/mapping.json",
+      "seedSha256": "8c9f56f9fdf022c56af931ac2044cd4536fcf7aba9b1604ae9714a5a6bb733ca",
+      "currentSha256": "8c9f56f9fdf022c56af931ac2044cd4536fcf7aba9b1604ae9714a5a6bb733ca",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/output_paths.py",
+      "seedSha256": "9fb44c8e997bc3f2cf0cafbc8fd403c8a20d6a2b7408122b886e35eeb1d74738",
+      "currentSha256": "9fb44c8e997bc3f2cf0cafbc8fd403c8a20d6a2b7408122b886e35eeb1d74738",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/path_test.py",
+      "seedSha256": "6ff9dd7b755696587119a7377da31f7713f5e97d997b319ef732204fdab1b350",
+      "currentSha256": "6ff9dd7b755696587119a7377da31f7713f5e97d997b319ef732204fdab1b350",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/purr_abi.h",
+      "seedSha256": "6c60f44ffa145f80033bd1fe9ee9444949f1d1faddf9e3e6888d11f2b5b44529",
+      "currentSha256": "6c60f44ffa145f80033bd1fe9ee9444949f1d1faddf9e3e6888d11f2b5b44529",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/self_test.py",
+      "seedSha256": "8ace3a3fd627aff0ef7c713fc620d860b502c7c23354ed0f50b99162e37a2c5b",
+      "currentSha256": "8ace3a3fd627aff0ef7c713fc620d860b502c7c23354ed0f50b99162e37a2c5b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/api/validation.json",
+      "seedSha256": "6e00373a6554164a18258129be8adeff07608fe4f27976794fa6b17153ddd112",
+      "currentSha256": "6e00373a6554164a18258129be8adeff07608fe4f27976794fa6b17153ddd112",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/README.md",
+      "seedSha256": "dbee2c0e638db77057255e984789bb2b4c3706340ee732a1c45303147661923f",
+      "currentSha256": "dbee2c0e638db77057255e984789bb2b4c3706340ee732a1c45303147661923f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/bitfields.json",
+      "seedSha256": "e973d49b7aa045bf9444329886627f1f56610a1ad672eb12d181a937e39787af",
+      "currentSha256": "e973d49b7aa045bf9444329886627f1f56610a1ad672eb12d181a937e39787af",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/enum-transport.json",
+      "seedSha256": "66a7ee88f8c56d85962f7600e87fa2b61e0db16b0f4809c6a7aa8e5346b476a2",
+      "currentSha256": "66a7ee88f8c56d85962f7600e87fa2b61e0db16b0f4809c6a7aa8e5346b476a2",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/generate.py",
+      "seedSha256": "3e592d917ee6cb37edd818db3e3fd7ea4d2e695b6c43fbc36b784aa8870005e4",
+      "currentSha256": "3e592d917ee6cb37edd818db3e3fd7ea4d2e695b6c43fbc36b784aa8870005e4",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/mapping.json",
+      "seedSha256": "1787bebf0b12fde5e60d239ac86a744e388894d3c4ff8f2402e854e8fdf00863",
+      "currentSha256": "1787bebf0b12fde5e60d239ac86a744e388894d3c4ff8f2402e854e8fdf00863",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patch-manifest.json",
+      "seedSha256": "060599ff6f13e95c5df83610b26c336c3e2ba44e46cde67f9806f24427eaf36d",
+      "currentSha256": "060599ff6f13e95c5df83610b26c336c3e2ba44e46cde67f9806f24427eaf36d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patch_source.py",
+      "seedSha256": "0e4a47a56cc16e76ad1655f75e9b887a352a03bea0dab8fad9651c8312d5d95b",
+      "currentSha256": "0e4a47a56cc16e76ad1655f75e9b887a352a03bea0dab8fad9651c8312d5d95b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patches/01-keymods.json",
+      "seedSha256": "afcb5ca482506d32ad9291b4db6e5b7f958b5dd3abc6909d3faff474931c15a2",
+      "currentSha256": "afcb5ca482506d32ad9291b4db6e5b7f958b5dd3abc6909d3faff474931c15a2",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patches/02-stack-datatype.json",
+      "seedSha256": "2f59d83d7e5b7c6735c8b9b6062b7b0f2da9cf58a8cd0fd09901dc6aee71ffb2",
+      "currentSha256": "2f59d83d7e5b7c6735c8b9b6062b7b0f2da9cf58a8cd0fd09901dc6aee71ffb2",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patches/03-active-mouse.json",
+      "seedSha256": "9860f7ae6568603ab56272fe1fd3cb923267f6b4a048ab3775083ca5737e126d",
+      "currentSha256": "9860f7ae6568603ab56272fe1fd3cb923267f6b4a048ab3775083ca5737e126d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patches/04-dock-boundary.json",
+      "seedSha256": "8d495808c8d253545c4c196eb1898919075cee488e62fc2a038ace2795284a3b",
+      "currentSha256": "8d495808c8d253545c4c196eb1898919075cee488e62fc2a038ace2795284a3b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patches/05-sort-forward.json",
+      "seedSha256": "8c3037b3bf7d80d173335c3253d0f43ac374ba202596b89d482eb090e96b6348",
+      "currentSha256": "8c3037b3bf7d80d173335c3253d0f43ac374ba202596b89d482eb090e96b6348",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/patches/06-sort-definition.json",
+      "seedSha256": "7ab3f230519330141aed4669a7a81b0946ec85974d540b9124ad1333168f1f4f",
+      "currentSha256": "7ab3f230519330141aed4669a7a81b0946ec85974d540b9124ad1333168f1f4f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/probe_runtime.inc",
+      "seedSha256": "d0a8d3b9e9b39a6975e6655c55b4ad51a2c2401cbb9c7fb7ccb6fe5650d0b9b8",
+      "currentSha256": "d0a8d3b9e9b39a6975e6655c55b4ad51a2c2401cbb9c7fb7ccb6fe5650d0b9b8",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/probe_support.h",
+      "seedSha256": "9f14f8486c57b0d6a6128bc13eeb5be080f6e45c896c8c65a81112cbf20c8b9e",
+      "currentSha256": "9f14f8486c57b0d6a6128bc13eeb5be080f6e45c896c8c65a81112cbf20c8b9e",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/run.py",
+      "seedSha256": "0bdf695de2f81534c267c13da45dbd8f9d75b0d7427ff9f6864c03432cd5681b",
+      "currentSha256": "0bdf695de2f81534c267c13da45dbd8f9d75b0d7427ff9f6864c03432cd5681b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/layout/self_test.py",
+      "seedSha256": "6297f6c07bf1be26ad10e0060322ab95c47837e814cb88ad8db82396d2dfb6bc",
+      "currentSha256": "6297f6c07bf1be26ad10e0060322ab95c47837e814cb88ad8db82396d2dfb6bc",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/.clangd",
+      "seedSha256": "425633b7460e4c4638da602103567448b47ac2f494eb449e7adfb7d7fda3c372",
+      "currentSha256": "425633b7460e4c4638da602103567448b47ac2f494eb449e7adfb7d7fda3c372",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/README.md",
+      "seedSha256": "43fdfd6821d1c45db433c611862e79bdca1b085371b9f8e2a6d95f387b83f902",
+      "currentSha256": "43fdfd6821d1c45db433c611862e79bdca1b085371b9f8e2a6d95f387b83f902",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/abi_proof.cpp",
+      "seedSha256": "169a5d43178bf96cf9e1ec946b41238c8776de9e52f05115d21e0cacbdd77927",
+      "currentSha256": "169a5d43178bf96cf9e1ec946b41238c8776de9e52f05115d21e0cacbdd77927",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/binary_negative.py",
+      "seedSha256": "dfab35cbd19da6f369cea450711491d2567f9309261aa218da23a16eb571238c",
+      "currentSha256": "dfab35cbd19da6f369cea450711491d2567f9309261aa218da23a16eb571238c",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/binary_symbols.py",
+      "seedSha256": "100803dba46c1cb8868986e17ed4d9f78749224b61956fa308a9baf245ae39ce",
+      "currentSha256": "100803dba46c1cb8868986e17ed4d9f78749224b61956fa308a9baf245ae39ce",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/check.py",
+      "seedSha256": "58244da32b9ebe64fafe0ce23a6e55bdd75269bec249695925c44dad044d5360",
+      "currentSha256": "58244da32b9ebe64fafe0ce23a6e55bdd75269bec249695925c44dad044d5360",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/contract.py",
+      "seedSha256": "a50d2698c01a02c5b3a3dc7e11d9576edba4ce35ca8ab295cc939b5c250782ea",
+      "currentSha256": "a50d2698c01a02c5b3a3dc7e11d9576edba4ce35ca8ab295cc939b5c250782ea",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/entrypoint_test.py",
+      "seedSha256": "edea586ac18223b5e507c9ec8dad38f9747d2cdb5706d5829c98248119be39b9",
+      "currentSha256": "edea586ac18223b5e507c9ec8dad38f9747d2cdb5706d5829c98248119be39b9",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/fixture.cpp",
+      "seedSha256": "6e233861592a7f23f8a45600c9139f3f922a8fca3b1e5d77cd81194c6d748083",
+      "currentSha256": "6e233861592a7f23f8a45600c9139f3f922a8fca3b1e5d77cd81194c6d748083",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/fixture.h",
+      "seedSha256": "d249a391f9cdcc2847ce7bbcf2922dca23a187c2ccda58c204f6d8bc8f260c9c",
+      "currentSha256": "d249a391f9cdcc2847ce7bbcf2922dca23a187c2ccda58c204f6d8bc8f260c9c",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/manifest.json",
+      "seedSha256": "ccd038190a04103b97b84fbdef19fbe8e59791fde1162e2a7104a249b7a37595",
+      "currentSha256": "ccd038190a04103b97b84fbdef19fbe8e59791fde1162e2a7104a249b7a37595",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/manual.cpp",
+      "seedSha256": "87156634e601d9104192e61b3b2245943912ac4fa0b9aa7275c17713a5053f5d",
+      "currentSha256": "87156634e601d9104192e61b3b2245943912ac4fa0b9aa7275c17713a5053f5d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/manual.h",
+      "seedSha256": "7210bb0635725c8aeea9dab7b86bcd4e5c769faad8adfde8108479220004f3aa",
+      "currentSha256": "7210bb0635725c8aeea9dab7b86bcd4e5c769faad8adfde8108479220004f3aa",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/native_test.cpp",
+      "seedSha256": "5fef79e4c995c376983cba08bc928b3c9f43da82dcfd694048b326fea4588180",
+      "currentSha256": "5fef79e4c995c376983cba08bc928b3c9f43da82dcfd694048b326fea4588180",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/paths.py",
+      "seedSha256": "384852a639906b5fae84a4f5e695f0572152a4d08ddcca7ceda767b1ee750deb",
+      "currentSha256": "384852a639906b5fae84a4f5e695f0572152a4d08ddcca7ceda767b1ee750deb",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/manual/self_test.py",
+      "seedSha256": "9a5356e8f77c678fc2f137297d49adddf9aa4b81914a549950b595eb8185dfd3",
+      "currentSha256": "9a5356e8f77c678fc2f137297d49adddf9aa4b81914a549950b595eb8185dfd3",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/.clangd",
+      "seedSha256": "425633b7460e4c4638da602103567448b47ac2f494eb449e7adfb7d7fda3c372",
+      "currentSha256": "425633b7460e4c4638da602103567448b47ac2f494eb449e7adfb7d7fda3c372",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/Harness.cs.in",
+      "seedSha256": "6f7836469f9e6c19219b7402165440a237c1a38d856d282b3297ed459d6a0d09",
+      "currentSha256": "6f7836469f9e6c19219b7402165440a237c1a38d856d282b3297ed459d6a0d09",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/README.md",
+      "seedSha256": "b3ba0334b927da31c4bd3d2b509d496f0df542027e8c8346b903af670cd1becd",
+      "currentSha256": "b3ba0334b927da31c4bd3d2b509d496f0df542027e8c8346b903af670cd1becd",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/enum-policy.json",
+      "seedSha256": "6a8c6b970f7dcd905cfac12b5a223db7afd5cdc5dcf30e7bb64d5ddeaa8ff6bc",
+      "currentSha256": "6a8c6b970f7dcd905cfac12b5a223db7afd5cdc5dcf30e7bb64d5ddeaa8ff6bc",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/enum_uses.py",
+      "seedSha256": "c2e00ecea2675eb29e1332ccab54a02e38c22659ff84e38259b522503628f9c2",
+      "currentSha256": "c2e00ecea2675eb29e1332ccab54a02e38c22659ff84e38259b522503628f9c2",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/enums.py",
+      "seedSha256": "d0d62d9920e76ab4ba3e3689ee5fe658782ba49d4547202953eec0a77290da5b",
+      "currentSha256": "e0138c7d959264456fb72ae4c71bfdd2bd282cba6e4b49c727103e43857553a3",
+      "disposition": "minimally-adapted"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/input_paths.py",
+      "seedSha256": "eff71e53317001e43463e223bc6ce34669208a1c74935212b305a749aae3b842",
+      "currentSha256": "eff71e53317001e43463e223bc6ce34669208a1c74935212b305a749aae3b842",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/layout_gate.py",
+      "seedSha256": "b9fff87110a210493719ee2c48b6836e5af724ec10571663c177ee804a942d8d",
+      "currentSha256": "b9fff87110a210493719ee2c48b6836e5af724ec10571663c177ee804a942d8d",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/managed.py",
+      "seedSha256": "521228d24891bc508c02fb023919390b3bd1a2ed650f837aa9ecd287d17cfb9f",
+      "currentSha256": "521228d24891bc508c02fb023919390b3bd1a2ed650f837aa9ecd287d17cfb9f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/managed_fixture.cpp",
+      "seedSha256": "8d459c9f7e868f3015031f04ada3588b2057c1f71bebb34a08507524b3dc259e",
+      "currentSha256": "8d459c9f7e868f3015031f04ada3588b2057c1f71bebb34a08507524b3dc259e",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/native_model.py",
+      "seedSha256": "41822f1dae1960309db7d3c2781505f9b45ea28abcd0ffccf2743ac4d534fae3",
+      "currentSha256": "41822f1dae1960309db7d3c2781505f9b45ea28abcd0ffccf2743ac4d534fae3",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/path_test.py",
+      "seedSha256": "be3b155b171dca3f22ff34a8a78afc3e745919d2c115c4ece79681bbcb222042",
+      "currentSha256": "be3b155b171dca3f22ff34a8a78afc3e745919d2c115c4ece79681bbcb222042",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/selected_profile.py",
+      "seedSha256": "f103df8dbfdb648620908a38a5d8bd24864a3cc05719058385db61a8d45a8d71",
+      "currentSha256": "f103df8dbfdb648620908a38a5d8bd24864a3cc05719058385db61a8d45a8d71",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/self_test.py",
+      "seedSha256": "c14705c9f8eb65978770d3e98946fd01f003ca5339d06a5780c1ebfcaf49ba51",
+      "currentSha256": "c14705c9f8eb65978770d3e98946fd01f003ca5339d06a5780c1ebfcaf49ba51",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/full/profile/validation.json",
+      "seedSha256": "38d1607139ab82b68c143ffbaa3f215be7ffda76000da602ec32c24340803f04",
+      "currentSha256": "38d1607139ab82b68c143ffbaa3f215be7ffda76000da602ec32c24340803f04",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/include/playground_imgui_config.h",
+      "seedSha256": "18e6ca90823b36a891eca1c182eba6deb8a35d64431d03db3b91477a1e5049f3",
+      "currentSha256": "18e6ca90823b36a891eca1c182eba6deb8a35d64431d03db3b91477a1e5049f3",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/include/playground_imgui_probe.h",
+      "seedSha256": "4b39d2325d7aa102e3eb616281ea13a27b2cbd061ec3b96dcab923f55955484f",
+      "currentSha256": "4b39d2325d7aa102e3eb616281ea13a27b2cbd061ec3b96dcab923f55955484f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/process_utils.py",
+      "seedSha256": "2f24b677c4bb6dc7482ab7612f4281b19d483be3dc17a0bae65abbb0e7e816fc",
+      "currentSha256": "2f24b677c4bb6dc7482ab7612f4281b19d483be3dc17a0bae65abbb0e7e816fc",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/source.lock.json",
+      "seedSha256": "0f8dba40bb599030d1a13d8907a07a411a4c55a5b6fad208768d3e43b0602a77",
+      "currentSha256": "0f8dba40bb599030d1a13d8907a07a411a4c55a5b6fad208768d3e43b0602a77",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/native/src/PlaygroundBrutalAdapter.cpp",
+      "seedSha256": "dced1ba400168ea1aef048a211c00c786c002981d211c1c75cd321b3b435290a",
+      "currentSha256": "dced1ba400168ea1aef048a211c00c786c002981d211c1c75cd321b3b435290a",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/runtimes/NativeLibraries.props",
+      "seedSha256": "3689e3da94276eff4ca0a62ea7db7966a0a1956f7229aa670f3fde07821b7d1f",
+      "currentSha256": "3689e3da94276eff4ca0a62ea7db7966a0a1956f7229aa670f3fde07821b7d1f",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/runtimes/README.md",
+      "seedSha256": "80e067c8159c1914e24bf2d9fa17beb2e9e244bde4955ca95cc5f282bd04ef01",
+      "currentSha256": "80e067c8159c1914e24bf2d9fa17beb2e9e244bde4955ca95cc5f282bd04ef01",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/runtimes/linux-x64/native/libimgui.so",
+      "seedSha256": "3a7983b30f4e2f6c2bf3fda5b6757a81053a71e54349033f454317e99d8ea45b",
+      "currentSha256": "3a7983b30f4e2f6c2bf3fda5b6757a81053a71e54349033f454317e99d8ea45b",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/runtimes/osx-arm64/native/libimgui.dylib",
+      "seedSha256": "19e99251a2511477ab60365e3fa8613f8d56565c06feab67be17fd277ec2409c",
+      "currentSha256": "19e99251a2511477ab60365e3fa8613f8d56565c06feab67be17fd277ec2409c",
+      "disposition": "unchanged"
+    },
+    {
+      "path": "ImGuiPlayground/runtimes/win-x64/native/imgui.dll",
+      "seedSha256": "6bbed31165a33c587333cad17582294a4691f68a2085c4c2a21cf7f513c1e9fc",
+      "currentSha256": "6bbed31165a33c587333cad17582294a4691f68a2085c4c2a21cf7f513c1e9fc",
+      "disposition": "unchanged"
+    }
+  ]
+}

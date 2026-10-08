@@ -8,12 +8,37 @@ using ImGuiPlayground;
 // Quiet on pass, no sleeps, hidden windows; independent of any mod test suite.
 try
 {
+    if (args is ["--full-qualification", _, _, _, _, _, _])
+    {
+        if (!FullQualificationChecks.Run(args[1], args[2], args[3], args[4], args[5], args[6])) return 0;
+        args = []; // Existing renderer/input checks continue synchronously below.
+    }
+    if (args is ["--combined-components", _, _, _])
+    {
+        CombinedComponentChecks.Run(args[1], args[2], args[3]);
+        return 0;
+    }
+    if (args is ["--export-binding-contract", _, _])
+    {
+        ImGuiPlayground.Checks.BindingContractExporter.Run(args[1], args[2]);
+        return 0;
+    }
+    if (args is ["--binding-contract-self-test"] or ["--binding-contract-self-test", _])
+    {
+        ImGuiPlayground.Checks.BindingContractExporterChecks.Run(selectedDirectory: args.Length == 2 ? args[1] : null);
+        return 0;
+    }
     if (args is ["--packaging"] or ["--packaging", _])
     {
         PackagingChecks.Run(args.Length == 2 ? args[1] : null);
         return 0;
     }
-    if (args.Length != 0) throw new ArgumentException("Usage: ImGuiPlayground.Checks [--packaging [path/to/ImGuiPlayground.csproj]]");
+    if (args is ["--prototype-abi", _, _, _, _, _])
+    {
+        PrototypeAbiChecks.Run(args[1], args[2], args[3], args[4], args[5]);
+        return 0;
+    }
+    if (args.Length != 0) throw new ArgumentException("Usage: ImGuiPlayground.Checks [--combined-components <profile|manual|accessor|composition> <stage-receipt.json> <report.json> | --export-binding-contract <assembly-directory> <output.json> | --binding-contract-self-test [assembly-directory] | --packaging [path/to/ImGuiPlayground.csproj] | --prototype-abi <native-library> <metadata-dir> <report-path> <target-rid> <managed-sha256>]");
     int frames = 0;
     try
     {
@@ -65,6 +90,7 @@ try
     Require(frames == 3 && sawTextureUpdate, "Fixture did not exercise dynamic texture updates.");
     Require(fonts.Rgba.Span.Contains((byte)255), "No bright font pixels rendered.");
     InteropChecks.CheckInput();
+    FullQualificationChecks.CompleteRenderer();
     return 0;
 }
 catch (Exception error)

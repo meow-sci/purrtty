@@ -1,0 +1,657 @@
+{
+  "schema": "playground_imgui.enum-transport-exceptions",
+  "version": 1,
+  "exceptions": [
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.ImGuiDockRequestType",
+      "native": "ImGuiDockRequestType",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiDockRequestType_None",
+        "ImGuiDockRequestType_Dock",
+        "ImGuiDockRequestType_Undock",
+        "ImGuiDockRequestType_Split"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui.cpp",
+      "usage": "CPP-local record field"
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.ImGuiSelectionRequestType",
+      "native": "ImGuiSelectionRequestType",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiSelectionRequestType_None",
+        "ImGuiSelectionRequestType_SetAll",
+        "ImGuiSelectionRequestType_SetRange"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui.h",
+          "line": 3132,
+          "declaration": "ImGuiSelectionRequestType   Type;",
+          "role": "native-storage-or-inline-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.ImTextureFormat",
+      "native": "ImTextureFormat",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImTextureFormat_RGBA32",
+        "ImTextureFormat_Alpha8"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui.h",
+          "line": 3565,
+          "declaration": "ImTextureFormat     Format;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui.h",
+          "line": 3581,
+          "declaration": "IMGUI_API void      Create(ImTextureFormat format, int w, int h);",
+          "role": "native-api-declaration"
+        },
+        {
+          "source": "imgui.h",
+          "line": 3805,
+          "declaration": "ImTextureFormat             TexDesiredFormat;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 4062,
+          "declaration": "ImTextureFormat     Format;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 4144,
+          "declaration": "IMGUI_API void              ImFontAtlasBakedSetFontGlyphBitmap(ImFontAtlas* atlas, ImFontBaked* baked, ImFontConfig* src, ImFontGlyph* glyph, ImTextureRect* r, const unsigned char* src_pixels, ImTextureFormat src_fmt, int src_pitch);",
+          "role": "native-api-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 4158,
+          "declaration": "IMGUI_API void              ImFontAtlasTextureBlockConvert(const unsigned char* src_pixels, ImTextureFormat src_fmt, int src_pitch, unsigned char* dst_pixels, ImTextureFormat dst_fmt, int dst_pitch, int w, int h);",
+          "role": "native-api-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 4165,
+          "declaration": "IMGUI_API int               ImTextureDataGetFormatBytesPerPixel(ImTextureFormat format);",
+          "role": "native-api-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 4167,
+          "declaration": "IMGUI_API const char*       ImTextureDataGetFormatName(ImTextureFormat format);",
+          "role": "native-api-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.ImTextureStatus",
+      "native": "ImTextureStatus",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImTextureStatus_OK",
+        "ImTextureStatus_Destroyed",
+        "ImTextureStatus_WantCreate",
+        "ImTextureStatus_WantUpdates",
+        "ImTextureStatus_WantDestroy"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui.h",
+          "line": 3562,
+          "declaration": "ImTextureStatus     Status;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui.h",
+          "line": 3592,
+          "declaration": "void                SetStatus(ImTextureStatus status) { Status = status; }",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 4166,
+          "declaration": "IMGUI_API const char*       ImTextureDataGetStatusName(ImTextureStatus status);",
+          "role": "native-api-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiButtonFlagsPrivate",
+      "native": "ImGuiButtonFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiButtonFlags_PressedOnClick",
+        "ImGuiButtonFlags_PressedOnClickRelease",
+        "ImGuiButtonFlags_PressedOnClickReleaseAnywhere",
+        "ImGuiButtonFlags_PressedOnRelease",
+        "ImGuiButtonFlags_PressedOnDoubleClick",
+        "ImGuiButtonFlags_PressedOnDragDropHold",
+        "ImGuiButtonFlags_FlattenChildren",
+        "ImGuiButtonFlags_AllowOverlap",
+        "ImGuiButtonFlags_AlignTextBaseLine",
+        "ImGuiButtonFlags_NoKeyModsAllowed",
+        "ImGuiButtonFlags_NoHoldingActiveId",
+        "ImGuiButtonFlags_NoNavFocus",
+        "ImGuiButtonFlags_NoHoveredOnFocus",
+        "ImGuiButtonFlags_NoSetKeyOwner",
+        "ImGuiButtonFlags_NoTestKeyOwner",
+        "ImGuiButtonFlags_NoFocus",
+        "ImGuiButtonFlags_PressedOnMask_",
+        "ImGuiButtonFlags_PressedOnDefault_"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiButtonFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiButtonFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiComboFlagsPrivate",
+      "native": "ImGuiComboFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiComboFlags_CustomPreview"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiComboFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiComboFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiContextHookType",
+      "native": "ImGuiContextHookType",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiContextHookType_NewFramePre",
+        "ImGuiContextHookType_NewFramePost",
+        "ImGuiContextHookType_EndFramePre",
+        "ImGuiContextHookType_EndFramePost",
+        "ImGuiContextHookType_RenderPre",
+        "ImGuiContextHookType_RenderPost",
+        "ImGuiContextHookType_Shutdown",
+        "ImGuiContextHookType_PendingRemoval_"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 2320,
+          "declaration": "ImGuiContextHookType        Type;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 3394,
+          "declaration": "IMGUI_API void          CallContextHooks(ImGuiContext* context, ImGuiContextHookType type);",
+          "role": "native-api-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiDataTypePrivate",
+      "native": "ImGuiDataTypePrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiDataType_Pointer",
+        "ImGuiDataType_ID"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiDataType",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiDataType;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiDockNodeState",
+      "native": "ImGuiDockNodeState",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiDockNodeState_Unknown",
+        "ImGuiDockNodeState_HostWindowHiddenBecauseSingleWindow",
+        "ImGuiDockNodeState_HostWindowHiddenBecauseWindowsAreResizing",
+        "ImGuiDockNodeState_HostWindowVisible"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 1995,
+          "declaration": "ImGuiDockNodeState      State;",
+          "role": "native-storage-or-inline-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiHoveredFlagsPrivate",
+      "native": "ImGuiHoveredFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiHoveredFlags_DelayMask_",
+        "ImGuiHoveredFlags_AllowedMaskForIsWindowHovered",
+        "ImGuiHoveredFlags_AllowedMaskForIsItemHovered"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiHoveredFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiHoveredFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiInputEventType",
+      "native": "ImGuiInputEventType",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiInputEventType_None",
+        "ImGuiInputEventType_MousePos",
+        "ImGuiInputEventType_MouseWheel",
+        "ImGuiInputEventType_MouseButton",
+        "ImGuiInputEventType_MouseViewport",
+        "ImGuiInputEventType_Key",
+        "ImGuiInputEventType_Text",
+        "ImGuiInputEventType_Focus",
+        "ImGuiInputEventType_COUNT"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 1531,
+          "declaration": "ImGuiInputEventType             Type;",
+          "role": "native-storage-or-inline-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiInputFlagsPrivate",
+      "native": "ImGuiInputFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiInputFlags_RepeatRateDefault",
+        "ImGuiInputFlags_RepeatRateNavMove",
+        "ImGuiInputFlags_RepeatRateNavTweak",
+        "ImGuiInputFlags_RepeatUntilRelease",
+        "ImGuiInputFlags_RepeatUntilKeyModsChange",
+        "ImGuiInputFlags_RepeatUntilKeyModsChangeFromNone",
+        "ImGuiInputFlags_RepeatUntilOtherKeyPress",
+        "ImGuiInputFlags_LockThisFrame",
+        "ImGuiInputFlags_LockUntilRelease",
+        "ImGuiInputFlags_CondHovered",
+        "ImGuiInputFlags_CondActive",
+        "ImGuiInputFlags_CondDefault_",
+        "ImGuiInputFlags_RepeatRateMask_",
+        "ImGuiInputFlags_RepeatUntilMask_",
+        "ImGuiInputFlags_RepeatMask_",
+        "ImGuiInputFlags_CondMask_",
+        "ImGuiInputFlags_RouteTypeMask_",
+        "ImGuiInputFlags_RouteOptionsMask_",
+        "ImGuiInputFlags_SupportedByIsKeyPressed",
+        "ImGuiInputFlags_SupportedByIsMouseClicked",
+        "ImGuiInputFlags_SupportedByShortcut",
+        "ImGuiInputFlags_SupportedBySetNextItemShortcut",
+        "ImGuiInputFlags_SupportedBySetKeyOwner",
+        "ImGuiInputFlags_SupportedBySetItemKeyOwner"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiInputFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiInputFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiInputSource",
+      "native": "ImGuiInputSource",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiInputSource_None",
+        "ImGuiInputSource_Mouse",
+        "ImGuiInputSource_Keyboard",
+        "ImGuiInputSource_Gamepad",
+        "ImGuiInputSource_COUNT"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 1532,
+          "declaration": "ImGuiInputSource                Source;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 2414,
+          "declaration": "ImGuiInputSource        ActiveIdSource;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 2489,
+          "declaration": "ImGuiInputSource        NavInputSource;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 2535,
+          "declaration": "ImGuiInputSource        NavWindowingInputSource;",
+          "role": "native-storage-or-inline-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiInputTextFlagsPrivate",
+      "native": "ImGuiInputTextFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiInputTextFlags_Multiline",
+        "ImGuiInputTextFlags_MergedItem",
+        "ImGuiInputTextFlags_LocalizeDecimalPoint"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiInputTextFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiInputTextFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiItemFlagsPrivate",
+      "native": "ImGuiItemFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiItemFlags_Disabled",
+        "ImGuiItemFlags_ReadOnly",
+        "ImGuiItemFlags_MixedValue",
+        "ImGuiItemFlags_NoWindowHoverableCheck",
+        "ImGuiItemFlags_AllowOverlap",
+        "ImGuiItemFlags_NoNavDisableMouseHover",
+        "ImGuiItemFlags_NoMarkEdited",
+        "ImGuiItemFlags_NoFocus",
+        "ImGuiItemFlags_Inputable",
+        "ImGuiItemFlags_HasSelectionUserData",
+        "ImGuiItemFlags_IsMultiSelect",
+        "ImGuiItemFlags_Default_"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiItemFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiItemFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiNavLayer",
+      "native": "ImGuiNavLayer",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiNavLayer_Main",
+        "ImGuiNavLayer_Menu",
+        "ImGuiNavLayer_COUNT"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 2479,
+          "declaration": "ImGuiNavLayer           NavLayer;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 2752,
+          "declaration": "ImGuiNavLayer           NavLayerCurrent;",
+          "role": "native-storage-or-inline-declaration"
+        },
+        {
+          "source": "imgui_internal.h",
+          "line": 3525,
+          "declaration": "IMGUI_API void          SetNavID(ImGuiID id, ImGuiNavLayer nav_layer, ImGuiID focus_scope_id, const ImRect& rect_rel);",
+          "role": "native-api-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiPlotType",
+      "native": "ImGuiPlotType",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiPlotType_Lines",
+        "ImGuiPlotType_Histogram"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 3909,
+          "declaration": "IMGUI_API int           PlotEx(ImGuiPlotType plot_type, const char* label, float (*values_getter)(void* data, int idx), void* data, int values_count, int values_offset, const char* overlay_text, float scale_min, float scale_max, const ImVec2& size_arg);",
+          "role": "native-api-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiPopupPositionPolicy",
+      "native": "ImGuiPopupPositionPolicy",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiPopupPositionPolicy_Default",
+        "ImGuiPopupPositionPolicy_ComboBox",
+        "ImGuiPopupPositionPolicy_Tooltip"
+      ],
+      "nativeDeclarationReferences": [
+        {
+          "source": "imgui_internal.h",
+          "line": 3493,
+          "declaration": "IMGUI_API ImVec2        FindBestWindowPosForPopupEx(const ImVec2& ref_pos, const ImVec2& size, ImGuiDir* last_dir, const ImRect& r_outer, const ImRect& r_avoid, ImGuiPopupPositionPolicy policy);",
+          "role": "native-api-declaration"
+        }
+      ],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "Actual enum type used in native field and/or API declarations listed here; independently measured per-member decltype widths/signedness retained."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiSelectableFlagsPrivate",
+      "native": "ImGuiSelectableFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiSelectableFlags_NoHoldingActiveID",
+        "ImGuiSelectableFlags_SelectOnNav",
+        "ImGuiSelectableFlags_SelectOnClick",
+        "ImGuiSelectableFlags_SelectOnRelease",
+        "ImGuiSelectableFlags_SpanAvailWidth",
+        "ImGuiSelectableFlags_SetNavIdOnHover",
+        "ImGuiSelectableFlags_NoPadWithHalfSpacing",
+        "ImGuiSelectableFlags_NoSetKeyOwner"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiSelectableFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiSelectableFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiSliderFlagsPrivate",
+      "native": "ImGuiSliderFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiSliderFlags_Vertical",
+        "ImGuiSliderFlags_ReadOnly"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiSliderFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiSliderFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiTabBarFlagsPrivate",
+      "native": "ImGuiTabBarFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiTabBarFlags_DockNode",
+        "ImGuiTabBarFlags_IsFocused",
+        "ImGuiTabBarFlags_SaveSettings"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiTabBarFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiTabBarFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiTabItemFlagsPrivate",
+      "native": "ImGuiTabItemFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiTabItemFlags_SectionMask_",
+        "ImGuiTabItemFlags_NoCloseButton",
+        "ImGuiTabItemFlags_Button",
+        "ImGuiTabItemFlags_Invisible",
+        "ImGuiTabItemFlags_Unsorted"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiTabItemFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiTabItemFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiTreeNodeFlagsPrivate",
+      "native": "ImGuiTreeNodeFlagsPrivate_",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiTreeNodeFlags_NoNavFocus",
+        "ImGuiTreeNodeFlags_ClipLabelForTrailingButton",
+        "ImGuiTreeNodeFlags_UpsideDownArrow",
+        "ImGuiTreeNodeFlags_OpenOnMask_",
+        "ImGuiTreeNodeFlags_DrawLinesMask_"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "storageAlias": "ImGuiTreeNodeFlags",
+      "storageAliasDeclaration": {
+        "source": "imgui.h",
+        "declaration": "typedef int ImGuiTreeNodeFlags;"
+      },
+      "usage": "Private enum supplies constants for signed int typedef; actual member decltype measurements remain signed where declared as that typedef."
+    },
+    {
+      "type": "Brutal.ImGui::Brutal.ImGuiApi.Internal.ImGuiWindowDockStyleCol",
+      "native": "ImGuiWindowDockStyleCol",
+      "managedSigned": true,
+      "nativeSigned": false,
+      "nativeConstants": [
+        "ImGuiWindowDockStyleCol_Text",
+        "ImGuiWindowDockStyleCol_TabHovered",
+        "ImGuiWindowDockStyleCol_TabFocused",
+        "ImGuiWindowDockStyleCol_TabSelected",
+        "ImGuiWindowDockStyleCol_TabSelectedOverline",
+        "ImGuiWindowDockStyleCol_TabDimmed",
+        "ImGuiWindowDockStyleCol_TabDimmedSelected",
+        "ImGuiWindowDockStyleCol_TabDimmedSelectedOverline",
+        "ImGuiWindowDockStyleCol_COUNT"
+      ],
+      "nativeDeclarationReferences": [],
+      "status": "domain-and-transport-qualification-pending",
+      "declarationSource": "imgui_internal.h",
+      "usage": "constant/index declaration; no mapped member/import has this exact native type"
+    }
+  ]
+}

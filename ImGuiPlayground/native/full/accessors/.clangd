@@ -1,0 +1,4 @@
+# Component-local editor provenance; explicit fix-final-build compilation database.
+# This is not a production/toolchain configuration or a pristine-header fallback.
+CompileFlags:
+  CompilationDatabase: ../../../.tmp/native/accessors/fix-final-build

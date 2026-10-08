@@ -1,0 +1,60 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Brutal;
+using Brutal.ImGuiApi;
+using Brutal.Numerics;
+
+internal static class Harness
+{
+    private static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+    private static int Main(string[] args)
+    {
+        var report = new Dictionary<string, object>();
+        nint handle = 0;
+        try
+        {
+            using var pins = JsonDocument.Parse(File.ReadAllText(args[1]));
+            var identities = new List<object>();
+            foreach (Assembly assembly in new[] { typeof(ImGui).Assembly, typeof(Bool8).Assembly, typeof(float2).Assembly })
+            {
+                string name = assembly.GetName().Name!;
+                var pin = pins.RootElement.GetProperty("assemblies").GetProperty(name);
+                string hash = Hash(assembly.Location);
+                string mvid = assembly.ManifestModule.ModuleVersionId.ToString();
+                if (hash != pin.GetProperty("sha256").GetString() || mvid != pin.GetProperty("moduleMvid").GetString() || Path.GetDirectoryName(assembly.Location) != AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))
+                    throw new InvalidOperationException("Loaded ABI contributor identity/location mismatch: " + name);
+                identities.Add(new { name, hash, mvid, location = assembly.Location });
+            }
+            report["loadedAbiContributors"] = identities;
+            if (Hash(args[0]) != pins.RootElement.GetProperty("nativeSha256").GetString())
+                throw new InvalidOperationException("Native staged artifact hash mismatch");
+            handle = NativeLibrary.Load(Path.GetFullPath(args[0]));
+            NativeLibrary.SetDllImportResolver(typeof(ImGui).Assembly, (name, _, _) => name == "imgui" ? handle : 0);
+            report["profileShapes"] = FullProfileAbiChecks.Run(handle);
+            report["actualEnumImports"] = FullEnumAbiChecks.Run(handle);
+            if (Hash(args[3]) != pins.RootElement.GetProperty("matrixSha256").GetString())
+                throw new InvalidOperationException("Staged enum matrix hash mismatch");
+            string matrix = File.ReadAllText(args[3]);
+            report["typedEnumAndBackingCalls"] = FullEnumAbiChecks.RunMatrix(handle, matrix);
+            report["matrixNegatives"] = FullEnumAbiChecks.RunMatrixNegatives(handle, matrix);
+            report["status"] = "passed";
+            report["runtime"] = RuntimeInformation.RuntimeIdentifier;
+            report["fullQualification"] = false;
+            return 0;
+        }
+        catch (Exception error)
+        {
+            report["status"] = "failed";
+            report["failure"] = error.ToString();
+            Console.Error.WriteLine(error);
+            return 1;
+        }
+        finally
+        {
+            if (handle != 0) NativeLibrary.Free(handle);
+            File.WriteAllText(args[2], JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        }
+    }
+}

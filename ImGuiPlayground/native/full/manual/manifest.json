@@ -1,0 +1,3217 @@
+{
+  "schema": "purr.manual.contract.v1",
+  "inputContractSha256": "20e417b6312f8d28ba282bd0dc641e7b2dbea4b5d378b40c42a50c390b0af89e",
+  "portableContractSha256": "3e3cd8793d90fcfd351ef14c9179446d56ec27c859fda78027a54c96804330eb",
+  "imports": [
+    {
+      "name": "BulletText",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "BulletText",
+        "metadataToken": 100667564,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "BulletText"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "BulletText",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void BulletText(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "DebugLog",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "DebugLog",
+        "metadataToken": 100667590,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "DebugLog"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "DebugLog",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void DebugLog(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "LabelText",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "LabelText",
+        "metadataToken": 100667943,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "LabelText"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "label",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "LabelText",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void LabelText(const char* label, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "LogText",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "LogText",
+        "metadataToken": 100667950,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "LogText"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "LogText",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void LogText(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "SetItemTooltip",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "SetItemTooltip",
+        "metadataToken": 100668017,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "SetItemTooltip"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "SetItemTooltip",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void SetItemTooltip(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "SetTooltip",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "SetTooltip",
+        "metadataToken": 100668048,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "SetTooltip"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "SetTooltip",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void SetTooltip(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "Text",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "Text",
+        "metadataToken": 100668101,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "Text"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "Text",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void Text(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TextColored",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TextColored",
+        "metadataToken": 100668102,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TextColored"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "col",
+            "type": "Brutal.Core.Numerics::Brutal.Numerics.float4*",
+            "signatureShape": {
+              "type": "Brutal.Core.Numerics::Brutal.Numerics.float4*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "Brutal.Core.Numerics::Brutal.Numerics.float4",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TextColored",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void TextColored(const PurrVec4* col, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TextDisabled",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TextDisabled",
+        "metadataToken": 100668103,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TextDisabled"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TextDisabled",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void TextDisabled(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TextWrapped",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TextWrapped",
+        "metadataToken": 100668108,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TextWrapped"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TextWrapped",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void TextWrapped(const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TreeNode_1",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TreeNode_1",
+        "metadataToken": 100668110,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TreeNode_1"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "Brutal.Core.Common::Brutal.Bool8",
+          "signatureShape": {
+            "type": "Brutal.Core.Common::Brutal.Bool8",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "str_id",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TreeNode_1",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API uint8_t TreeNode_1(const char* str_id, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TreeNode_2",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TreeNode_2",
+        "metadataToken": 100668111,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TreeNode_2"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "Brutal.Core.Common::Brutal.Bool8",
+          "signatureShape": {
+            "type": "Brutal.Core.Common::Brutal.Bool8",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "ptr_id",
+            "type": "System.Private.CoreLib::System.Void*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Void*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Void",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TreeNode_2",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API uint8_t TreeNode_2(const void* ptr_id, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TreeNodeEx_1",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TreeNodeEx_1",
+        "metadataToken": 100668113,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TreeNodeEx_1"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "Brutal.Core.Common::Brutal.Bool8",
+          "signatureShape": {
+            "type": "Brutal.Core.Common::Brutal.Bool8",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "str_id",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "flags",
+            "type": "Brutal.ImGui::Brutal.ImGuiApi.ImGuiTreeNodeFlags",
+            "signatureShape": {
+              "type": "Brutal.ImGui::Brutal.ImGuiApi.ImGuiTreeNodeFlags",
+              "requiredModifiers": [],
+              "optionalModifiers": []
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 2,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TreeNodeEx_1",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API uint8_t TreeNodeEx_1(const char* str_id, int32_t flags, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TreeNodeEx_2",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TreeNodeEx_2",
+        "metadataToken": 100668114,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TreeNodeEx_2"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "Brutal.Core.Common::Brutal.Bool8",
+          "signatureShape": {
+            "type": "Brutal.Core.Common::Brutal.Bool8",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "ptr_id",
+            "type": "System.Private.CoreLib::System.Void*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Void*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Void",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "flags",
+            "type": "Brutal.ImGui::Brutal.ImGuiApi.ImGuiTreeNodeFlags",
+            "signatureShape": {
+              "type": "Brutal.ImGui::Brutal.ImGuiApi.ImGuiTreeNodeFlags",
+              "requiredModifiers": [],
+              "optionalModifiers": []
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 2,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TreeNodeEx_2",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API uint8_t TreeNodeEx_2(const void* ptr_id, int32_t flags, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TextAligned_internal",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.Internal.PInvoke",
+        "name": "TextAligned_internal",
+        "metadataToken": 100665817,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TextAligned_internal"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "align_x",
+            "type": "System.Private.CoreLib::System.Single",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Single",
+              "requiredModifiers": [],
+              "optionalModifiers": []
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "size_x",
+            "type": "System.Private.CoreLib::System.Single",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Single",
+              "requiredModifiers": [],
+              "optionalModifiers": []
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 2,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TextAligned_internal",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void TextAligned_internal(float align_x, float size_x, const char* fmt);",
+      "conversion": "Direct compiler-typed native printf call with zero ellipsis operands; Bool8 return canonical 0/1 for trees; TextColored uses PurrVec4 to ImVec4 fieldwise copy.",
+      "lifetime": "Borrowed NUL-terminated UTF-8 pointers for duration of call; valid zero-extra-operand printf format required. Native ImGui context/frame preconditions unchanged; no retained string."
+    },
+    {
+      "name": "TextV",
+      "managedDeclaration": {
+        "declaringType": "Brutal.ImGui::Brutal.ImGuiApi.ImGui+PInvoke",
+        "name": "TextV",
+        "metadataToken": 100668107,
+        "moduleMvid": "be72af36-f552-460e-ab1c-cc0018ebd574",
+        "methodAttributes": "Public, Static, HideBySig, PinvokeImpl",
+        "implementationAttributes": "PreserveSig",
+        "managedCallingConvention": "Standard",
+        "attributes": [
+          {
+            "type": "System.Runtime.InteropServices.DllImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": [
+              {
+                "name": "BestFitMapping",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "CallingConvention",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CallingConvention, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "CharSet",
+                "isField": true,
+                "value": {
+                  "type": "System.Runtime.InteropServices.CharSet, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "1"
+                }
+              },
+              {
+                "name": "EntryPoint",
+                "isField": true,
+                "value": {
+                  "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": "TextV"
+                }
+              },
+              {
+                "name": "ExactSpelling",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "PreserveSig",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": true
+                }
+              },
+              {
+                "name": "SetLastError",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              },
+              {
+                "name": "ThrowOnUnmappableChar",
+                "isField": true,
+                "value": {
+                  "type": "System.Boolean, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                  "value": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [
+              {
+                "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+                "value": "imgui"
+              }
+            ],
+            "namedArguments": []
+          },
+          {
+            "type": "System.Runtime.InteropServices.PreserveSigAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+            "constructorArguments": [],
+            "namedArguments": []
+          }
+        ],
+        "return": {
+          "position": -1,
+          "name": null,
+          "type": "System.Private.CoreLib::System.Void",
+          "signatureShape": {
+            "type": "System.Private.CoreLib::System.Void",
+            "requiredModifiers": [],
+            "optionalModifiers": []
+          },
+          "parameterAttributes": "None",
+          "isIn": false,
+          "isOut": false,
+          "isOptional": false,
+          "hasDefaultValue": false,
+          "defaultValue": null,
+          "requiredModifiers": [],
+          "optionalModifiers": [],
+          "attributes": []
+        },
+        "parameters": [
+          {
+            "position": 0,
+            "name": "fmt",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          },
+          {
+            "position": 1,
+            "name": "args",
+            "type": "System.Private.CoreLib::System.Byte*",
+            "signatureShape": {
+              "type": "System.Private.CoreLib::System.Byte*",
+              "requiredModifiers": [],
+              "optionalModifiers": [],
+              "element": {
+                "type": "System.Private.CoreLib::System.Byte",
+                "requiredModifiers": [],
+                "optionalModifiers": []
+              }
+            },
+            "parameterAttributes": "None",
+            "isIn": false,
+            "isOut": false,
+            "isOptional": false,
+            "hasDefaultValue": false,
+            "defaultValue": null,
+            "requiredModifiers": [],
+            "optionalModifiers": [],
+            "attributes": []
+          }
+        ],
+        "library": "imgui",
+        "entryPoint": "TextV",
+        "dllImport": {
+          "callingConvention": "Winapi",
+          "charSet": "None",
+          "exactSpelling": true,
+          "setLastError": false,
+          "preserveSig": true,
+          "bestFitMapping": false,
+          "throwOnUnmappableChar": false
+        },
+        "libraryImport": {
+          "type": "System.Runtime.InteropServices.LibraryImportAttribute, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+          "constructorArguments": [
+            {
+              "type": "System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e",
+              "value": "imgui"
+            }
+          ],
+          "namedArguments": []
+        }
+      },
+      "nativeDeclaration": "PURR_API void TextV(const char* fmt, va_list args);",
+      "conversion": "Actual target va_list parameter (array parameter adjustment on Linux); no representation copied, no extra pointer indirection, no guessed layout.",
+      "lifetime": "Borrowed actual va_start/va_copy-created list with live arguments and producer stack; native may consume list. Caller owns va_end and must va_copy before independent reuse. Managed byte* is target adjusted va_list parameter, NOT universally address-of-va_list."
+    }
+  ],
+  "dynamicExports": [
+    {
+      "name": "Platform_GetWindowFramebufferScale_ManagedFunctionPointer",
+      "managedDeclaration": {
+        "name": "Platform_GetWindowFramebufferScale_ManagedFunctionPointer",
+        "kind": "writable-data",
+        "storageBytes": 8,
+        "library": "imgui",
+        "evidence": "reviewed bridge declaration supplement v1",
+        "callback": {
+          "callingConvention": "Cdecl",
+          "returnType": "Brutal.Core.Numerics::Brutal.Numerics.float2",
+          "parameterTypes": [
+            "Brutal.ImGui::Brutal.ImGuiApi.ImGuiViewportPtr"
+          ]
+        },
+        "ownership": "caller keeps callback alive while installed; writable slot lives with native library",
+        "nullCallbackBehavior": "unresolved; not inferred from prototype"
+      },
+      "nativeDeclaration": "PURR_EXPORT extern PurrManagedViewportVector Platform_GetWindowFramebufferScale_ManagedFunctionPointer;",
+      "conversion": "Cdecl PurrVec2(ImGuiViewport*) callback -> fieldwise ImVec2(ImGuiViewport*) native trampoline; getter returns typed address, slot is writable pointer-sized storage.",
+      "lifetime": "Slot/trampoline live with library. Install a live compatible rooted callback before invocation; retain while installed; replace/unregister only after synchronous calls complete on owner UI thread. Empty slot inactive: invocation unsupported, no zero fallback."
+    },
+    {
+      "name": "Get_GetWindowFramebufferScale_InteropPointer",
+      "managedDeclaration": {
+        "name": "Get_GetWindowFramebufferScale_InteropPointer",
+        "kind": "function",
+        "library": "imgui",
+        "evidence": "reviewed bridge declaration supplement v1",
+        "callingConvention": "Cdecl",
+        "returnShape": "pointer-sized native trampoline address",
+        "parameterTypes": [],
+        "nativeTrampolineSignature": "ImVec2(ImGuiViewport*)"
+      },
+      "nativeDeclaration": "PURR_API PurrNativeViewportVector Get_GetWindowFramebufferScale_InteropPointer();",
+      "conversion": "Cdecl PurrVec2(ImGuiViewport*) callback -> fieldwise ImVec2(ImGuiViewport*) native trampoline; getter returns typed address, slot is writable pointer-sized storage.",
+      "lifetime": "Slot/trampoline live with library. Install a live compatible rooted callback before invocation; retain while installed; replace/unregister only after synchronous calls complete on owner UI thread. Empty slot inactive: invocation unsupported, no zero fallback."
+    },
+    {
+      "name": "Platform_GetWindowPos_ManagedFunctionPointer",
+      "managedDeclaration": {
+        "name": "Platform_GetWindowPos_ManagedFunctionPointer",
+        "kind": "writable-data",
+        "storageBytes": 8,
+        "library": "imgui",
+        "evidence": "reviewed bridge declaration supplement v1",
+        "callback": {
+          "callingConvention": "Cdecl",
+          "returnType": "Brutal.Core.Numerics::Brutal.Numerics.float2",
+          "parameterTypes": [
+            "Brutal.ImGui::Brutal.ImGuiApi.ImGuiViewportPtr"
+          ]
+        },
+        "ownership": "caller keeps callback alive while installed; writable slot lives with native library",
+        "nullCallbackBehavior": "unresolved; not inferred from prototype"
+      },
+      "nativeDeclaration": "PURR_EXPORT extern PurrManagedViewportVector Platform_GetWindowPos_ManagedFunctionPointer;",
+      "conversion": "Cdecl PurrVec2(ImGuiViewport*) callback -> fieldwise ImVec2(ImGuiViewport*) native trampoline; getter returns typed address, slot is writable pointer-sized storage.",
+      "lifetime": "Slot/trampoline live with library. Install a live compatible rooted callback before invocation; retain while installed; replace/unregister only after synchronous calls complete on owner UI thread. Empty slot inactive: invocation unsupported, no zero fallback."
+    },
+    {
+      "name": "Get_GetWindowPos_InteropPointer",
+      "managedDeclaration": {
+        "name": "Get_GetWindowPos_InteropPointer",
+        "kind": "function",
+        "library": "imgui",
+        "evidence": "reviewed bridge declaration supplement v1",
+        "callingConvention": "Cdecl",
+        "returnShape": "pointer-sized native trampoline address",
+        "parameterTypes": [],
+        "nativeTrampolineSignature": "ImVec2(ImGuiViewport*)"
+      },
+      "nativeDeclaration": "PURR_API PurrNativeViewportVector Get_GetWindowPos_InteropPointer();",
+      "conversion": "Cdecl PurrVec2(ImGuiViewport*) callback -> fieldwise ImVec2(ImGuiViewport*) native trampoline; getter returns typed address, slot is writable pointer-sized storage.",
+      "lifetime": "Slot/trampoline live with library. Install a live compatible rooted callback before invocation; retain while installed; replace/unregister only after synchronous calls complete on owner UI thread. Empty slot inactive: invocation unsupported, no zero fallback."
+    },
+    {
+      "name": "Platform_GetWindowSize_ManagedFunctionPointer",
+      "managedDeclaration": {
+        "name": "Platform_GetWindowSize_ManagedFunctionPointer",
+        "kind": "writable-data",
+        "storageBytes": 8,
+        "library": "imgui",
+        "evidence": "reviewed bridge declaration supplement v1",
+        "callback": {
+          "callingConvention": "Cdecl",
+          "returnType": "Brutal.Core.Numerics::Brutal.Numerics.float2",
+          "parameterTypes": [
+            "Brutal.ImGui::Brutal.ImGuiApi.ImGuiViewportPtr"
+          ]
+        },
+        "ownership": "caller keeps callback alive while installed; writable slot lives with native library",
+        "nullCallbackBehavior": "unresolved; not inferred from prototype"
+      },
+      "nativeDeclaration": "PURR_EXPORT extern PurrManagedViewportVector Platform_GetWindowSize_ManagedFunctionPointer;",
+      "conversion": "Cdecl PurrVec2(ImGuiViewport*) callback -> fieldwise ImVec2(ImGuiViewport*) native trampoline; getter returns typed address, slot is writable pointer-sized storage.",
+      "lifetime": "Slot/trampoline live with library. Install a live compatible rooted callback before invocation; retain while installed; replace/unregister only after synchronous calls complete on owner UI thread. Empty slot inactive: invocation unsupported, no zero fallback."
+    },
+    {
+      "name": "Get_GetWindowSize_InteropPointer",
+      "managedDeclaration": {
+        "name": "Get_GetWindowSize_InteropPointer",
+        "kind": "function",
+        "library": "imgui",
+        "evidence": "reviewed bridge declaration supplement v1",
+        "callingConvention": "Cdecl",
+        "returnShape": "pointer-sized native trampoline address",
+        "parameterTypes": [],
+        "nativeTrampolineSignature": "ImVec2(ImGuiViewport*)"
+      },
+      "nativeDeclaration": "PURR_API PurrNativeViewportVector Get_GetWindowSize_InteropPointer();",
+      "conversion": "Cdecl PurrVec2(ImGuiViewport*) callback -> fieldwise ImVec2(ImGuiViewport*) native trampoline; getter returns typed address, slot is writable pointer-sized storage.",
+      "lifetime": "Slot/trampoline live with library. Install a live compatible rooted callback before invocation; retain while installed; replace/unregister only after synchronous calls complete on owner UI thread. Empty slot inactive: invocation unsupported, no zero fallback."
+    }
+  ],
+  "fixtureExports": [
+    {
+      "name": "purr_manual_fixture_create",
+      "declaration": "PURR_API ImGuiContext* purr_manual_fixture_create();",
+      "production": false
+    },
+    {
+      "name": "purr_manual_fixture_destroy",
+      "declaration": "PURR_API void purr_manual_fixture_destroy(ImGuiContext*);",
+      "production": false
+    },
+    {
+      "name": "purr_manual_fixture_formats",
+      "declaration": "PURR_API const char* purr_manual_fixture_formats(PurrFormatExercise);",
+      "production": false
+    },
+    {
+      "name": "purr_manual_fixture_textv",
+      "declaration": "PURR_API const char* purr_manual_fixture_textv(PurrTextVExercise);",
+      "production": false
+    },
+    {
+      "name": "purr_manual_fixture_viewport",
+      "declaration": "PURR_API ImGuiViewport* purr_manual_fixture_viewport();",
+      "production": false
+    },
+    {
+      "name": "purr_manual_fixture_invoke",
+      "declaration": "PURR_API PurrVec2 purr_manual_fixture_invoke(PurrNativeViewportVector, ImGuiViewport*);",
+      "production": false
+    }
+  ],
+  "sourceSha256": {
+    "manual.cpp": "87156634e601d9104192e61b3b2245943912ac4fa0b9aa7275c17713a5053f5d",
+    "manual.h": "7210bb0635725c8aeea9dab7b86bcd4e5c769faad8adfde8108479220004f3aa",
+    "fixture.cpp": "6e233861592a7f23f8a45600c9139f3f922a8fca3b1e5d77cd81194c6d748083",
+    "fixture.h": "d249a391f9cdcc2847ce7bbcf2922dca23a187c2ccda58c204f6d8bc8f260c9c",
+    "native_test.cpp": "5fef79e4c995c376983cba08bc928b3c9f43da82dcfd694048b326fea4588180",
+    "../../../../ImGuiPlayground.Checks/FullManualAbiChecks.cs": "a16c9da40db8e1c52083fc855b1078d2651a1f52e4402c495581aa61a04c671b",
+    "../api/purr_abi.h": "6c60f44ffa145f80033bd1fe9ee9444949f1d1faddf9e3e6888d11f2b5b44529",
+    "abi_proof.cpp": "169a5d43178bf96cf9e1ec946b41238c8776de9e52f05115d21e0cacbdd77927"
+  },
+  "targets": {
+    "osx-arm64": {
+      "vaList": "compiler __builtin_va_list: char*; parameter passed as pointer value",
+      "runtime": "macOS gate"
+    },
+    "linux-x64": {
+      "vaList": "compiler __builtin_va_list: __va_list_tag[1]; function parameter adjusted to __va_list_tag*",
+      "runtime": "not executed"
+    },
+    "win-x64": {
+      "vaList": "compiler __builtin_va_list: char*; parameter passed as pointer value",
+      "runtime": "not executed"
+    }
+  },
+  "provenance": {
+    "sourceCommit": "031a18c417158427217bc5890e0ec0cb7e7b4b63",
+    "archiveSha256": "2d1c175790496529ed8e90e0fba5b9dc852769f959edb9ef145e8f82d4dcc3be",
+    "nativeDeclarations": [
+      "imgui.h",
+      "imgui_internal.h"
+    ],
+    "managedDeclarations": [
+      {
+        "path": "Brutal.ImGuiApi/ImGui.cs",
+        "sha256": "cfeb76d262532a65e0abde322b3779e2b3c7b3198689311569711532612b21ed"
+      },
+      {
+        "path": "Brutal.ImGuiApi/Interop.cs",
+        "sha256": "b06935f27212a27f6a099d13f09cdf4c9f014c8908ef8624d6e83b15875a0cc4"
+      },
+      {
+        "path": "Brutal.ImGuiApi.Internal/PInvoke.cs",
+        "sha256": "818c2f2a879d926f14027b06a29150571f77a9da97480b93fc0278110a5471ca"
+      },
+      {
+        "path": "Brutal.ImGuiApi/ImGuiViewportPtr.cs",
+        "sha256": "b552d09fe5529eaf264a1ad2f0787df612eec215517eb722087866dd53b21992"
+      }
+    ]
+  }
+}

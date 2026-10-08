@@ -1,0 +1,5 @@
+{
+  "path": "imgui_internal.h",
+  "old": "    ImGuiDataAuthority      AuthorityForViewport    :3;\n",
+  "new": "    ImGuiDataAuthority      AuthorityForViewport    :3;\n    unsigned int                                   :0; // Owned ABI allocation boundary; authorities remain packed.\n"
+}

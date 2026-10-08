@@ -110,6 +110,20 @@ dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v qui
 Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sleeps** — see
 [docs/build-and-test.md](docs/build-and-test.md) for the full rules.
 
+## Standalone ImGui playground
+
+`ImGuiPlayground/` and `ImGuiPlayground.Checks/` are independently extractable sibling
+projects, separate from the terminal backend/frontend and mod deployment. They use the real
+external BRUTAL assemblies with GLFW/OpenGL, without launching KSA. Their own build settings
+require explicit `KSAFolder` or `KSA_DLL_DIR`; do not apply the mod's installation fallbacks.
+Ordinary .NET builds use shipped native assets and never invoke native compilation.
+`ImGuiPlayground/native/full/` contains opt-in full-API generation, layout/accessor checks,
+combined native builds and independently anchored portable qualification. Automated macOS
+runtime/render/input/capture gates have passed; Windows/Linux execution remains user-owned
+and pending. Source integration does **not** promote source-built libraries into `runtimes/`.
+See [ImGuiPlayground/README.md](ImGuiPlayground/README.md) and
+[ImGuiPlayground/VALIDATE_PLATFORMS.md](ImGuiPlayground/VALIDATE_PLATFORMS.md).
+
 ## Documentation
 
 | File | Contents |

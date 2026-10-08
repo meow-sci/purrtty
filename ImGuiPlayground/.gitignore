@@ -4,3 +4,5 @@ obj/
 imgui.ini
 *.log
 .DS_Store
+__pycache__/
+*.py[cod]
