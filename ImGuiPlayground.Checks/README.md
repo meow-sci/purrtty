@@ -36,7 +36,11 @@ build all passed. Rebuild through one of those paths if affected; do not hand-ed
 The default checks need a graphical session/OpenGL driver and run on `Main`, not NUnit
 worker threads (macOS GLFW requires the main thread). They cover deterministic pixel
 regions/orientation/scissors, large meshes, PNG round-trip, font selection/texture updates,
-callback state reset, keyboard/character fidelity and callback-failure/repeated-run recovery.
+callback state reset, keyboard/character/cursor fidelity and callback-failure/repeated-run recovery.
+`InteropChecks` also checks logical display/framebuffer/mouse mapping at Windows 100–300%
+(including 250% and returning to 100%), independent axes, invalid-scale fallback, and unchanged
+Retina behavior. The installed native cursor callback is exercised at the current host's scale;
+these arithmetic cases do not emulate Windows DPI-change messages or certify monitor moves.
 They are quiet on success, fail with a nonzero exit code, and never use fixed sleeps.
 
 ## Focused widget gallery checks

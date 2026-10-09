@@ -17,6 +17,7 @@ public static class PlaygroundHost
 
     /// <summary>
     /// Renders three frames in an invisible window and reads its framebuffer, without desktop screenshots.
+    /// Width/height are logical UI units; returned dimensions are physical framebuffer pixels.
     /// Still requires a graphical session/OpenGL driver (Linux CI can use Xvfb + Mesa).
     /// </summary>
     public static CapturedFrame Capture(Action drawUi, int width = 800, int height = 500) =>
@@ -56,6 +57,9 @@ public static class PlaygroundHost
             Glfw.WindowHint(GlfwWindowHint.OpenGlProfile, Glfw.Constants.GLFW_OPENGL_CORE_PROFILE);
             Glfw.WindowHint(GlfwWindowHint.OpenGlForwardCompat, 1);
             Glfw.WindowHint(GlfwWindowHint.Visible, capture ? 0 : 1);
+            // Windows uses pixel window coordinates: preserve the requested logical size
+            // at startup and when moving between monitors. macOS already does this itself.
+            if (OperatingSystem.IsWindows()) Glfw.WindowHint(GlfwWindowHint.ScaleToMonitor, 1);
             window = Glfw.CreateWindow(new GlfwWindow.CreateInfo { Title = "ImGui Playground", Size = new int2(width, height) });
             window.MakeContextCurrent();
             Glfw.SwapInterval(smokeTest ? 0 : 1);

@@ -179,6 +179,16 @@ and publish output and loaded at **18 logical pixels**; the Linux game folder is
 needed at runtime. This matches the font face, not the entire game theme or DPI setup.
 No `imgui.ini` or log file is written.
 
+**Display scaling:** on Windows, GLFW's per-window content scale converts window size and
+mouse positions from physical pixels to logical UI units. `ScaleToMonitor` keeps the native
+window sized accordingly at startup and on monitor/DPI changes. At 250%, an 800×500 logical
+window therefore requests a 2000×1250 client area; fonts, spacing, fixed-size widgets and hit
+testing share the same scale. macOS keeps its existing logical-window/Retina-framebuffer
+mapping (no extra content-scale multiplier), and Linux behavior is unchanged. No font/style
+multipliers are accumulated. Verify the Windows fix on a real 250% display, including moving
+between differently scaled monitors; cross-platform arithmetic checks are not Windows desktop
+execution.
+
 `PlaygroundHost.Run(Action drawUi)` is the future library-extraction boundary,
 **not yet a packaged library**. Call synchronously from `Main`, not `Task.Run` or
 an async continuation. It owns the current ImGui/GLFW/OpenGL contexts and ImGui's
@@ -209,8 +219,9 @@ frame.SavePng("artifacts/my-ui.png");
 // Assert regions/colors or compare a baseline using frame.Width/Height and pixels.
 ```
 
-Requested width/height are **window coordinates**; returned dimensions are **physical
-framebuffer pixels** (800×500 yielded 1600×1000 on the tested Retina display). Pin DPI,
+Requested width/height are **logical UI units**; returned dimensions are **physical
+framebuffer pixels** (800×500 yielded 1600×1000 on the tested Retina display; Windows at 250%
+should yield 2000×1250). Pin DPI,
 fonts, theme, timing and driver for stable image comparisons; identical pixels across
 OS/driver combinations are not promised. This API does not yet provide scripted input
 or a configurable capture frame/time.
@@ -232,7 +243,8 @@ completion and checks GL errors on each frame. Capture uses the same checks plus
 synchronous framebuffer readback. Neither alone proves the intended widgets/pixels;
 the optional checks executable asserts image regions/orientation, PNG encoding,
 default font selection/texture updates, draw-callback state reset, key translation,
-character callback fidelity, and callback-failure recovery on the main thread. Checks
+character/cursor callback fidelity, DPI coordinate mapping (including Windows 250% and
+unchanged Retina behavior), and callback-failure recovery on the main thread. Checks
 are quiet on pass, have no fixed sleeps, and need the same native/desktop dependencies.
 The separate `--packaging` checks locate the sibling source project without assuming a
 particular working directory and run without opening a window:

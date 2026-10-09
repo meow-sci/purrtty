@@ -17,6 +17,10 @@ internal sealed unsafe class GlfwInput : IDisposable
     private nint _clipboard;
     private ExceptionDispatchInfo? _callbackFailure;
     private double _previousTime;
+    private float2 _coordinateScale = new(1, 1);
+    private bool _hasMousePosition;
+
+    private float2 CoordinateScale => GetCoordinateScale(OperatingSystem.IsWindows(), _window.ContentScale);
 
     internal GlfwInput(GlfwWindow window)
     {
@@ -43,13 +47,43 @@ internal sealed unsafe class GlfwInput : IDisposable
     internal void NewFrame()
     {
         ThrowIfCallbackFailed();
-        var size = _window.Size;
-        var pixels = _window.FramebufferSize;
-        _io.DisplaySize = new float2(size.X, size.Y);
-        _io.DisplayFramebufferScale = new float2((float)pixels.X / size.X, (float)pixels.Y / size.Y);
+        var scale = CoordinateScale;
+        if (_coordinateScale != scale)
+        {
+            _coordinateScale = scale;
+            // A DPI change can occur without mouse motion. Requery the position after
+            // the OS resizes/repositions the window; do not revive a cursor-leave sentinel.
+            if (_hasMousePosition)
+            {
+                Glfw.PInvoke.GetCursorPos(_window, out var x, out var y);
+                OnCursorPos(_window, new double2(x, y));
+            }
+        }
+        var metrics = GetDisplayMetrics(_window.Size, _window.FramebufferSize, scale);
+        _io.DisplaySize = metrics.DisplaySize;
+        _io.DisplayFramebufferScale = metrics.FramebufferScale;
         double now = Glfw.Time;
         _io.DeltaTime = _previousTime == 0 ? 1f / 60 : (float)Math.Max(now - _previousTime, 0.000001);
         _previousTime = now;
+    }
+
+    // Windows GLFW coordinates are physical pixels even with per-monitor DPI awareness.
+    // Use logical ImGui coordinates (including fixed-size widgets), like macOS already does.
+    // Never apply macOS content scale again: its framebuffer/window ratio handles Retina.
+    internal static float2 GetCoordinateScale(bool isWindows, float2 contentScale) => isWindows
+        ? new float2(ValidScale(contentScale.X), ValidScale(contentScale.Y)) : new float2(1, 1);
+
+    private static float ValidScale(float value) => float.IsFinite(value) && value > 0 ? value : 1;
+
+    internal static float2 ToLogicalPosition(double2 position, float2 scale) =>
+        new((float)(position.X / scale.X), (float)(position.Y / scale.Y));
+
+    // RunCore skips minimized/zero-size windows before calling NewFrame.
+    internal static (float2 DisplaySize, float2 FramebufferScale) GetDisplayMetrics(
+        int2 size, int2 pixels, float2 scale)
+    {
+        var display = ToLogicalPosition(new double2(size.X, size.Y), scale);
+        return (display, new float2(pixels.X / display.X, pixels.Y / display.Y));
     }
 
     internal void ThrowIfCallbackFailed() => _callbackFailure?.Throw();
@@ -103,11 +137,20 @@ internal sealed unsafe class GlfwInput : IDisposable
         catch (Exception error) { _callbackFailure = ExceptionDispatchInfo.Capture(error); }
     }
     private void OnScroll(GlfwWindow window, double2 offset) => _io.AddMouseWheelEvent((float)offset.X, (float)offset.Y);
-    private void OnCursorPos(GlfwWindow window, double2 position) => _io.AddMousePosEvent((float)position.X, (float)position.Y);
+    private void OnCursorPos(GlfwWindow window, double2 position)
+    {
+        _hasMousePosition = true;
+        var logical = ToLogicalPosition(position, CoordinateScale);
+        _io.AddMousePosEvent(logical.X, logical.Y);
+    }
     private void OnCursorEnter(GlfwWindow window, bool entered)
     {
         if (entered) OnCursorPos(window, window.CursorPos);
-        else _io.AddMousePosEvent(-float.MaxValue, -float.MaxValue);
+        else
+        {
+            _hasMousePosition = false;
+            _io.AddMousePosEvent(-float.MaxValue, -float.MaxValue);
+        }
     }
     private void OnFocus(GlfwWindow window, GlfwFocusEvent focus) => _io.AddFocusEvent(focus == GlfwFocusEvent.GainFocus);
     private void OnMouseButton(GlfwWindow window, GlfwMouseButton button, GlfwButtonAction action, GlfwModifier modifiers)

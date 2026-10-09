@@ -117,6 +117,8 @@ projects, separate from the terminal backend/frontend and mod deployment. They u
 external BRUTAL assemblies with GLFW/OpenGL, without launching KSA. Their own build settings
 require explicit `KSAFolder` or `KSA_DLL_DIR`; do not apply the mod's installation fallbacks.
 Ordinary .NET builds use shipped native assets and never invoke native compilation.
+Windows DPI uses `ScaleToMonitor` plus logical display/mouse coordinates in `GlfwInput`;
+macOS retains its existing Retina framebuffer scaling. Do not add a second font/style scale.
 `WidgetGallery.cs` is the local-only camera/parts/tuning UI seam; `--mockup` selects a page
 or the built-in demo, and Checks `--widgets [capture-directory]` performs focused scene/popup
 captures and input assertions. No game connection or new dependency; see the sibling READMEs
