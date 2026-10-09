@@ -117,6 +117,10 @@ projects, separate from the terminal backend/frontend and mod deployment. They u
 external BRUTAL assemblies with GLFW/OpenGL, without launching KSA. Their own build settings
 require explicit `KSAFolder` or `KSA_DLL_DIR`; do not apply the mod's installation fallbacks.
 Ordinary .NET builds use shipped native assets and never invoke native compilation.
+`WidgetGallery.cs` is the local-only camera/parts/tuning UI seam; `--mockup` selects a page
+or the built-in demo, and Checks `--widgets [capture-directory]` performs focused scene/popup
+captures and input assertions. No game connection or new dependency; see the sibling READMEs
+for the small standalone commands (not the full mod/native qualification suites).
 `ImGuiPlayground/native/full/` contains opt-in full-API generation, layout/accessor checks,
 combined native builds and independently anchored portable qualification. Automated macOS
 runtime/render/input/capture gates have passed; Windows/Linux execution remains user-owned

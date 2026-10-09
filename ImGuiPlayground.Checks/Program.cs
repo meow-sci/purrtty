@@ -28,6 +28,11 @@ try
         ImGuiPlayground.Checks.BindingContractExporterChecks.Run(selectedDirectory: args.Length == 2 ? args[1] : null);
         return 0;
     }
+    if (args is ["--widgets"] or ["--widgets", _])
+    {
+        WidgetGalleryChecks.Run(args.Length == 2 ? args[1] : Path.Combine(AppContext.BaseDirectory, "widget-captures"));
+        return 0;
+    }
     if (args is ["--packaging"] or ["--packaging", _])
     {
         PackagingChecks.Run(args.Length == 2 ? args[1] : null);
@@ -38,7 +43,7 @@ try
         PrototypeAbiChecks.Run(args[1], args[2], args[3], args[4], args[5]);
         return 0;
     }
-    if (args.Length != 0) throw new ArgumentException("Usage: ImGuiPlayground.Checks [--combined-components <profile|manual|accessor|composition> <stage-receipt.json> <report.json> | --export-binding-contract <assembly-directory> <output.json> | --binding-contract-self-test [assembly-directory] | --packaging [path/to/ImGuiPlayground.csproj] | --prototype-abi <native-library> <metadata-dir> <report-path> <target-rid> <managed-sha256>]");
+    if (args.Length != 0) throw new ArgumentException("Usage: ImGuiPlayground.Checks [--widgets [capture-directory] | --combined-components <profile|manual|accessor|composition> <stage-receipt.json> <report.json> | --export-binding-contract <assembly-directory> <output.json> | --binding-contract-self-test [assembly-directory] | --packaging [path/to/ImGuiPlayground.csproj] | --prototype-abi <native-library> <metadata-dir> <report-path> <target-rid> <managed-sha256>]");
     int frames = 0;
     try
     {

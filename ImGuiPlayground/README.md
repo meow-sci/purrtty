@@ -1,7 +1,9 @@
 # ImGui Playground
 
 A standalone **.NET 10 / C#** host for iterating on KSA-compatible ImGui UI without
-launching Kitten Space Agency. The initial window displays **Hello world!**
+launching Kitten Space Agency. The default UI is a **local mockup gallery**: camera
+sequencer, parts workshop and tuning panel, plus an opt-in Dear ImGui demo window.
+All data is fake; there is no game connection, persistence, network or new UI dependency.
 
 It uses the actual **`Brutal.ImGui.dll` API and original native ImGui library**,
 plus `Brutal.Glfw.dll` for windowing/input and a small **managed OpenGL renderer**.
@@ -18,10 +20,11 @@ KSA/BRUTAL assemblies remain external. A system graphics driver is still require
 ## Independent project boundary
 
 `ImGuiPlayground/` and its sibling `ImGuiPlayground.Checks/` are a self-contained development
-workspace, temporarily hosted in another repository for convenience. They do not reference
-purrTTY projects, inherit its build settings, participate in its solution/CI/deploy, or use
-its documentation or licenses. Keep both folders side by side when extracting them; no
-files from the enclosing repository are needed.
+workspace hosted in another repository for convenience. They are included in the root
+solution but do not reference purrTTY projects, inherit its build settings or participate
+in mod deployment. They are independently buildable/extractable, with their own documentation
+and licenses. Keep both folders side by side when extracting them; no files from the enclosing
+repository are needed.
 
 - `ImGuiPlayground.slnx` contains only the host and companion checks.
 - Local `Directory.Build.props` files own .NET/C# settings and managed assembly resolution.
@@ -118,7 +121,9 @@ dotnet run --project ImGuiPlayground.csproj
 dotnet run --project ImGuiPlayground.csproj --no-build  # after a build
 ```
 
-Edit **`Program.DrawHelloWorld()`**. These are ordinary KSA mod UI calls:
+Edit **`WidgetGallery.cs`** to iterate on the fake-data pages; **`Program.cs`** selects a
+scene and passes one gallery instance's `Draw` callback to the host. These are ordinary
+KSA-compatible BRUTAL UI calls:
 
 ```csharp
 using Brutal.ImGuiApi;
@@ -133,6 +138,38 @@ try
 }
 finally { ImGui.End(); }
 ```
+
+### Gallery pages and widget coverage
+
+- **Camera sequencer:** working play/pause/rewind, disabled buttons, looping/progress/scrubbing,
+  selectable keyframes in a list box, name and multiline notes, duration drag, easing combo,
+  camera-mode radio buttons and an expanded summary tree.
+- **Parts workshop:** live name/category filter, warnings checkbox, scrolling table with status
+  colors, selectable rows/right-click context menu, editable stock, details tree, collapsing log
+  and a reload confirmation modal that resets fake stock/warnings.
+- **Tuning panel:** resettable drag/slider/numeric fields, normalization checkbox, built-in line
+  and histogram plots, color editor and popup color picker; edits update synthetic previews.
+- Tabs and scrolling children fit the default **800×500 logical viewport**. The Gallery/Help
+  menus expose actions and guidance; hover controls for tooltips. **Show ImGui demo** opens the
+  wider built-in catalog on demand, not an exhaustive test/compatibility claim.
+
+These are original small mockups inspired only by UI patterns in the read-only `unscience`
+repository: `camera-controller-override.lib/UI/KeyframeSequencePanel.cs`,
+`parts-now.lib/Ui/ResultsPanel.cs` and `kitten-animations.lib/Ui/TuningSection.cs`.
+No code/project/game-service dependency is introduced; part thumbnails are replaced by local data.
+Owned byte arrays back text inputs. The selected BRUTAL `ImGui.Text` overload calls native
+`TextUnformatted`, so dynamic/user text (including literal percent signs) is not a printf format.
+
+```bash
+dotnet run --project ImGuiPlayground.csproj -- --mockup parts
+dotnet run --project ImGuiPlayground.csproj -- --mockup tuning --smoke-test
+dotnet run --project ImGuiPlayground.csproj -- --mockup demo --capture .tmp/widgets/demo.png
+```
+
+`--mockup camera|parts|tuning|demo` can precede or follow `--smoke-test` or `--capture <file>`.
+Without selection, existing smoke/capture commands render the camera page. `demo` directly
+renders the built-in demo without a gallery window underneath it. Close that demo to return to
+the gallery in an interactive run.
 
 Close the native window to quit. Keyboard navigation, Unicode character input,
 mouse buttons/motion/wheel/focus, and clipboard use the managed platform adapter.
@@ -152,7 +189,7 @@ BRUTAL's frame-scoped UTF-8 string storage resets each frame.
 ## Capture rendered pixels — no OS screenshots
 
 ```bash
-dotnet run --project ImGuiPlayground.csproj -- --capture .tmp/hello.png
+dotnet run --project ImGuiPlayground.csproj -- --capture .tmp/widgets/camera.png
 ```
 
 This renders three nonempty frames in an **invisible GLFW window**, reads the back
@@ -184,6 +221,8 @@ or a configurable capture frame/time.
 dotnet build ImGuiPlayground.slnx --nologo -v quiet
 dotnet run --project ImGuiPlayground.csproj --no-build -- --smoke-test
 dotnet run --project ../ImGuiPlayground.Checks -v quiet
+# Focused gallery scenes/input checks; retains PNGs:
+dotnet run --project ../ImGuiPlayground.Checks --no-build -- --widgets .tmp/widgets
 # No desktop required; cross-publishes/checks all three RIDs:
 dotnet run --project ../ImGuiPlayground.Checks -- --packaging
 ```
@@ -201,7 +240,12 @@ all three RID outputs, per-file hashes/architectures, unsupported-RID rejection,
 mismatch rejection and replacement of stale native files with newer timestamps.
 Also manually verify input, resizing, minimize/restore and closing on each platform.
 
-Checks belong only to the standalone solution. See [the checks README](../ImGuiPlayground.Checks/README.md)
+`--widgets` renders all three pages and the demo, asserts nonempty geometry/text/colored pixels,
+opens the part tree, reload modal and color picker, and sends real ImGui IO mouse events to
+assert Play and Loop state changes. It retains nine PNGs (including fitted direct/gallery demo
+views and settled PLAYING state) for visual review; success is quiet.
+No fixed sleeps or native compilation. This is a representative gallery check, not general UI
+automation or full native qualification. See [the checks README](../ImGuiPlayground.Checks/README.md)
 for execution details and an extraction verification recipe.
 
 ## Experimental native layout/ABI feasibility prototype
@@ -270,7 +314,8 @@ OpenGlRenderer → GL entry points loaded by GLFW → system graphics driver
 CapturedFrame → owned RGBA bytes / PNG via .NET APIs
 ```
 
-- `Program.cs`: hello-world UI callback; the entry point for UI iteration.
+- `Program.cs`: compatible smoke/capture entry point and `--mockup` scene selection.
+- `WidgetGallery.cs`: the single fake-data UI seam, owned input buffers and per-run state.
 - `Directory.Build.props` / `NuGet.Config`: independent build/reference/package settings.
 - `runtimes/NativeLibraries.props`: selected native filenames and SHA-256 pins;
   `runtimes/README.md`: provenance, OS dependencies and upgrade rules.

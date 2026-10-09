@@ -1,6 +1,3 @@
-using Brutal.ImGuiApi;
-using Brutal.Numerics;
-
 namespace ImGuiPlayground;
 
 internal static class Program
@@ -9,22 +6,34 @@ internal static class Program
     {
         if (args is ["--help"])
         {
-            Console.WriteLine("Usage: dotnet run --project ImGuiPlayground [-- --smoke-test | --capture <file.png>]");
+            Console.WriteLine("Usage: dotnet run --project ImGuiPlayground -- [--mockup <camera|parts|tuning|demo>] [--smoke-test | --capture <file.png>]");
             return 0;
         }
 
-        if (args.Length != 0 && args is not ["--smoke-test"] && args is not ["--capture", _])
+        MockupScene scene = MockupScene.Camera;
+        bool selected = false, smokeTest = false;
+        string? capturePath = null;
+        for (int i = 0; i < args.Length; ++i)
         {
-            Console.Error.WriteLine("Unknown arguments. Use --help for usage.");
-            return 2;
+            if (args[i] == "--mockup" && !selected && i + 1 < args.Length)
+            {
+                string name = args[++i];
+                if (name is not ("camera" or "parts" or "tuning" or "demo")) return InvalidArguments();
+                scene = name switch { "parts" => MockupScene.Parts, "tuning" => MockupScene.Tuning, "demo" => MockupScene.Demo, _ => MockupScene.Camera };
+                selected = true;
+            }
+            else if (args[i] == "--smoke-test" && !smokeTest && capturePath is null) smokeTest = true;
+            else if (args[i] == "--capture" && !smokeTest && capturePath is null && i + 1 < args.Length) capturePath = args[++i];
+            else return InvalidArguments();
         }
 
         try
         {
-            if (args is ["--capture", var path])
-                PlaygroundHost.Capture(DrawHelloWorld).SavePng(path);
+            var gallery = new WidgetGallery(scene);
+            if (capturePath is not null)
+                PlaygroundHost.Capture(gallery.Draw).SavePng(capturePath);
             else
-                PlaygroundHost.Run(DrawHelloWorld, smokeTest: args.Length != 0);
+                PlaygroundHost.Run(gallery.Draw, smokeTest);
             return 0;
         }
         catch (Exception exception)
@@ -34,20 +43,9 @@ internal static class Program
         }
     }
 
-    // This is ordinary KSA-compatible BRUTAL UI code. Replace this callback to iterate.
-    private static void DrawHelloWorld()
+    private static int InvalidArguments()
     {
-        ImGui.SetNextWindowPos(new float2(40, 40), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new float2(360, 160), ImGuiCond.FirstUseEver);
-        bool visible = ImGui.Begin("ImGui Playground"u8);
-        try
-        {
-            if (visible)
-                ImGui.Text("Hello world!"u8);
-        }
-        finally
-        {
-            ImGui.End();
-        }
+        Console.Error.WriteLine("Unknown arguments. Use --help for usage.");
+        return 2;
     }
 }

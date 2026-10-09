@@ -13,6 +13,8 @@ Run these commands from this `ImGuiPlayground.Checks/` folder with the .NET 10 S
 ```bash
 export KSA_DLL_DIR="/absolute/path/to/KSA"
 dotnet run -v quiet
+# Gallery-only: graphical session; retain screenshots for review.
+dotnet run -- --widgets ../ImGuiPlayground/.tmp/widgets
 # Packaging-only: no graphical session needed.
 dotnet run -- --packaging
 ```
@@ -36,6 +38,40 @@ worker threads (macOS GLFW requires the main thread). They cover deterministic p
 regions/orientation/scissors, large meshes, PNG round-trip, font selection/texture updates,
 callback state reset, keyboard/character fidelity and callback-failure/repeated-run recovery.
 They are quiet on success, fail with a nonzero exit code, and never use fixed sleeps.
+
+## Focused widget gallery checks
+
+`--widgets [capture-directory]` uses the ordinary shipped-native host. It renders camera,
+parts, tuning and the built-in demo at the default 800×500 logical size, plus the expanded
+selected-part tree, reload modal and color picker popup. The host requires nonempty geometry
+and checks GL errors; the fixture also requires bright text/colored pixels and different scene
+images. Actual ImGui IO mouse press/release events assert that **Play** starts playback and
+**Loop** toggles fake state. After the genuine Play click assertion, a separate capture of the
+same fake model saves the settled PLAYING label (the label is submitted before the button).
+Direct and gallery-opened demo captures check public window bounds and left/central content;
+the latter uses an internal request seam, not an assertion of checkbox/menu input.
+Success is quiet, with no sleeps or UI automation dependency.
+
+Nine screenshots are retained: `camera.png`, `parts.png`, `tuning.png`, `demo.png`,
+`parts-modal.png`, `tuning-picker.png`, `camera-play.png`, `camera-loop.png`, `demo-gallery.png`.
+Without an explicit directory they are saved in `widget-captures/` beside the checks executable.
+This is bounded representative coverage, not exhaustive widget/native qualification or a
+pixel baseline across platforms. Menus/context actions, text editing, modal confirmation,
+scrolling, numeric edits and color changes are also useful manual review cases.
+
+Exact small handoff from the enclosing repository root:
+
+```bash
+export KSA_DLL_DIR="/Users/asherwin/repos/meow-sci/ksa-game-assemblies/current/dll"
+dotnet build ImGuiPlayground/ImGuiPlayground.slnx --nologo -v quiet
+dotnet run --project ImGuiPlayground.Checks --no-build -- --widgets ImGuiPlayground/.tmp/widgets
+# Optional existing renderer/input checks (no native rebuild):
+dotnet run --project ImGuiPlayground.Checks --no-build
+```
+
+Scene-specific CLI captures are documented in the [host README](../ImGuiPlayground/README.md#gallery-pages-and-widget-coverage).
+The gallery uses original local-only mockups inspired by the three `unscience` UI reference
+paths listed there, with no reference-repository build or runtime dependency.
 
 `--packaging` locates the sibling source project relative to the executable, so it does
 not depend on the caller's working directory. When running a copied/published checks
@@ -249,7 +285,7 @@ To verify the workspace remains independent when changing build configuration:
    dotnet build ImGuiPlayground.slnx --nologo -v quiet
    dotnet run --project ../ImGuiPlayground.Checks -- --packaging
    dotnet run --project ../ImGuiPlayground.Checks
-   dotnet run --project ImGuiPlayground.csproj -- --capture .tmp/hello.png
+   dotnet run --project ImGuiPlayground.csproj -- --capture .tmp/widgets/camera.png
    ```
 
 4. Confirm changes remain confined to the standalone folders and no deployment occurs.
@@ -262,6 +298,7 @@ To verify the workspace remains independent when changing build configuration:
 
 - `Program.cs`: main-thread rendering/capture fixtures and assertions.
 - `InteropChecks.cs`: native callback/state-reset and input compatibility fixtures.
+- `WidgetGalleryChecks.cs`: opt-in `--widgets` scene/popup captures and Play/Loop input assertions.
 - `BindingContractExporter.cs`: opt-in complete selected-assembly signature/type/layout metadata
   export; no native initialization or decompilation dependency.
 - `BindingContractExporterChecks.cs`: quiet structural/config/malformed-input fixtures and optional

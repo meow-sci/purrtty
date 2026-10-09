@@ -9,6 +9,7 @@ Start here:
 
 Independent sibling projects, not a replacement terminal renderer or a mod dependency:
 
+- Local-only UI gallery: `ImGuiPlayground/WidgetGallery.cs` (camera sequencer, parts workshop, tuning and optional built-in demo); `Program.cs` selects `--mockup` while preserving smoke/capture commands. `ImGuiPlayground.Checks/WidgetGalleryChecks.cs` provides the focused `--widgets` scene/popup captures and Play/Loop input assertions.
 - Host/render/input/capture: `PlaygroundHost.cs`, `OpenGlRenderer.cs`, `GlfwInput.cs`, `CapturedFrame.cs` in `ImGuiPlayground/`; uses the real external BRUTAL DLLs with GLFW/OpenGL.
 - Configuration and usage: `ImGuiPlayground/README.md`, its local solution/props, and `VALIDATE_PLATFORMS.md`; explicit assembly selection, no game-installation fallback or deployment.
 - Opt-in native tooling: `ImGuiPlayground/native/full/{api,layout,manual,profile,accessors,combined}/`; complete import wrappers, measured layout/enum transport, native-backed helpers and one-core combined artifacts. `NativeFieldAccessors.cs` exposes helpers without repairing unsafe original managed aliases.
