@@ -18,7 +18,8 @@ selected pair before copying; a changed binary requires a deliberate pin update.
 ## Selection and layout
 
 `RuntimeIdentifier` (`dotnet build/publish -r ...`) wins; without one, the SDK host RID
-is used. Supported targets are exactly **osx-arm64, linux-x64, win-x64**. Unsupported
+is used in its portable form (`NETCoreSdkPortableRuntimeIdentifier`), so distro SDKs
+such as Fedora select `linux-x64`. Supported targets are exactly **osx-arm64, linux-x64, win-x64**. Unsupported
 RIDs fail explicitly rather than falling back to the host's binary. Each output contains
 one native pair, flat beside the executable, including when referenced by the checks project.
 

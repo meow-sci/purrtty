@@ -3,9 +3,10 @@
         <OutputType>Exe</OutputType>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
-        <!-- Explicit build/publish RID takes precedence over the SDK host. -->
+        <!-- Explicit build/publish RID takes precedence over the portable SDK host RID.
+             Distro SDKs may report e.g. fedora.44-x64 as NETCoreSdkRuntimeIdentifier. -->
         <PlaygroundNativeRid>$(RuntimeIdentifier)</PlaygroundNativeRid>
-        <PlaygroundNativeRid Condition="'$(PlaygroundNativeRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</PlaygroundNativeRid>
+        <PlaygroundNativeRid Condition="'$(PlaygroundNativeRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</PlaygroundNativeRid>
     </PropertyGroup>
     <Import Project="runtimes/NativeLibraries.props" />
 
