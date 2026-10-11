@@ -51,3 +51,4 @@ Fonts come from https://www.nerdfonts.com/
 Themes come from https://github.com/mbadolato/iTerm2-Color-Schemes
 
 purrTTY is using the alacritty TOML formatted theme files
+
