@@ -18,26 +18,53 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 
 ## CI / releases (`.github/workflows/release.yml`)
 
-Two jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,
+Three jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,
 windows-latest, and macos-14 — each runner loads **its own** vendored native libghostty-vt
 (linux-x64 / win-x64 / osx-arm64), so `RawCellLayout.Validate()` and the per-OS PTY backends get
-real coverage on every platform after a pin bump. Both jobs check out
+real coverage on every platform after a pin bump. The test and build jobs check out
 `meow-sci/ksa-game-assemblies` (private repo holding the KSA DLLs under `current/dll/`; access
 via the `KSA_GAME_ASSEMBLIES_PAT` secret — a read-only fine-grained PAT, same pattern as flexo).
 TRX results are published as per-OS check runs (`dorny/test-reporter`, pinned to the v3 commit
 SHA because it holds `checks: write`) and uploaded as `test-results-<os>` artifacts.
 
-A **build job** (ubuntu, `needs: test`) stamps the `mod.toml` version, builds the Release dist
-via `PURRTTY_DIST_DIR`, zips `purrTTY/`, and publishes a GitHub release. Branch-derived values
-(release name, base version) are validated against `^[0-9A-Za-z._-]+$` and reach run scripts via
-`env:`, never raw `${{ }}` interpolation (injection hardening — the job has `contents: write`):
-- push to `main` → prerelease tagged `tip-<UTC stamp>`, asset `purrTTY-tip-<stamp>.zip`;
-  mod.toml version becomes `<base>-tip.<stamp>`; older tip releases are pruned (keep-count set in the workflow)
-- push to `release/<v>` → release tagged `v<v>`, asset `purrTTY-<v>.zip`, mod.toml version `<v>`;
-  re-pushing the branch deletes and recreates the release + tag (`cancel-in-progress` is disabled
-  on `release/*` refs so a superseding push cannot cancel between release delete and re-create)
-- push to `feature/*`, `fix/*`, `chore/*`, or a PR into `main` → build + tests only (no version
-  stamp, no release)
+A **build job** (ubuntu, `needs: test`) verifies the release policy with
+`python3 scripts/check-release-policy.py`, computes metadata, and builds the Release dist
+via `PURRTTY_DIST_DIR`. Publishing branches also stamp `mod.toml`, zip `purrTTY/`, and
+publish a GitHub release. This follows Unscience's Borea-compatible versioning policy:
+
+- `main` → stable version `1.${GITHUB_RUN_NUMBER}.0`, tag `v<version>`, title
+  `purrTTY <version>`, asset `purrTTY-<version>.zip`, and matching packaged `mod.toml` version.
+- `feature/**` (including nested branches) → the same naming with a `-beta` suffix;
+  marked prerelease and excluded from GitHub's Latest designation.
+- `release/**`, `fix/**`, `chore/**`, and PRs into `main` → tests and build only,
+  without version stamping or publication. Other branches do not trigger push builds.
+- Manual runs publish only when targeting `main` or `feature/**` branches. Tag refs never publish.
+
+`scripts/release-metadata.sh` accepts only branch pushes and manual branch runs for
+publication. It validates the run number as a positive integer; branch names only choose
+the channel and are never included in release names or shell commands. Major stays at `1`,
+patch at `0`, and the existing workflow run counter continues across all branches (gaps are
+expected). Later steps consume metadata via `env:`, never raw shell interpolation.
+
+`scripts/publish-release.sh` targets the tested commit, includes generated notes and the
+installation warning, and preserves an existing release on reruns. Reruns keep their run
+number and version; publication never deletes and recreates a release. A newer run
+supersedes an older run on the same ref.
+
+A **prune job** runs after a successful publishing build. Cleanup is serialized per
+channel without cancelling an in-progress cleanup for another branch. It fetches every
+page of GitHub releases and uses `scripts/release-retention.py` to select stale tags:
+
+- Stable: keep the newest 10 published automated stable releases, counting existing
+  `v1.0.0`, `v1.0.1`, and `v1.1.0` toward that limit. These legacy releases eventually expire.
+- Beta: keep the newest five published beta releases across all feature branches.
+- Order by publication time, then release ID, rather than the target commit's age.
+  Ignore drafts and unrelated release formats. Delete each stale release and its tag.
+  Legacy tips have already been removed; orphan tags are not cleaned up.
+
+Run `python3 scripts/check-release-policy.py` locally to verify metadata, mocked publishing,
+and retention without contacting GitHub. The suite covers pagination, channel isolation,
+legacy stable migration, publication ordering, and rerun behavior.
 
 ## Testing
 

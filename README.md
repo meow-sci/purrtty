@@ -26,6 +26,22 @@ headless backend) and `THIRD-PARTY-NOTICES.md` for licensing.
 Delete the old `purrTTY/` folder from your mods directory first — unzipping over an existing
 install leaves files from the previous version behind.
 
+# Releases
+
+GitHub Actions publishes stable `1.<run number>.0` releases from `main` and
+`1.<run number>.0-beta` prereleases from `feature/**` branches, using the workflow's
+existing run counter. Major is fixed at `1` and patch at `0`. The version matches
+the packaged `mod.toml`, release title, and `purrTTY-<version>.zip` filename; tags
+add a `v` prefix. Reruns preserve an already-published release.
+
+After publication, stable releases retain the newest 10, including the existing
+`v1.0.0`, `v1.0.1`, and `v1.1.0` releases in that pool. All feature branches share
+the newest five beta prereleases. Older releases and their tags are deleted.
+`release/**`, `fix/**`, `chore/**`, and pull requests into `main` run tests and
+build only. Manual runs follow the selected branch's policy; tags never publish.
+See [CI / releases](docs/build-and-test.md#ci--releases-githubworkflowsreleaseyml)
+for details.
+
 # Fonts
 
 Fonts come from https://www.nerdfonts.com/

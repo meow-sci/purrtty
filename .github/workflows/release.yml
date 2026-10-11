@@ -7,9 +7,11 @@ name: Build mod dist
 # platform-agnostic mod dist (every build bundles all three native libs) and
 # publishes a GitHub release:
 #
-#   push to main        → prerelease  "purrTTY tip <UTC timestamp>"  (tag tip-<stamp>)
-#   push to release/<v> → release     "purrTTY <v>"                  (tag v<v>)
-#   any other ref (feature/fix/chore branches, PRs into main)
+#   push to main        → release    "purrTTY 1.<run number>.0" (keep newest 10)
+#   push to feature/*   → prerelease "purrTTY 1.<run number>.0-beta"
+#                         tags are v<version>; major is fixed at 1, patch at 0
+#                         all feature branches share the 5 newest prereleases
+#   any other ref (release/fix/chore branches, PRs into main)
 #                       → build + tests only (no release, no version stamp)
 #
 # The KSA reference assemblies are licensed game files and live in the private
@@ -35,12 +37,10 @@ permissions:
   contents: write
   checks: write    # test-reporter publishes results as a check run
 
-# One in-flight build per ref; a newer push supersedes an older run — except on
-# release/* refs: cancelling a publish between `gh release delete` and
-# `gh release create` would leave the release missing until the next push.
+# One in-flight build per ref; a newer push supersedes an older run.
 concurrency:
   group: dist-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+  cancel-in-progress: true
 
 jobs:
   # Release config so the bits we test are the bits we ship; each OS loads its
@@ -101,6 +101,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      publish: ${{ steps.meta.outputs.publish }}
+      channel: ${{ steps.meta.outputs.channel }}
     env:
       KSA_DLL_DIR: ${{ github.workspace }}/.tmp/ksa-game-assemblies/current/dll
       PURRTTY_DIST_DIR: ${{ github.workspace }}/.tmp/dist
@@ -122,45 +125,18 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Branch-derived values are validated here and consumed by later steps
-      # via env:, never interpolated raw into run scripts (a ref name can
-      # contain shell/sed metacharacters; this job has contents: write).
+      - name: Verify release policy
+        run: python3 scripts/check-release-policy.py
+
+      # Branch names only select the channel; the validated workflow run number
+      # determines the version. Later steps consume these values via env:.
       - name: Compute release metadata
         id: meta
-        run: |
-          BASE="$(sed -nE 's/^version = "(.*)"/\1/p' purrTTY.GameMod/mod.toml)"
-          if [[ ! "$BASE" =~ ^[0-9A-Za-z._-]+$ ]]; then
-            echo "::error::could not parse a usable base version from purrTTY.GameMod/mod.toml (got: '$BASE')"
-            exit 1
-          fi
-          if [[ "$GITHUB_REF_NAME" == release/* ]]; then
-            NAME="${GITHUB_REF_NAME#release/}"
-            if [[ ! "$NAME" =~ ^[0-9A-Za-z._-]+$ ]]; then
-              echo "::error::release branch suffix '$NAME' must match ^[0-9A-Za-z._-]+\$ (no slashes or shell metacharacters)"
-              exit 1
-            fi
-            echo "publish=true"             >> "$GITHUB_OUTPUT"
-            echo "version=$NAME"            >> "$GITHUB_OUTPUT"
-            echo "modversion=$NAME"         >> "$GITHUB_OUTPUT"
-            echo "tag=v$NAME"               >> "$GITHUB_OUTPUT"
-            echo "title=purrTTY $NAME"      >> "$GITHUB_OUTPUT"
-            echo "prerelease=false"         >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF_NAME" == main ]]; then
-            STAMP="$(date -u +%Y%m%d-%H%M%S)"
-            echo "publish=true"             >> "$GITHUB_OUTPUT"
-            echo "version=tip-$STAMP"       >> "$GITHUB_OUTPUT"
-            echo "modversion=$BASE-tip.$STAMP" >> "$GITHUB_OUTPUT"
-            echo "tag=tip-$STAMP"           >> "$GITHUB_OUTPUT"
-            echo "title=purrTTY tip $STAMP (UTC)" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true"          >> "$GITHUB_OUTPUT"
-          else
-            # feature/fix/chore branches, PRs, and any other ref: compile only.
-            echo "publish=false"            >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/release-metadata.sh
 
       # The version users see in-game / in mod.toml matches the release.
-      # MODVERSION is validated above to [0-9A-Za-z._-]+, so it cannot contain
-      # the sed delimiter or replacement metacharacters.
+      # MODVERSION contains only digits, dots, and an optional -beta suffix,
+      # so it cannot contain the sed delimiter or replacement metacharacters.
       - name: Stamp mod version
         if: steps.meta.outputs.publish == 'true'
         env:
@@ -192,36 +168,37 @@ jobs:
           TITLE: ${{ steps.meta.outputs.title }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
           VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          ZIP="$PURRTTY_DIST_DIR/purrTTY-$VERSION.zip"
-          # Re-pushing a release/<v> branch rebuilds that release: drop the old
-          # release + tag so the tag moves to the new commit. (Tip tags are
-          # timestamped and never collide.)
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-          fi
-          EXTRA=()
-          [[ "$PRERELEASE" == "true" ]] && EXTRA+=(--prerelease --latest=false)
-          gh release create "$TAG" "$ZIP" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "$TITLE" \
-            --notes "**Installing over an existing install:** delete the old \`purrTTY/\` folder from your mods directory before unzipping — files removed from the mod are not removed by unzipping over it." \
-            --generate-notes \
-            "${EXTRA[@]}"
+        run: bash scripts/publish-release.sh
 
-      # Keep the 5 newest tip prereleases; delete older ones (and their tags)
-      # so main doesn't accumulate releases forever. Named releases untouched.
-      - name: Prune old tip releases
-        if: steps.meta.outputs.prerelease == 'true'
+  prune:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Cleanup is serialized per channel; beta branches share one retention pool.
+    concurrency:
+      group: rolling-release-cleanup-${{ needs.build.outputs.channel }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout retention policy
+        uses: actions/checkout@v6
+
+      # Keep 10 stable releases (including the three legacy named releases) and
+      # 5 beta releases. Fetch every page so retention is not capped at 200.
+      - name: Prune old releases
         env:
           GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.build.outputs.channel }}
         run: |
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \
-            --json tagName,isPrerelease \
-            --jq '.[] | select(.isPrerelease and (.tagName | startswith("tip-"))) | .tagName' \
-            | tail -n +6 \
-            | while read -r tag; do
-                echo "Pruning $tag"
-                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-              done
+          case "$CHANNEL" in
+            main) KEEP=10 ;;
+            feature) KEEP=5 ;;
+            *) echo "Unknown release channel: $CHANNEL" >&2; exit 1 ;;
+          esac
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | python3 scripts/release-retention.py --channel "$CHANNEL" --keep "$KEEP" \
+            > "$RUNNER_TEMP/purrtty-stale-releases.txt"
+          while IFS= read -r tag; do
+            echo "Pruning $tag"
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          done < "$RUNNER_TEMP/purrtty-stale-releases.txt"
