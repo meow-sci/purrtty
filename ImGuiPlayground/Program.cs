@@ -1,3 +1,5 @@
+using XBrutal.ImGuiStandalone;
+
 namespace ImGuiPlayground;
 
 internal static class Program
@@ -31,9 +33,9 @@ internal static class Program
         {
             var gallery = new WidgetGallery(scene);
             if (capturePath is not null)
-                PlaygroundHost.Capture(gallery.Draw).SavePng(capturePath);
+                StandaloneHost.Capture(gallery.Draw).SavePng(capturePath);
             else
-                PlaygroundHost.Run(gallery.Draw, smokeTest);
+                StandaloneHost.Run(gallery.Draw, smokeTest);
             return 0;
         }
         catch (Exception exception)

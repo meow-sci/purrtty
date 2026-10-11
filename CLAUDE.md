@@ -113,22 +113,25 @@ Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sl
 ## Standalone ImGui playground
 
 `ImGuiPlayground/` and `ImGuiPlayground.Checks/` are independently extractable sibling
-projects, separate from the terminal backend/frontend and mod deployment. They use the real
-external BRUTAL assemblies with GLFW/OpenGL, without launching KSA. Their own build settings
-require explicit `KSAFolder` or `KSA_DLL_DIR`; do not apply the mod's installation fallbacks.
-Ordinary .NET builds use shipped native assets and never invoke native compilation.
-Windows DPI uses `ScaleToMonitor` plus logical display/mouse coordinates in `GlfwInput`;
-macOS retains its existing Retina framebuffer scaling. Do not add a second font/style scale.
-`WidgetGallery.cs` is the local-only camera/parts/tuning UI seam; `--mockup` selects a page
-or the built-in demo, and Checks `--widgets [capture-directory]` performs focused scene/popup
-captures and input assertions. No game connection or new dependency; see the sibling READMEs
-for the small standalone commands (not the full mod/native qualification suites).
-`ImGuiPlayground/native/full/` contains opt-in full-API generation, layout/accessor checks,
-combined native builds and independently anchored portable qualification. Automated macOS
-runtime/render/input/capture gates have passed; Windows/Linux execution remains user-owned
-and pending. Source integration does **not** promote source-built libraries into `runtimes/`.
-See [ImGuiPlayground/README.md](ImGuiPlayground/README.md) and
-[ImGuiPlayground/VALIDATE_PLATFORMS.md](ImGuiPlayground/VALIDATE_PLATFORMS.md).
+package consumers, separate from the terminal backend/frontend and mod deployment. The
+application calls real external BRUTAL UI assemblies directly; host/input/OpenGL rendering,
+capture/accessors and native/font delivery belong to **XBrutal.ImGuiStandalone 0.1.0-local.4**.
+The exact PackageReference resolves from the scoped local feed in `ImGuiPlayground/NuGet.Config`;
+GLFW remains exact transitive Ultz.Native.GLFW 3.4.0, not vendored. No producer ProjectReference,
+linked-source fallback or consumer native-copy task. Explicit `KSAFolder` or `KSA_DLL_DIR` is
+required; do not apply mod installation fallbacks. Ordinary .NET builds never compile native.
+Windows DPI conversion/ScaleToMonitor and macOS Retina scaling belong to the package; do not
+add another font/style scale. `WidgetGallery.cs` remains the local-only camera/parts/tuning UI
+seam; `--mockup` selects a page/demo, and Checks `--widgets [capture-directory]` retains nine
+scene/popup images and direct BRUTAL input assertions. Checks here cover application/package
+integration only; reusable implementation checks live in `brutal-imgui-standalone/checks/`.
+
+The former generator/full-fixture/exporter/qualification tooling is archived at exact purrtty
+revision `5d71c50943c13310d02066eb56b6fd4abc914790`, not an active CLI/tooling path. The producer
+owns the frozen production source/provenance; full historical fixture evidence was not rerun.
+macOS ARM64 consumer smoke/capture/gallery gates have passed; Windows/Linux native-host and
+manual desktop execution remain pending. See [ImGuiPlayground/README.md](ImGuiPlayground/README.md)
+and [platform/archive status](ImGuiPlayground/VALIDATE_PLATFORMS.md).
 
 ## Documentation
 

@@ -1,69 +1,37 @@
-using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 internal static class PackagingChecks
 {
-    // These checks build/publish foreign RIDs but do NOT execute foreign binaries.
-    // Locate the sibling source project, not an enclosing repository or a fixed cwd.
-    // No desktop, Python, or native compiler required.
+    private const string PackageVersion = "0.1.0-local.4";
+    private const string PackageSha256 = "1c2c4a35ba6c3004a6bbb34c1ff7bc7d53946a95b00eb5b880f305222377bd20";
+
+    // Consumer output checks only. Native export/ABI/startup-negative tests belong to the producer.
+    // Child builds inherit explicit KSA_DLL_DIR and optional isolated NUGET_PACKAGES.
     internal static void Run(string? projectPath = null)
     {
         string project = projectPath is null ? FindProject() : Path.GetFullPath(projectPath);
         if (!File.Exists(project)) throw new FileNotFoundException("Playground project not found.", project);
-        string gameDir = Dotnet("msbuild", project, "-nologo", "-getProperty:_PlaygroundKsaFolder").Trim();
-        if (gameDir.Length == 0)
-            throw new InvalidOperationException("Packaging checks start new builds: set KSA_DLL_DIR in the environment. MSBuild -p overrides on dotnet run are not inherited by child processes.");
-        var temporary = Directory.CreateTempSubdirectory("imgui-packaging-");
+        var temporary = Directory.CreateTempSubdirectory("imgui-consumer-packaging-");
         try
         {
-            string missing = Path.Combine(temporary.FullName, "no-external-native-runtime");
+            string portable = Path.Combine(temporary.FullName, "portable");
+            Dotnet("publish", project, "--nologo", "-v", "quiet", "-c", "Release", "-o", portable);
+            string assetsPath = Path.Combine(Path.GetDirectoryName(project)!, "obj", "project.assets.json");
+            using var assets = JsonDocument.Parse(File.ReadAllText(assetsPath));
+            string imguiPackage = PackageDirectory(assets.RootElement, "XBrutal.ImGuiStandalone/" + PackageVersion);
+            string glfwPackage = PackageDirectory(assets.RootElement, "Ultz.Native.GLFW/3.4.0");
+            string archive = Path.Combine(imguiPackage, $"xbrutal.imguistandalone.{PackageVersion}.nupkg");
+            if (Hash(archive) != PackageSha256) throw new Exception("Restored standalone package differs from the approved archive.");
+            CheckOutput(portable, imguiPackage, glfwPackage, rid: null);
             foreach (string rid in new[] { "osx-arm64", "linux-x64", "win-x64" })
             {
                 string output = Path.Combine(temporary.FullName, rid);
-                string[] publish = ["publish", project, "--nologo", "-v", "quiet", "-c", "Release",
-                    "-r", rid, "--self-contained", "false", "-o", output,
-                    "-p:KSA_DLL_DIR=" + gameDir,
-                    "-p:KSA_NATIVE_DIR=" + missing, "-p:KSA_GLFW_DIR=" + missing];
-                Dotnet(publish);
-                using var manifest = JsonDocument.Parse(Dotnet("msbuild", project, "-nologo",
-                    "-p:RuntimeIdentifier=" + rid, "-getItem:_PlaygroundNative"));
-                var assets = manifest.RootElement.GetProperty("Items").GetProperty("_PlaygroundNative");
-                if (assets.GetArrayLength() != 2) throw new Exception($"Expected exactly two assets for {rid}.");
-                CheckOutput(output, rid, assets);
-
-                // A newer timestamp must not preserve an obsolete native DLL. This caught
-                // the old PreserveNewest behavior when switching from local GLFW to NuGet.
-                foreach (var asset in assets.EnumerateArray())
-                {
-                    string path = Path.Combine(output, asset.GetProperty("TargetPath").GetString()!);
-                    File.WriteAllText(path, "obsolete native runtime");
-                    File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(5));
-                }
-                Dotnet(publish);
-                CheckOutput(output, rid, assets);
+                Dotnet("publish", project, "--nologo", "-v", "quiet", "-c", "Release", "-r", rid,
+                    "--self-contained", "false", "-o", output);
+                CheckOutput(output, imguiPackage, glfwPackage, rid);
             }
-
-            ExpectFailure("Unsupported playground runtime", "msbuild", project, "-nologo",
-                "-t:ValidatePlaygroundNative", "-p:RuntimeIdentifier=linux-arm64");
-
-            // Corrupt the expected pin through a temporary MSBuild hook, never a repo file
-            // or NuGet cache asset, to prove the hash verification is actually enforced.
-            string hook = Path.Combine(temporary.FullName, "wrong-hash.targets");
-            File.WriteAllText(hook, """
-                <Project>
-                    <Target Name="CorruptExpectedNativeHash" BeforeTargets="ValidatePlaygroundNative">
-                        <ItemGroup>
-                            <_PlaygroundNative Update="@(_PlaygroundNative)">
-                                <Sha256>0000000000000000000000000000000000000000000000000000000000000000</Sha256>
-                            </_PlaygroundNative>
-                        </ItemGroup>
-                    </Target>
-                </Project>
-                """);
-            ExpectFailure("MSB3952", "msbuild", project, "-nologo", "-t:ValidatePlaygroundNative",
-                "-p:RuntimeIdentifier=osx-arm64", "-p:CustomBeforeMicrosoftCommonTargets=" + hook);
         }
         finally { temporary.Delete(recursive: true); }
     }
@@ -78,67 +46,52 @@ internal static class PackagingChecks
         throw new FileNotFoundException("Cannot locate the playground source tree. Pass --packaging /path/to/ImGuiPlayground.csproj.");
     }
 
-    private static void CheckOutput(string output, string rid, JsonElement assets)
+    private static string PackageDirectory(JsonElement assets, string identity)
     {
-        string[] expected = rid switch
+        string path = assets.GetProperty("libraries").GetProperty(identity).GetProperty("path").GetString()!;
+        foreach (var folder in assets.GetProperty("packageFolders").EnumerateObject())
         {
-            "osx-arm64" => ["libimgui.dylib", "libglfw.dylib"],
-            "linux-x64" => ["libimgui.so", "libglfw.so"],
-            "win-x64" => ["imgui.dll", "glfw3.dll"],
-            _ => throw new ArgumentOutOfRangeException(nameof(rid))
-        };
+            string candidate = Path.Combine(folder.Name, path);
+            if (Directory.Exists(candidate)) return candidate;
+        }
+        throw new DirectoryNotFoundException($"Resolved package not found: {identity}.");
+    }
+
+    private static void CheckOutput(string output, string imguiPackage, string glfwPackage, string? rid)
+    {
         string[] nativeNames = ["libimgui.dylib", "libimgui.so", "imgui.dll", "libglfw.dylib", "libglfw.so",
             "glfw3.dll", "libglfw.3.dylib", "libglfw.so.3"];
-        var staged = Directory.GetFiles(output, "*", SearchOption.AllDirectories)
-            .Where(path => nativeNames.Contains(Path.GetFileName(path), StringComparer.Ordinal)).ToArray();
-        if (staged.Length != 2 || staged.Any(path => Path.GetDirectoryName(path) != output || !expected.Contains(Path.GetFileName(path))))
-            throw new Exception($"Wrong native files staged for {rid}: {string.Join(", ", staged)}");
-        foreach (var asset in assets.EnumerateArray())
+        if (rid is null && Directory.GetFiles(output).Any(path => nativeNames.Contains(Path.GetFileName(path))))
+            throw new Exception("Portable output contains obsolete flat native files.");
+        foreach (string target in rid is null ? new[] { "osx-arm64", "linux-x64", "win-x64" } : new[] { rid })
         {
-            string filename = asset.GetProperty("TargetPath").GetString()!;
-            byte[] binary = File.ReadAllBytes(Path.Combine(output, filename));
-            string hash = Convert.ToHexString(SHA256.HashData(binary));
-            if (!hash.Equals(asset.GetProperty("Sha256").GetString(), StringComparison.OrdinalIgnoreCase))
-                throw new Exception($"Published {rid}/{filename} does not match its SHA-256 pin.");
-            CheckArchitecture(binary, rid);
+            (string imgui, string glfw, string alias) = target switch
+            {
+                "osx-arm64" => ("libimgui.dylib", "libglfw.3.dylib", "libglfw.dylib"),
+                "linux-x64" => ("libimgui.so", "libglfw.so.3", "libglfw.so"),
+                "win-x64" => ("imgui.dll", "glfw3.dll", "glfw3.dll"),
+                _ => throw new ArgumentOutOfRangeException(nameof(rid))
+            };
+            string layout = rid is null ? Path.Combine("runtimes", target, "native") : "";
+            SameFile(Path.Combine(output, layout, imgui), Path.Combine(imguiPackage, "runtimes", target, "native", imgui));
+            string glfwSource = Path.Combine(glfwPackage, "runtimes", target, "native", glfw);
+            SameFile(Path.Combine(output, layout, glfw), glfwSource);
+            SameFile(Path.Combine(output, layout, alias), glfwSource);
         }
-        foreach (string filename in new[] { "Brutal.ImGui.dll", "Brutal.Glfw.dll", "fonts/JetBrainsMono-Regular.ttf", "LICENSE", "THIRD-PARTY-NOTICES.md" })
-            if (!File.Exists(Path.Combine(output, filename))) throw new Exception($"Missing {filename} in {rid} output.");
+        SameFile(Path.Combine(output, "XBrutal.ImGuiStandalone.dll"), Path.Combine(imguiPackage, "lib", "net10.0", "XBrutal.ImGuiStandalone.dll"));
+        SameFile(Path.Combine(output, "fonts", "JetBrainsMono-Regular.ttf"), Path.Combine(imguiPackage, "contentFiles", "any", "net10.0", "fonts", "JetBrainsMono-Regular.ttf"));
+        foreach (string filename in new[] { "Brutal.ImGui.dll", "Brutal.Glfw.dll", "LICENSE", "THIRD-PARTY-NOTICES.md" })
+            if (!File.Exists(Path.Combine(output, filename))) throw new Exception($"Missing {filename} in consumer output.");
     }
 
-    private static void CheckArchitecture(ReadOnlySpan<byte> binary, string rid)
+    private static string Hash(string path) => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
+
+    private static void SameFile(string output, string source)
     {
-        bool correct;
-        if (rid == "osx-arm64")
-            correct = BinaryPrimitives.ReadUInt32LittleEndian(binary) == 0xFEEDFACF &&
-                BinaryPrimitives.ReadUInt32LittleEndian(binary[4..]) == 0x0100000C;
-        else if (rid == "linux-x64")
-            correct = binary[..6].SequenceEqual(new byte[] { 0x7F, (byte)'E', (byte)'L', (byte)'F', 2, 1 }) &&
-                BinaryPrimitives.ReadUInt16LittleEndian(binary[18..]) == 62;
-        else
-        {
-            int pe = BinaryPrimitives.ReadInt32LittleEndian(binary[0x3C..]);
-            correct = binary[..2].SequenceEqual("MZ"u8) && binary.Slice(pe, 4).SequenceEqual("PE\0\0"u8) &&
-                BinaryPrimitives.ReadUInt16LittleEndian(binary[(pe + 4)..]) == 0x8664;
-        }
-        if (!correct) throw new Exception($"Native binary architecture does not match {rid}.");
+        if (Hash(output) != Hash(source)) throw new Exception($"Consumer output differs from resolved package asset: {output}.");
     }
 
-    private static string Dotnet(params string[] arguments)
-    {
-        var result = Execute(arguments);
-        if (result.Code != 0) throw new Exception($"dotnet {string.Join(' ', arguments)} failed:\n{result.Output}{result.Error}");
-        return result.Output;
-    }
-
-    private static void ExpectFailure(string message, params string[] arguments)
-    {
-        var result = Execute(arguments);
-        if (result.Code == 0 || !(result.Output + result.Error).Contains(message, StringComparison.OrdinalIgnoreCase))
-            throw new Exception($"Expected failure containing '{message}', got {result.Code}:\n{result.Output}{result.Error}");
-    }
-
-    private static (int Code, string Output, string Error) Execute(string[] arguments)
+    private static void Dotnet(params string[] arguments)
     {
         var info = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
@@ -152,8 +105,9 @@ internal static class PackagingChecks
         {
             process.Kill(entireProcessTree: true);
             process.WaitForExit();
-            throw new TimeoutException("Packaging check exceeded its three-minute command deadline.");
+            throw new TimeoutException("Consumer packaging command exceeded its three-minute deadline.");
         }
-        return (process.ExitCode, output.GetAwaiter().GetResult(), error.GetAwaiter().GetResult());
+        if (process.ExitCode != 0)
+            throw new Exception($"dotnet {string.Join(' ', arguments)} failed:\n{output.GetAwaiter().GetResult()}{error.GetAwaiter().GetResult()}");
     }
 }

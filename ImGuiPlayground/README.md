@@ -1,377 +1,203 @@
 # ImGui Playground
 
-A standalone **.NET 10 / C#** host for iterating on KSA-compatible ImGui UI without
+A standalone **.NET 10 / C#** application for iterating on KSA-compatible ImGui UI without
 launching Kitten Space Agency. The default UI is a **local mockup gallery**: camera
 sequencer, parts workshop and tuning panel, plus an opt-in Dear ImGui demo window.
 All data is fake; there is no game connection, persistence, network or new UI dependency.
 
-It uses the actual **`Brutal.ImGui.dll` API and original native ImGui library**,
-plus `Brutal.Glfw.dll` for windowing/input and a small **managed OpenGL renderer**.
-The ordinary host, checks, and packaging path has **no custom production C++ bridge,
-native compilation, CMake, Metal backend, Vulkan SDK, ImGui.NET, or Hexa.NET**. A separate,
-explicit maintainer-only [full native qualification runner](native/full/qualification/README.md)
-and the historical bounded prototype are separate opt-in tools; neither is used by ordinary
-app builds or promoted to runtime files. Full-image macOS fixture/renderer/input/capture gates
-are exercised through the real Host/Checks boundary; Windows/Linux execution remains pending.
-No external game Content directory, StarMap, or Harmony dependency.
-Native ImGui is vendored per platform; GLFW restores from NuGet. Only the managed
-KSA/BRUTAL assemblies remain external. A system graphics driver is still required.
+The application still calls the actual **`Brutal.ImGui.dll` API directly**. Hosting,
+GLFW input, OpenGL rendering, framebuffer/PNG capture, native accessors and native/font
+delivery now belong to the **`XBrutal.ImGuiStandalone` NuGet package**, not this application.
+The package ships source-owned Dear ImGui 1.92.2 docking implementations, not the old
+game-derived native wrappers. GLFW remains its exact transitive **`Ultz.Native.GLFW` 3.4.0**
+dependency; GLFW is not vendored here or in the XBrutal package. Ordinary builds never
+compile native code. A system graphics driver is still required.
 
-## Independent project boundary
+## Independent consumer boundary
 
-`ImGuiPlayground/` and its sibling `ImGuiPlayground.Checks/` are a self-contained development
-workspace hosted in another repository for convenience. They are included in the root
-solution but do not reference purrTTY projects, inherit its build settings or participate
-in mod deployment. They are independently buildable/extractable, with their own documentation
-and licenses. Keep both folders side by side when extracting them; no files from the enclosing
-repository are needed.
+`ImGuiPlayground/` and sibling `ImGuiPlayground.Checks/` have their own solution, props,
+NuGet configuration, licenses, `.editorconfig` and `.gitignore`. They do not reference
+purrTTY projects, inherit mod build settings or deploy to the game. Keep both folders side
+by side when extracting them. No enclosing repository files are required, but the package
+feed and user-supplied BRUTAL managed closure must be available.
 
-- `ImGuiPlayground.slnx` contains only the host and companion checks.
-- Local `Directory.Build.props` files own .NET/C# settings and managed assembly resolution.
-  The checks import only the host's settings. Parent `Directory.Build.props`,
-  `Directory.Build.targets`, and `Directory.Packages.props` are not inherited.
-- `NuGet.Config` is explicitly selected for both projects; `.editorconfig` and `.gitignore`
-  are local. No mod deployment paths or targets are defined.
-- Documentation, licenses, font and native assets live in these two folders. Check-specific
-  instructions are in [the checks README](../ImGuiPlayground.Checks/README.md).
+- `Program.cs`: unchanged scene/smoke/capture CLI, calling `StandaloneHost`.
+- `WidgetGallery.cs`: direct BRUTAL fake-data UI and per-run state; the local iteration seam.
+- `ImGuiPlayground.slnx`: only this application and its consumer checks.
+- `Directory.Build.props`: explicit external assembly selection and isolated build settings.
+- `NuGet.Config`: scoped local feed plus nuget.org; package-source mapping reserves
+  `XBrutal.ImGuiStandalone` for the local feed. Both projects explicitly use this config.
+- [Checks README](../ImGuiPlayground.Checks/README.md): application/package/gallery checks.
 
-**Commands below run from this `ImGuiPlayground/` folder**, not an enclosing repository root.
-Configure the external managed-assembly directory first.
+There is **no producer ProjectReference, linked-source fallback, manual native copy target,
+or local host/renderer/input/accessor implementation**. Reusable implementation tests now
+live in the producer repository `brutal-imgui-standalone/checks/`.
 
-## Platforms and prerequisites
+## Package and external managed inputs
 
-The same C# source requests desktop OpenGL **3.2 core / GLSL 150** on **macOS arm64,
-Linux x64, and Windows x64**. **Runtime validated on macOS Apple Silicon only so far**;
-all three RIDs have packaging checks, but Windows/Linux execution still needs validation.
-The separate full-native effort's target checklist and current gate status are in
-[VALIDATE_PLATFORMS.md](VALIDATE_PLATFORMS.md).
-Other RIDs (including Intel macOS, Windows ARM and Linux musl) are not packaged.
+The application pins **`XBrutal.ImGuiStandalone` `[0.1.0-local.4]`**. The configured local
+feed is `/Users/asherwin/nuget-feed`; when extracting to another machine, change only that
+source to the directory containing the same immutable package. The approved archive is:
 
-- .NET 10 SDK. Standard Microsoft logging/object-pool packages restore through NuGet;
-  the current BRUTAL assemblies reference ObjectPool **11.0.0.0**, so the project pins
-  its compatible `11.0.0-rc.1.26425.128` package (netstandard asset on .NET 10).
-- A graphical session and an OpenGL 3.2-capable driver. OpenGL is deprecated but
-  available on macOS; this is a lightweight developer harness, not a new game renderer.
-- User-supplied managed BRUTAL assemblies via `KSA_DLL_DIR` or `KSAFolder`, resolved
-  by this folder's own `Directory.Build.props`. There is no machine-specific fallback.
-- Native ImGui comes from the checked-in **`runtimes/<rid>/native/`** files; native
-  GLFW comes from pinned **`Ultz.Native.GLFW` 3.4.0**. No native installation path,
-  Homebrew GLFW, native compiler, or custom bridge is required for ordinary builds/runs.
-  Only explicit maintainer native **builds** need Zig 0.17.0; extracted full-qualification
-  bundles execute target probes without installing a native toolchain.
-- Normal OS runtime dependencies still apply: Linux requires glibc (the supplied
-  ImGui imports symbols through 2.29), libstdc++, window-system libraries and GL;
-  Windows requires the Microsoft Visual C++ x64 Redistributable. See
-  [native runtime provenance and prerequisites](runtimes/README.md).
+```text
+XBrutal.ImGuiStandalone.0.1.0-local.4.nupkg
+SHA-256: 1c2c4a35ba6c3004a6bbb34c1ff7bc7d53946a95b00eb5b880f305222377bd20
+```
 
-A generic cimgui build is **not** compatible: BRUTAL has its own exports and layouts.
-Current BRUTAL uses **Dear ImGui 1.92.2 docking** and 16-bit draw indices. Startup
-checks version and the public native/managed layout sizes. Do not bypass checks:
-`DebugCheckVersionAndDataLayout` may deliberately assert on incompatible libraries.
-These size checks do **not** prove every generated binding field is compatible;
-see the older macOS runtime's character-width limitation below.
+The producer's README, `docs/COMPATIBILITY.md`, native manifest and accessor contract are
+also included in the restored package. Those define native/loaded-managed identity and raw
+layout restrictions. Same assembly version numbers alone do not establish compatibility.
+The package validates loaded ImGui/Common/Numerics hashes and MVIDs before unsafe native
+calls; unsupported managed inputs or stale/tampered native assets fail explicitly. Do not
+work around these guards by substituting a game/system/Homebrew native library.
 
-## Configure the managed game directory
-
-Set **`KSA_DLL_DIR`** to an absolute path containing the managed `Brutal.*.dll` assemblies
-and their dependencies, not a native-runtime subdirectory. A full game directory or a
-reference-assembly directory works. The host itself does not need `KSA.dll`.
+**Commands below run from `ImGuiPlayground/`**. Supply your own licensed BRUTAL managed
+assembly closure (ImGui, Glfw, Common, Numerics, Strings and normal supporting assemblies).
+There is no automatic game-directory lookup and the host does not need `KSA.dll`.
+`KSAFolder` takes precedence over `KSA_DLL_DIR`, so unset a conflicting `KSAFolder`.
 
 ```bash
-export KSA_DLL_DIR="/path/to/KSA"
-dotnet build ImGuiPlayground.slnx
-# One-build alternative (KSAFolder is also accepted, and takes precedence):
-dotnet build ImGuiPlayground.slnx -p:KSA_DLL_DIR="/path/to/KSA"
+export KSA_DLL_DIR='/absolute/path/to/matching/managed/dll'
+unset KSAFolder
+dotnet build ImGuiPlayground.slnx --nologo -v quiet
+# One-build alternative:
+dotnet build ImGuiPlayground.slnx -p:KSAFolder='/absolute/path/to/matching/managed/dll'
 ```
 
-On Windows, for example:
+PowerShell: `$env:KSA_DLL_DIR = 'C:\path\to\matching\managed\dll'` and remove a conflicting
+`Env:KSAFolder`. File references are copy-local; no proprietary assemblies are supplied by
+NuGet, checked into this workspace or modified. Use environment selection for `--packaging`:
+child builds do not inherit outer `dotnet run -p:` overrides.
 
-```powershell
-$env:KSA_DLL_DIR = 'C:\Program Files\Kitten Space Agency'
-```
-
-There is deliberately **no enclosing-repository lookup or automatic game-directory default**.
-Only required managed assemblies are referenced and copied to output as normal .NET
-runtime dependencies; their originals remain external. No game installation is modified.
-Use the environment variable for packaging checks: their child `dotnet` processes do not
-inherit MSBuild `-p:` overrides supplied to the outer `dotnet run`.
-
-**`KSA_NATIVE_DIR`, `KSA_GLFW_DIR`, and `Playground.local.props` are no longer used.**
-Native filenames and SHA-256 hashes are pinned in `runtimes/NativeLibraries.props`.
-Build/publish selects `RuntimeIdentifier` when specified, otherwise the SDK host RID,
-and stages the selected pair beside the app. Unsupported RIDs, missing assets, or hash
-mismatches fail explicitly.
-
-To cross-publish, use a separate directory for each target:
+The package delivers ImGui and GLFW aliases automatically. **Portable/no-RID** outputs
+retain `runtimes/<rid>/native/`; explicit RID publishes flatten matching native assets.
+JetBrains Mono Regular is automatically staged into `fonts/` and loaded at **18 logical
+pixels**, with its debug name unchanged. There is no local native/font staging owner.
+`KSA_NATIVE_DIR`, `KSA_GLFW_DIR` and the old `NativeLibraries.props` are not used.
 
 ```bash
-dotnet publish ImGuiPlayground.csproj -r osx-arm64 --self-contained false -o .tmp/publish/osx-arm64
-dotnet publish ImGuiPlayground.csproj -r linux-x64 --self-contained false -o .tmp/publish/linux-x64
-dotnet publish ImGuiPlayground.csproj -r win-x64 --self-contained false -o .tmp/publish/win-x64
+dotnet publish ImGuiPlayground.csproj -o /tmp/playground-portable
+dotnet publish ImGuiPlayground.csproj -r osx-arm64 --self-contained false -o /tmp/playground-osx
+dotnet publish ImGuiPlayground.csproj -r linux-x64 --self-contained false -o /tmp/playground-linux
+dotnet publish ImGuiPlayground.csproj -r win-x64 --self-contained false -o /tmp/playground-win
 ```
 
-These are per-RID outputs, not a universal zip. Framework-dependent outputs also require
-.NET 10 on the destination machine. Cross-publishing verifies packaging, not execution on
-that OS. Native provenance, system dependencies and upgrade rules: [runtimes/README.md](runtimes/README.md).
+Requires .NET 10 and desktop OpenGL **3.2 core / GLSL 150**. Supported process RIDs are
+**osx-arm64, linux-x64, win-x64**; Intel macOS, ARM Windows/Linux, musl and 32-bit are
+unsupported. Cross-publish is not foreign-OS runtime certification. macOS ARM64 automatic
+consumer gates have passed; Windows/Linux execution and manual desktop/DPI checks remain
+pending. Normal OS GLFW/OpenGL dependencies still apply: Windows GLFW requires the Microsoft
+Visual C++ x64 Redistributable; Linux needs its graphical/window-system libraries and GL.
+The owned ImGui's glibc 2.17 target baseline is a build contract, not oldest-OS runtime
+certification. See [platform status](VALIDATE_PLATFORMS.md) and package compatibility/provenance.
 
 ## Run and iterate
 
 ```bash
 dotnet run --project ImGuiPlayground.csproj
-dotnet run --project ImGuiPlayground.csproj --no-build  # after a build
+dotnet run --project ImGuiPlayground.csproj --no-build
+dotnet run --project ImGuiPlayground.csproj -- --help
+dotnet run --project ImGuiPlayground.csproj -- --mockup parts
+dotnet run --project ImGuiPlayground.csproj -- --mockup tuning --smoke-test
+dotnet run --project ImGuiPlayground.csproj -- --mockup demo --capture /tmp/demo.png
 ```
 
-Edit **`WidgetGallery.cs`** to iterate on the fake-data pages; **`Program.cs`** selects a
-scene and passes one gallery instance's `Draw` callback to the host. These are ordinary
-KSA-compatible BRUTAL UI calls:
-
-```csharp
-using Brutal.ImGuiApi;
-using Brutal.Numerics;
-
-ImGui.SetNextWindowSize(new float2(360, 160), ImGuiCond.FirstUseEver);
-bool visible = ImGui.Begin("My UI"u8);
-try
-{
-    if (visible)
-        ImGui.Text("Hello world!"u8);
-}
-finally { ImGui.End(); }
-```
+`--mockup camera|parts|tuning|demo` can precede or follow `--smoke-test` or `--capture <file>`.
+Without selection, smoke/capture renders the camera page. `demo` directly renders the built-in
+demo without a gallery underneath. Close that demo to return to the gallery interactively.
+Close the native window to quit. No `imgui.ini` or log file is written.
 
 ### Gallery pages and widget coverage
 
 - **Camera sequencer:** working play/pause/rewind, disabled buttons, looping/progress/scrubbing,
-  selectable keyframes in a list box, name and multiline notes, duration drag, easing combo,
-  camera-mode radio buttons and an expanded summary tree.
-- **Parts workshop:** live name/category filter, warnings checkbox, scrolling table with status
-  colors, selectable rows/right-click context menu, editable stock, details tree, collapsing log
-  and a reload confirmation modal that resets fake stock/warnings.
-- **Tuning panel:** resettable drag/slider/numeric fields, normalization checkbox, built-in line
-  and histogram plots, color editor and popup color picker; edits update synthetic previews.
-- Tabs and scrolling children fit the default **800×500 logical viewport**. The Gallery/Help
-  menus expose actions and guidance; hover controls for tooltips. **Show ImGui demo** opens the
-  wider built-in catalog on demand, not an exhaustive test/compatibility claim.
+  selectable keyframes, name/multiline notes, duration drag, easing combo, camera-mode radio
+  buttons and expanded summary tree.
+- **Parts workshop:** live name/category filter, warnings checkbox, scrolling status table,
+  selectable rows/context menu, editable stock, details tree, collapsing log and reload modal.
+- **Tuning panel:** resettable drag/slider/numeric fields, normalization checkbox, built-in
+  plots, color editor and popup picker; edits update synthetic previews.
+- Tabs/scrolling children fit the **800×500 logical viewport**. Gallery/Help menus and tooltips
+  expose guidance; **Show ImGui demo** opens the wider catalog on demand.
 
-These are original small mockups inspired only by UI patterns in the read-only `unscience`
+These original mockups are inspired only by UI patterns in the read-only `unscience`
 repository: `camera-controller-override.lib/UI/KeyframeSequencePanel.cs`,
-`parts-now.lib/Ui/ResultsPanel.cs` and `kitten-animations.lib/Ui/TuningSection.cs`.
-No code/project/game-service dependency is introduced; part thumbnails are replaced by local data.
-Owned byte arrays back text inputs. The selected BRUTAL `ImGui.Text` overload calls native
-`TextUnformatted`, so dynamic/user text (including literal percent signs) is not a printf format.
-
-```bash
-dotnet run --project ImGuiPlayground.csproj -- --mockup parts
-dotnet run --project ImGuiPlayground.csproj -- --mockup tuning --smoke-test
-dotnet run --project ImGuiPlayground.csproj -- --mockup demo --capture .tmp/widgets/demo.png
-```
-
-`--mockup camera|parts|tuning|demo` can precede or follow `--smoke-test` or `--capture <file>`.
-Without selection, existing smoke/capture commands render the camera page. `demo` directly
-renders the built-in demo without a gallery window underneath it. Close that demo to return to
-the gallery in an interactive run.
-
-Close the native window to quit. Keyboard navigation, Unicode character input,
-mouse buttons/motion/wheel/focus, and clipboard use the managed platform adapter.
-The default font is **the game's `JetBrainsMono-Regular.ttf`**, copied unmodified from
-`ksa-linux/Content/Core/` with its OFL license into `fonts/`. It is bundled into build
-and publish output and loaded at **18 logical pixels**; the Linux game folder is not
-needed at runtime. This matches the font face, not the entire game theme or DPI setup.
-No `imgui.ini` or log file is written.
-
-**Display scaling:** on Windows, GLFW's per-window content scale converts window size and
-mouse positions from physical pixels to logical UI units. `ScaleToMonitor` keeps the native
-window sized accordingly at startup and on monitor/DPI changes. At 250%, an 800×500 logical
-window therefore requests a 2000×1250 client area; fonts, spacing, fixed-size widgets and hit
-testing share the same scale. macOS keeps its existing logical-window/Retina-framebuffer
-mapping (no extra content-scale multiplier), and Linux behavior is unchanged. No font/style
-multipliers are accumulated. Verify the Windows fix on a real 250% display, including moving
-between differently scaled monitors; cross-platform arithmetic checks are not Windows desktop
-execution.
-
-`PlaygroundHost.Run(Action drawUi)` is the future library-extraction boundary,
-**not yet a packaged library**. Call synchronously from `Main`, not `Task.Run` or
-an async continuation. It owns the current ImGui/GLFW/OpenGL contexts and ImGui's
-native resolver; do not combine it with another host in the process. Sequential
-runs are supported. Keep ImGui stacks balanced, even when your callback throws.
-BRUTAL's frame-scoped UTF-8 string storage resets each frame.
-
-## Capture rendered pixels — no OS screenshots
-
-```bash
-dotnet run --project ImGuiPlayground.csproj -- --capture .tmp/widgets/camera.png
-```
-
-This renders three nonempty frames in an **invisible GLFW window**, reads the back
-buffer **before swap**, writes a PNG, and exits quietly. It needs no Orca, accessibility,
-or screen-recording permissions, and captures no other windows or OS decorations.
-It still needs a working graphical session/driver: invisible does **not** mean
-truly display-server-free. Linux CI can provide Xvfb + Mesa and the OS libraries
-(e.g. `xvfb-run -a dotnet run --project ImGuiPlayground.csproj -- --capture hello.png`);
-that setup has not yet been runtime-tested here.
-
-The reusable API exposes the actual image data for automated assertions:
+`parts-now.lib/Ui/ResultsPanel.cs`, `kitten-animations.lib/Ui/TuningSection.cs`.
+No reference-repository code/project/game-service dependency is introduced. Owned byte arrays
+back text inputs; the selected BRUTAL `ImGui.Text` overload is native `TextUnformatted`, so
+literal percent signs in dynamic/user text are safe.
 
 ```csharp
-CapturedFrame frame = PlaygroundHost.Capture(DrawMyUi, width: 800, height: 500);
-ReadOnlyMemory<byte> pixels = frame.Rgba;  // owned RGBA8, tightly packed, top row first
-frame.SavePng("artifacts/my-ui.png");
-// Assert regions/colors or compare a baseline using frame.Width/Height and pixels.
+using Brutal.ImGuiApi;
+using XBrutal.ImGuiStandalone;
+
+StandaloneHost.Run(() => {
+    ImGui.Begin("My UI"u8);
+    try { ImGui.Text("Direct BRUTAL calls"u8); }
+    finally { ImGui.End(); }
+});
 ```
 
-Requested width/height are **logical UI units**; returned dimensions are **physical
-framebuffer pixels** (800×500 yielded 1600×1000 on the tested Retina display; Windows at 250%
-should yield 2000×1250). Pin DPI,
-fonts, theme, timing and driver for stable image comparisons; identical pixels across
-OS/driver combinations are not promised. This API does not yet provide scripted input
-or a configurable capture frame/time.
+Call synchronously on the OS main thread, not `Task.Run` or async continuations. One host owns
+ImGui/GLFW/OpenGL contexts and ImGui's external native resolver at a time; do not initialize
+competing game/UI backends. Keep UI stacks balanced even when throwing. Repeated synchronous
+sessions are supported; native handles remain loaded for process lifetime.
 
-## Validation
+**Display scaling:** the package retains Windows `ScaleToMonitor` plus logical display/mouse
+conversion; macOS retains logical-window/Retina-framebuffer mapping. Do not add another
+font/style multiplier. Actual Windows 250% scaling and cross-monitor moves still require
+native desktop validation. The owned native image uses **WCHAR32** (unlike the old macOS
+wrapper's supplementary-codepoint replacement); this does not repair unsafe raw BRUTAL aliases.
+
+## Capture and validation
 
 ```bash
-dotnet build ImGuiPlayground.slnx --nologo -v quiet
-dotnet run --project ImGuiPlayground.csproj --no-build -- --smoke-test
+dotnet run --project ImGuiPlayground.csproj -- --capture /tmp/camera.png
+dotnet run --project ImGuiPlayground.csproj -- --smoke-test
 dotnet run --project ../ImGuiPlayground.Checks -v quiet
-# Focused gallery scenes/input checks; retains PNGs:
-dotnet run --project ../ImGuiPlayground.Checks --no-build -- --widgets .tmp/widgets
-# No desktop required; cross-publishes/checks all three RIDs:
-dotnet run --project ../ImGuiPlayground.Checks -- --packaging
+dotnet run --project ../ImGuiPlayground.Checks --no-build -- --widgets /tmp/widget-captures
+dotnet run --project ../ImGuiPlayground.Checks --no-build -- --packaging
 ```
 
-Smoke mode opens a visible window, requires three nonempty frames, waits for GL
-completion and checks GL errors on each frame. Capture uses the same checks plus
-synchronous framebuffer readback. Neither alone proves the intended widgets/pixels;
-the optional checks executable asserts image regions/orientation, PNG encoding,
-default font selection/texture updates, draw-callback state reset, key translation,
-character/cursor callback fidelity, DPI coordinate mapping (including Windows 250% and
-unchanged Retina behavior), and callback-failure recovery on the main thread. Checks
-are quiet on pass, have no fixed sleeps, and need the same native/desktop dependencies.
-The separate `--packaging` checks locate the sibling source project without assuming a
-particular working directory and run without opening a window:
-all three RID outputs, per-file hashes/architectures, unsupported-RID rejection, hash
-mismatch rejection and replacement of stale native files with newer timestamps.
-Also manually verify input, resizing, minimize/restore and closing on each platform.
+Capture renders three nonempty frames in an invisible GLFW window, reads the framebuffer
+before swap and exits quietly. No OS screenshot/accessibility permission is required, but a
+working graphical session/driver is: this is **not a headless backend**. Smoke uses a visible
+window and checks three nonempty frames and GL errors. `CapturedFrame` exposes `Width`,
+`Height`, top-down tightly packed `ReadOnlyMemory<byte> Rgba` and `SavePng(path)`.
+Requested size is logical; returned dimensions are physical (800×500 gave 1600×1000 on the
+tested Retina display). Cross-driver/platform identical pixels are not promised.
 
-`--widgets` renders all three pages and the demo, asserts nonempty geometry/text/colored pixels,
-opens the part tree, reload modal and color picker, and sends real ImGui IO mouse events to
-assert Play and Loop state changes. It retains nine PNGs (including fitted direct/gallery demo
-views and settled PLAYING state) for visual review; success is quiet.
-No fixed sleeps or native compilation. This is a representative gallery check, not general UI
-automation or full native qualification. See [the checks README](../ImGuiPlayground.Checks/README.md)
-for execution details and an extraction verification recipe.
+Default Checks captures the application via the package and asserts frame delivery and font.
+`--widgets` retains **nine PNGs**, checks pages/demo/popups and direct ImGui IO Play/Loop
+interaction. `--packaging` checks portable and all three RID consumer outputs against the
+resolved immutable package/GLFW assets. It needs no desktop and never executes foreign images.
+Checks are quiet on success and have no fixed sleeps. Lifecycle, rendering algorithms, input,
+PNG encoding, native exports/helpers and startup-negative checks belong to the producer now.
 
-## Experimental native layout/ABI feasibility prototype
+## Historical native tooling boundary
 
-The prototype is an opt-in maintainer experiment, not a replacement native runtime and not a
-production compatibility claim. Its current `osx-arm64` artifact was built from pinned vanilla
-Dear ImGui commit `031a18c417158427217bc5890e0ec0cb7e7b4b63` using the measured prototype config
-hypotheses. On this Apple Silicon host, the managed staged runner passed its pre-context
-identity/schema/config/export gates, required public-subset layout gate, managed calls, all 13
-negative fixtures, unchanged render/input checks, and hello-world capture. The observed native
-SHA-256 is `d1481c0c62ef24b125934523f5f0c90c8f9819841e1c780acc0d62a567e7ae3b`; the external
-`Brutal.ImGui.dll` SHA-256 was `9040dc5d410043c53dbea10d94995b6712240be37f9251b016f6cff66a76339f`.
+The deleted native generator/prototype/full-fixture tooling and qualifier-only Checks are
+archived **exactly** at purrtty revision **`5d71c50943c13310d02066eb56b6fd4abc914790`**.
+For example, inspect historical instructions without pretending they are current commands:
 
-The 1,146 reflected managed imports were checked individually: only 54 are present in this
-72-symbol prototype (54 managed imports, three data slots, 15 other functions); the other 1,092
-imports, including `TextV`, remain unsupported. All 30 native layout records mapped to reflected
-managed types, but only 28 of 30 measured type sizes matched. `ImGuiContext` is 11,312 native
-bytes versus 11,320 managed bytes; `ImGuiStackLevelInfo` is 64 versus 72 bytes. Across the 195
-measured native fields, 190 matched; the five reported offset mismatches are in risky internal
-types (`ImGuiBoxSelectState`, `ImGuiContext`, and `ImGuiStackLevelInfo`). These internal size
-and field mismatches are outside the required host/public subset gate. The 24 individual native
-bitfield locations/widths remain unmeasured and unproven by this prototype. An independent managed inventory
-requires every raw field used by the current host/checks, including draw-list buffers and their
-concrete vector headers. Missing fields and schema-valid offset/size mismatches fail before
-context creation. This gate is narrower than complete layout parity; sample field offsets do
-not imply all-layout parity. The `IMGUI_USE_WCHAR32` and obsolete-field settings
-are not authenticated KSA build metadata.
-
-Linux x64 and Windows x64 artifacts were rebuilt and statically inspected, but **not** loaded
-or executed. No Wine-as-native claim is made. On a matching native target host, build its
-artifact explicitly and run the portable staged check as described in
-[Checks README](../ImGuiPlayground.Checks/README.md); exact prototype implementation, current
-hashes, omissions, and target-side commands are in [native prototype README](native/README.md).
-All prototype libraries remain in ignored `.tmp/native/`; production `runtimes/` and native pins
-are untouched. Ordinary builds still populate their standard `bin/` outputs with pinned
-production assets; only disposable copies are replaced with the prototype by the staged runner.
-
-## Full native API work — in progress
-
-The accepted prototype above is historical, bounded evidence, not the full implementation.
-The expanded effort keeps the external managed DLL unchanged and permits narrowly scoped,
-hash-pinned native declaration/configuration patches plus owned native-backed C# helpers.
-It does not authorize rewriting ImGui widget behavior or promoting artifacts into `runtimes/`.
-
-The [metadata exporter](../ImGuiPlayground.Checks/README.md#maintainer-only-managed-binding-contract-no-native-loading)
-now audits the actual selected DLL without loading native ImGui. The current ImGui DLL hash is
-`b76777a4ef3399d6353b9dba1982e3afb84b5da2aa2500da1c062db0bfad827c`, different from the
-prototype-tested input despite the same ImGui version and 1,146 import names. Native mapping,
-complete classified layout evidence, safe helpers and full behavioral qualification are still
-being implemented; the exporter alone certifies none of them.
-
-Some unchanged managed fields are overlapping full-width aliases for distinct native bitfields.
-They cannot be made independently writable by a native layout patch. Other records have wrong
-managed element strides or represent opaque native storage. The planned helpers must use real
-native accessors/indexing, while reports retain those original raw limitations explicitly.
-Do not treat the original aliases as repaired or use metadata size agreement as semantic proof.
-See [the platform validation checklist](VALIDATE_PLATFORMS.md) for separate coverage, behavior
-and per-target execution gates.
-
-## Implementation and limits
-
-```text
-UI callback → Brutal.ImGui.dll → original native ImGui (one context)
-PlaygroundHost / GlfwInput → external Brutal.Glfw.dll → NuGet native GLFW
-OpenGlRenderer → GL entry points loaded by GLFW → system graphics driver
-CapturedFrame → owned RGBA bytes / PNG via .NET APIs
+```bash
+git show 5d71c50943c13310d02066eb56b6fd4abc914790:ImGuiPlayground/native/full/qualification/README.md
 ```
 
-- `Program.cs`: compatible smoke/capture entry point and `--mockup` scene selection.
-- `WidgetGallery.cs`: the single fake-data UI seam, owned input buffers and per-run state.
-- `Directory.Build.props` / `NuGet.Config`: independent build/reference/package settings.
-- `runtimes/NativeLibraries.props`: selected native filenames and SHA-256 pins;
-  `runtimes/README.md`: provenance, OS dependencies and upgrade rules.
-- `fonts/`: unmodified default game font, OFL license and provenance.
-- `PlaygroundHost.cs`: native loading/ABI checks, synchronous lifecycle and teardown.
-- `GlfwInput.cs`: key translation, input events, stable UTF-8 clipboard callbacks.
-- `OpenGl.cs` / `OpenGlRenderer.cs`: GL entry points, dynamic ImGui texture requests,
-  geometry/scissors/base-vertex offsets, GPU cleanup, framebuffer readback. Dedicated
-  GL state, not a drop-in backend for rendering alongside another engine.
-- `CapturedFrame.cs`: top-down RGBA ownership and PNG encoding with BCL zlib + CRC.
+The producer owns the frozen production source closure, native rebuild/verification and
+provenance. Historical production bundle `sol-delivery-20261008T144358Z-33442-combined-final3`
+and qualification archive hash `b0c089d45a6aeac64e8affa9ddbc2fb48675ec1c00d23e805f346be98cd5fd39`
+are recorded in its `native/manifest.json` (also package `docs/manifest.json`). Full historical
+fixture qualification was **not relocated or rerun**; future regeneration/full requalification
+is a separate task. Existing ignored `.tmp` evidence is preserved, not an active tool dependency.
 
-The renderer follows the contracts/shader math of upstream `imgui_impl_opengl3.cpp`
-at `v1.92.2-docking` (`04c3466d23a72abee3696dcba698b0e02fee6057`), ported to C#.
-It uploads full RGBA textures on atlas updates for simplicity. Ordinary app/checks builds do
-not download or compile upstream C++ sources. Only explicit invocation of the isolated,
-maintainer-only native ABI prototype downloads the hash-pinned vanilla source and compiles its
-core/demo plus the owned subset adapter into ignored `.tmp/native/` scratch; no output is
-promoted into `runtimes/`.
+## Limits and licensing
 
-**Older macOS native-runtime limitation:** the available arm64 ImGui library was
-observed to use 16-bit `ImWchar` despite the current generated binding declaring
-`InputQueueCharacters` as `ImVector<uint>`. It replaces supplementary codepoints
-(such as emoji) with U+FFFD. The host forwards the full GLFW codepoint, avoiding a
-separate truncation in BRUTAL's `OnChar` wrapper, but cannot add native-engine Unicode
-support. It does not read wchar-backed native vectors. **Do not use the generated
-`InputQueueCharacters.Span` or assume arbitrary raw wchar-backed structures are safe
-with this older library.** A fully matching native build is needed for unrestricted
-binding/Unicode parity; the experimental source build preserves WCHAR32 input but does not
-establish full-binding parity and is not shipped as a runtime.
+Not reproduced: KSA game services/theme/Vulkan textures, OS multiviewport windows, gamepads,
+cursor-shape/warping backend, complete IME, mod lifecycle/hot reload or general UI automation.
+Shared UI callbacks must keep host-specific services out. Complete native export coverage is
+not unrestricted safe raw layout access; consult the package's compatibility/accessor contract.
 
-Not reproduced: the rest of KSA's font setup/theme/game services/Vulkan texture handles, multi-viewport
-platform windows, gamepads, OS cursor-shape changes/warping, full IME composition UI,
-mod-loader lifecycle, hot reload, or UI automation. Mod images need OpenGL-compatible
-fixtures, not game Vulkan handles. Keep host-specific services out of shared UI code.
-
-## Licensing
-
-See [LICENSE](LICENSE), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and `licenses/`.
-The managed backend's Dear ImGui
-reference is MIT licensed; GLFW is zlib/libpng licensed; Microsoft packages are MIT.
-The bundled JetBrains Mono font is SIL OFL 1.1 (license/provenance in `fonts/`).
-These notices are copied to playground output. Managed BRUTAL/KSA libraries remain
-external, user-supplied game components. The platform-specific native ImGui binaries
-are vendored at the operator's request; see [their provenance](runtimes/README.md).
-Upstream ImGui's MIT license does not establish redistribution rights for KSA's complete
-native wrapper. Do not publish game-derived binaries/build output without resolving
-those permissions.
+See [LICENSE](LICENSE), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and `licenses/`.
+The package includes native/font provenance and notices (including JetBrains Mono's SIL OFL).
+Managed BRUTAL/KSA libraries remain licensed user-supplied components; resolve their
+redistribution rights before publishing application output. No remote distribution is configured.

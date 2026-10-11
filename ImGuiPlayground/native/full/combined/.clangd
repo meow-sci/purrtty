@@ -1,3 +1,0 @@
-# Maintainer-only, actual patched-source compilation commands from the checked run.
-CompileFlags:
-  CompilationDatabase: ../../../.tmp/native/combined/final-build

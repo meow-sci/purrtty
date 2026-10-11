@@ -1,5 +1,0 @@
-{
-  "path": "imgui_internal.h",
-  "old": "    int                     ActiveIdMouseButton : 8;",
-  "new": "    int                     ActiveIdMouseButton;"
-}

@@ -29,15 +29,21 @@ dotnet run --project ImGuiPlayground.Checks --no-build -v quiet
 dotnet run --project ImGuiPlayground.Checks --no-build -v quiet -- --packaging
 ```
 
-These executable checks are separate from the mod's NUnit suites. Ordinary builds need no
-native compiler and do not deploy to the game. Full source-built native API qualification
-is an explicit maintainer path, documented in
-[the qualification guide](../ImGuiPlayground/native/full/qualification/README.md).
-Its portable consumer bundle needs no native toolchain; native builds use pinned Zig.
-[Platform status and commands](../ImGuiPlayground/VALIDATE_PLATFORMS.md) distinguish passing
-automated macOS gates from pending Windows/Linux execution and manual desktop checks.
-Cross-building/publishing is not foreign execution; source-built artifacts are not promoted
-into the shipped runtime assets.
+These executable checks are separate from the mod's NUnit suites. The app calls external
+BRUTAL UI directly and consumes exact **XBrutal.ImGuiStandalone 0.1.0-local.4** from its
+scoped local feed; the package owns host/input/render/capture/accessors and native/font
+delivery. GLFW remains exact transitive Ultz.Native.GLFW 3.4.0. Ordinary builds need no native
+compiler and do not deploy to the game. Consumer Checks cover app capture, nine gallery images
+(`--widgets <directory>`) and portable/all-RID output (`--packaging`); reusable implementation
+tests live in the producer repository. No global NuGet configuration/cache changes are needed.
+See [the consumer README](../ImGuiPlayground/README.md) for the exact archive/feed/managed inputs.
+
+The old native generator/full-fixture/exporter/qualification instructions are archived at
+purrtty `5d71c50943c13310d02066eb56b6fd4abc914790`, not current tooling. The producer retains
+the frozen production source/provenance; historical full-fixture evidence was not rerun.
+[Platform/archive status](../ImGuiPlayground/VALIDATE_PLATFORMS.md) distinguishes passing
+macOS consumer gates from pending Windows/Linux and manual desktop checks. Cross-publishing
+is not foreign-OS execution certification.
 
 ## CI / releases (`.github/workflows/release.yml`)
 

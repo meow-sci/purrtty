@@ -1,6 +1,7 @@
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using ImGuiPlayground;
+using XBrutal.ImGuiStandalone;
 
 // Focused scene and mouse checks on the real host/native widgets, not a UI automation layer.
 internal static class WidgetGalleryChecks
@@ -120,7 +121,7 @@ internal static class WidgetGalleryChecks
     private static CapturedFrame Capture(Action draw, string directory, string name)
     {
         // Host requires nonempty vertex/index geometry on each frame and checks GL errors.
-        CapturedFrame image = PlaygroundHost.Capture(draw);
+        CapturedFrame image = StandaloneHost.Capture(draw);
         Require(image.Rgba.Length == checked(image.Width * image.Height * 4), "Invalid capture size.");
         int brightPixels = 0, coloredPixels = 0;
         ReadOnlySpan<byte> pixels = image.Rgba.Span;
