@@ -16,6 +16,112 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 (`ValidateKSAAssemblies` in `Directory.Build.props`; projects with KSA refs set
 `RequiresKSAAssemblies=true`) instead of a CS0246 avalanche.
 
+## KSA compatibility baseline
+
+Reviewed on **2026-10-11** with the `upgrade-ksa` skill:
+
+- Previous validated snapshot: **2026.9.22.5482**, `ksa-game-assemblies` commit `a2f724f`.
+- Current snapshot: **2026.10.10.5554**, commit `935a32b4dbc34cbcd16e87d16cf9732eb90030c0`.
+  Remote `HEAD` and `main` both resolved to that commit during the review.
+- Compared the complete source and relevant asset changes from 5482 to 5554, including
+  intermediate build 5541. The current `version.json` alone covers only 5541 → 5554.
+- **Verdict: no compatibility code changes needed.** Local defaults and CI already use
+  the assemblies checkout's `current/dll/`; there is no purrTTY assembly-version pin to bump.
+
+Source paths below refer to `current/decomp/` or `current/Content/` in that assemblies
+repository at `935a32b`. Severity describes the impact on purrTTY, not the size of KSA's change.
+
+### Translucency and secondary viewports — Low
+
+- **KSA delta:** revisions 5530/5534 add atmosphere/terrain to secondary viewports and
+  reorganize global shader descriptors. `KSA/Program.cs:4468` now calls
+  `RenderAtmosphereOnly` before `RenderTranslucencyPass`; the latter passes `viewport.ShaderSlot`
+  into mesh drawing and transitions sky LUTs through a helper
+  (`KSA/SuperMeshRenderSystem.cs:459`). Ocean/glass use the new global descriptor layout.
+- **purrTTY location:** `InWorld/Patches/RenderTranslucencyPassPatch.cs:Postfix` and
+  `InWorld/Display/SharedQuadResource.cs` in `purrTTY.GameMod`.
+- **Coupling kind:** Harmony, render/behavioral, asset-id.
+- **Impact:** compatible. The patch signature, closed dynamic-rendering scope, attachment
+  formats/sample counts, and tracked read/write barriers remain valid. Main-flight ocean and
+  atmosphere still precede the quad; resolve, underwater and bloom still follow it. Secondary
+  atmosphere now also precedes the quad, with sun bloom before translucency as previously.
+  purrTTY owns its descriptor layout and does not consume KSA's global shader descriptors.
+  `Content/Core/DefaultAssets.xml` still registers `UnlitMeshVert`; both
+  `Content/Core/Shaders/Mesh/UnlitMesh` shaders retain their vertex/UV/push-constant interface.
+- **Change needed:** none. The existing use of the main camera for every viewport remains
+  a known limitation; this review does not add support for rendering from secondary cameras.
+
+### ImGui backend and texture creation — Low
+
+- **KSA delta:** `KSA/ImGuiBackendVulkanImpl.cs:1428` uses `Core.PipelineCaches.Shared`
+  when creating pipelines. `RenderCore/SimpleVkTexture.cs` improves two exception messages.
+- **purrTTY location:** `purrTTY.GameMod/InWorld/OffscreenImGuiBackend.cs` and
+  `purrTTY.Display/Ghostty/ImageTextureCache.cs`.
+- **Coupling kind:** render/behavioral.
+- **Impact:** compatible. The offscreen backend uses the game's device, which owns the
+  shared cache. Context/userdata handling, render-pass arguments, alpha blending, texture
+  registration/removal, and the main 1000-descriptor budget are unchanged. The secondary
+  backend's default 256-descriptor pool still meets its minimum. Font and ImGui IO bindings,
+  including the `KeySuper` reflection probe, are unchanged.
+- **Change needed:** none; purrTTY's own quad pipelines may continue using a null cache.
+
+### Camera positioning and vehicle lookup — Low
+
+- **KSA delta:** revisions 5485/5486/5518 position map, portrait and IVA cameras relative
+  to the followed object for precision at interstellar distances. Multi-star support changes
+  celestial selection and menu entries. `KSA/Camera.cs:164` adds `GetEffectiveNearbyCelestial`.
+- **purrTTY location:** `purrTTY.GameMod/InWorld/VehicleLookup.cs` and
+  `InWorld/Display/InWorldQuad.cs`.
+- **Coupling kind:** game-state, render/behavioral.
+- **Impact:** compatible. `Vehicle.GetMatrixAsmb2Ego`, `Part.PositionEgo`/`Asmb2Ego`, camera
+  matrix conventions, `Cursor.GetEgoRay`, numerics, and the live `CurrentSystem.All` vehicle
+  registry retain their contracts. Part split/merge/transfer still preserve instance identity.
+- **Change needed:** none; purrTTY already obtains the camera-relative transform through KSA.
+
+### Shutdown and reference assemblies — Low
+
+- **KSA delta:** `KSA/Program.cs:Dispose` waits for jobs before GPU teardown and destroys
+  global shader bindings later. Referenced managed DLL names remain available; the snapshot
+  also adds `imgui.dll` (commit `80956e5`).
+- **purrTTY location:** `purrTTY.GameMod/TerminalMod.cs:Unload`, in-world disposal paths,
+  `Directory.Build.props`, and project references.
+- **Coupling kind:** lifecycle, build-ref.
+- **Impact:** compatible. purrTTY still avoids device access during shutdown. All 18 distinct
+  managed KSA references exist. `imgui.dll` is handled by the existing conditional copy;
+  `glfw3.dll`/`VulkanEx.dll` remain absent from both snapshots and are optional copies.
+  StarMap.API remains 0.3.6; the loader itself is outside these KSA snapshots.
+- **Change needed:** none.
+
+### Unchanged contracts and validation
+
+`Program.OnKey`, `DispatchKeyEvent`, `OnMouseButton`, and `GameSettings.OnKeyAll` are
+unchanged, including release-triggered actions and the mouse-binding path. The fallback
+menu hook and `IGameViewportLifecycle.SetMenuBarInUse` remain valid. `ConsoleWindow` is
+unchanged and no console-print call sites changed: string/char output still reaches the
+patched sink; the existing byte-span/`ImString` bypass remains a future-upgrade check.
+Brutal Vulkan/ImGui/GLFW bindings, `RenderTarget`, `RenderImage`, `ImageBarrierInfo`,
+`RenderingPresets`, `Renderer`, `FontManager`, and `ShaderModuleUtils` retain their contracts.
+
+- Full Debug solution build against 5554: **0 warnings, 0 errors**. Deployment output was
+  directed to a scratch directory with `PURRTTY_DIST_DIR`.
+- Full NUnit suite on macOS arm64: **382 passed, 2 platform skips, 0 failed**.
+- Offline Harmony 2.4.2 check: **all six patches applied to six distinct targets**, using the
+  built mod and scratch copies of the current assemblies. Only the scratch `KSA.dll` had its
+  IL-only PE machine flag changed from x64 to arm64 so the host could load it. The source
+  snapshot was not modified. This checks patch binding, not execution of the game/render loop.
+- No live KSA GPU session or StarMap load/unload was exercised. Visual behavior and actual
+  loader lifecycle remain in-game smoke checks; headless tests do not establish those.
+
+| Touchpoint | Severity | Change needed |
+|---|---|---|
+| Translucency, secondary viewports, shader assets | Low; compatible | None |
+| ImGui backend, textures, fonts, reflection | Low; compatible | None |
+| Camera transforms, vehicle lookup, part identity | Low; compatible | None |
+| Shutdown and build references | Low; compatible | None |
+| Keyboard/mouse gates, menu, console capture | Unchanged | None |
+
+Overall verdict: **no changes needed to purrTTY code for KSA 5554**.
+
 ## CI / releases (`.github/workflows/release.yml`)
 
 Three jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,

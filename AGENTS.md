@@ -92,6 +92,12 @@ See gotcha 28 before touching the compositing.
 
 ## Build and Test Commands
 
+Last offline KSA compatibility validation: **2026.10.10.5554** (assemblies commit
+`935a32b`), compared with **2026.9.22.5482** (`a2f724f`). No compatibility code changes
+were needed; build, tests, source/asset review, and all six Harmony patch applications
+passed. See [docs/build-and-test.md](docs/build-and-test.md#ksa-compatibility-baseline)
+for the review and its runtime limits.
+
 ```bash
 dotnet build purrtty.slnx              # Build the whole solution
 dotnet build purrTTY.Terminal          # Backend only
