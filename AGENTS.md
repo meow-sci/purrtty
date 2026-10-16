@@ -38,14 +38,20 @@ frontend is a frontend swap, not a backend rewrite.
 purrTTY.Logging
 vendor/Ghostty.Vt              # vendored libghostty-vt binding (+ native lib) — MIT, see its README
 purrTTY.CustomShellContract    # ICustomShell, CustomShellRegistry, WellKnownShellEnvironment (namespace purrTTY.Core.Terminal)
+    │                          #   + the cross-mod terminal-launcher ABI (Launcher/, assembly version 1.1.0.0, POCOs +
+    │                          #   interfaces only): ITerminalLauncher, ITerminalHandle, TerminalLauncherRegistry,
+    │                          #   TerminalLaunchRequest, TerminalProgramSpec, TerminalWindowOptions,
+    │                          #   TerminalInWorldOptions, TerminalPlacementKind, TerminalLifecycleEvent
 purrTTY.CustomShells           # GameConsoleShell — refs CustomShellContract + KSA DLLs ONLY (deliberately
     │                          #   no purrTTY.Display: shell config arrives via launch-option env vars)
 purrTTY.Terminal               # BACKEND: surface + sessions + RELOCATED PTY layer (Pty/)
     │  refs vendor/Ghostty.Vt + purrTTY.CustomShellContract + purrTTY.Logging
     └── purrTTY.Terminal.Tests (NUnit integration tests)
 purrTTY.Display                # ImGui FRONTEND: refs purrTTY.Terminal + KSA ImGui DLLs
-    └── purrTTY.Display.Tests  (pure-logic theming/config tests — no ImGui)
-purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; StarMap hooks + Harmony patches
+    │                          #   Launcher/: pure launcher request mapper + handle state machine (no ImGui calls)
+    └── purrTTY.Display.Tests  (pure-logic theming/config/launcher-mapping tests — no ImGui)
+purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; StarMap hooks + Harmony patches;
+                               #   Launcher/ = the ITerminalLauncher implementation (main-thread pump + handles)
 ```
 
 > The PTY/process layer was relocated out of the retired `purrTTY.Core` project into
@@ -90,6 +96,19 @@ scene, like a 2D window): the off-screen target clears transparent, the backgrou
 shader** (`SharedQuadResource.QuadFragGlsl`, runtime-compiled via `RenderCore.ShaderModuleUtils`).
 See gotcha 28 before touching the compositing.
 
+### Cross-mod terminal launcher
+
+Another mod can open and manage purrTTY terminals from code through the contract assembly
+(`purrTTY.CustomShellContract/Launcher/`, namespace `purrTTY.Core.Terminal`): read
+`TerminalLauncherRegistry.Current` (null until purrTTY is up; `Changed` fires on publish/withdraw),
+`LaunchAsync(TerminalLaunchRequest)` to get an `ITerminalHandle` for a 2D window, a tab, or an in-world
+part/billboard terminal running a registered custom shell or a real process, and handle/launcher
+`Lifecycle` events (main thread). The implementation is `purrTTY.GameMod/Launcher/`
+(`TerminalLauncher`, `MainThreadPump`, one `TerminalHandle` subclass per placement); the pure request
+mapping and the handle state machine live in `purrTTY.Display/Launcher/` so they are unit-tested.
+Everything runs on the main thread inside `TerminalMod.OnAfterUi` — see gotchas 38-40 and the
+"Launch a terminal from another mod" recipe in [docs/how-to.md](docs/how-to.md).
+
 ## Build and Test Commands
 
 Last offline KSA compatibility validation: **2026.10.10.5554** (assemblies commit
@@ -128,8 +147,8 @@ in [docs/build-and-test.md](docs/build-and-test.md) for branch rules and retenti
 |------|----------|
 | [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
 | [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem, layouts |
-| [docs/gotchas.md](docs/gotchas.md) | 37 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, in-world part-follow tracking, `ImageEx` struct-dispose NRE, etc.) |
-| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, deploy |
+| [docs/gotchas.md](docs/gotchas.md) | 40 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, in-world part-follow tracking, `ImageEx` struct-dispose NRE, the cross-mod launcher's main-thread pump, `IsVisible` ordering, in-world click-also-press, etc.) |
+| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, launch a terminal from another mod, deploy |
 
 Other reference:
 - Solution: `purrtty.slnx`

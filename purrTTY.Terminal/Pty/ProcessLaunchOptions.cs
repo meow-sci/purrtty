@@ -98,6 +98,14 @@ public class ProcessLaunchOptions
     public string? StartupCommand { get; set; }
 
     /// <summary>
+    ///     Gets or sets opaque, shell-specific configuration for a custom game shell
+    ///     (<see cref="ShellType.CustomGame"/>). <see cref="CustomShellPtyBridge"/> copies the
+    ///     entries into <see cref="CustomShellStartOptions.Configuration"/> when the shell starts.
+    ///     Runtime only: never persisted (layouts do not store it). Ignored for real processes.
+    /// </summary>
+    public Dictionary<string, object> CustomShellConfiguration { get; set; } = new();
+
+    /// <summary>
     ///     Creates a copy with independent argument/environment collections.
     ///     Session managers clone before stamping per-session dimensions so a
     ///     shared default (or caller-cached) instance is never mutated.
@@ -113,6 +121,8 @@ public class ProcessLaunchOptions
         InitialWidth = InitialWidth,
         InitialHeight = InitialHeight,
         StartupCommand = StartupCommand,
+        // Shallow copy: the dictionary is independent, the values are shared.
+        CustomShellConfiguration = new Dictionary<string, object>(CustomShellConfiguration),
     };
 
     /// <summary>

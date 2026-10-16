@@ -44,6 +44,34 @@ public static class VehicleLookup
     }
 
     /// <summary>
+    ///     Finds the top-level part with the given game-assigned <c>Part.InstanceId</c> in any
+    ///     vehicle of the current system, together with the vehicle that owns it now. Instance ids
+    ///     are unique within a session, so there is at most one hit. Null when no such part exists
+    ///     (destroyed, or an id from a previous game run).
+    /// </summary>
+    public static (Vehicle Vehicle, Part Part)? FindByInstanceId(uint instanceId)
+    {
+        var system = Universe.CurrentSystem;
+        if (system == null)
+        {
+            return null;
+        }
+
+        foreach (var vehicle in system.All.UnsafeAsList().OfType<Vehicle>())
+        {
+            foreach (Part p in vehicle.Parts.Parts)
+            {
+                if (p.InstanceId == instanceId)
+                {
+                    return (vehicle, p);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     ///     Finds the vehicle that currently contains <paramref name="part"/> (a top-level
     ///     part or a sub-part), matched by <b>object identity</b>, or null if the part is
     ///     no longer attached to any vehicle (e.g. destroyed). Used to follow a

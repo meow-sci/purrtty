@@ -195,7 +195,11 @@ output being flushed); it runs on the windows-latest CI leg and self-skips elsew
 `purrTTY.CustomShells.Tests` cover the custom-shell layer (incl. the Brutal-version-sensitive
 `OnConsolePrint` capture, exercised against the real `ImColor8`/`ConsoleWindow` color fields).
 `purrTTY.Display.Tests` covers the pure-logic display pieces headlessly: theme TOML round-trip,
-all 18 bundled schemes parse, theme-override clamping, and `AtomicFile`.
+all 18 bundled schemes parse, theme-override clamping, `AtomicFile`, the layout TOML round-trip, and the
+cross-mod launcher's pure parts (`TerminalLaunchMapper`, `TerminalHandleState`, and `MainThreadPump`, whose
+source file is linked into the test assembly because the `purrTTY.GameMod` assembly itself needs the game;
+cross-thread cases wait on task completion with a deadline, never a fixed sleep). The contract's launcher
+POCO defaults and `TerminalLauncherRegistry` are covered by `purrTTY.CustomShellContract.Tests`.
 
 ### Tests must be quiet by default (MUST)
 

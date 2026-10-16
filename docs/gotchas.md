@@ -165,12 +165,13 @@
 
 18. **Every session is ticked every frame, the inbox is bounded, and a full inbox applies
     BACKPRESSURE before it ever drops.** The PTY pumps never sleep (gotcha 14) and a surface inbox
-    drains only inside `BuildFrame` (the whole inbox per tick — `MaxBytesPerTick == MaxInboxBytes`),
-    so any unticked session grows its inbox without bound. `TerminalWindow.Render` ticks **all
+    drains only inside `BuildFrame` (at most `MaxBytesPerTick` = 8 MiB per tick; the cap itself,
+    `MaxInboxBytes`, is 24 MiB, so a larger backlog carries over to the following ticks), so any
+    unticked session grows its inbox without bound. `TerminalWindow.Render` ticks **all
     tabs** (dirty tracking makes quiet ones nearly free) and `GhosttyTerminalController.Update` —
     which `TerminalMod.OnAfterUi` calls even while the terminal is hidden — drains hidden windows'
-    sessions at ~4 Hz on the same tick thread. When a pump-thread `Write` would overflow the 8 MiB
-    cap it now **waits for the drain** (`Monitor.Wait` on the inbox lock, 500 ms budget — two
+    sessions at ~4 Hz on the same tick thread. When a pump-thread `Write` would overflow the 24 MiB
+    cap (`MaxInboxBytes`) it now **waits for the drain** (`Monitor.Wait` on the inbox lock, 500 ms budget — two
     hidden-drain cycles): this propagates flow control end to end (SSH window → guest PTY → the
     gatOS 9p stream, which drops whole *frames* at the source) instead of shearing the byte stream
     — a mid-stream drop severs a kitty APC start and the remaining base64 prints into cells (seen
@@ -421,7 +422,12 @@
     the cache is **invalidated when the target ids change** (a live Configure-panel edit); and only a
     **specifically-targeted** part is followed — the empty-target "first part" default keeps re-resolving
     so it stays with the controlled/target vehicle rather than chasing a decoupled chunk. A tracked part
-    that vanishes from every vehicle (destroyed) drops the cache and re-resolves.
+    that vanishes from every vehicle (destroyed) drops the cache and re-resolves. A record may also
+    name its part by `TargetPartInstanceId` (`Part.InstanceId`, set by the cross-mod launcher, persisted
+    best-effort as `part_instance_id`): it wins over `TargetPartId`, is searched across **all** vehicles
+    (`VehicleLookup.FindByInstanceId`) so it still resolves after a decouple, and falls back to the
+    `TargetPartId` match when no part has that id (a new run assigns new ids). The manager/layout editors
+    clear it when the user hand-picks a different vehicle/part.
 
 32. **The in-world quad postfixes `SuperMeshRenderSystem.RenderTranslucencyPass`, not `RenderMainPass`
     — atmosphere/clouds/ocean draw between the two and don't know about non-depth-writing quads.**
@@ -589,3 +595,52 @@
     staying a struct. Both in-world catch sites log the full exception (`{ex}`, not `ex.Message`) so
     the next such failure names its frame instead of just "Object reference not set to an instance of
     an object."
+
+38. **The cross-mod launcher runs everything on the main thread inside `OnAfterUi`; `LaunchAsync`
+    never completes while `OnAfterUi` is not running.** Another mod's requests (`ITerminalLauncher`,
+    `purrTTY.CustomShellContract/Launcher/`) may arrive on any thread, but `TerminalWindow`
+    construction, `InWorldTerminalManager.Create` and `TerminalTargetRegistry` need the main thread
+    **and** an active ImGui frame. So `LaunchAsync` and every `ITerminalHandle` method enqueue onto a
+    `MainThreadPump` (`purrTTY.GameMod/Launcher/MainThreadPump.cs`) that `TerminalMod.OnAfterUi` drains
+    at the **very top** of its `try` (before the hotkey modal, `_controller.Render()` and
+    `_inWorld.OnAfterGui`), followed by `TerminalLauncher.Tick()` (polls what has no event: session
+    binding, in-world removal, tab removal, grid size). Rules that must not regress: a drain runs only
+    the items queued when it started (work posted from inside work runs next frame — no unbounded
+    loop); a call made while pumping runs inline (so a `Lifecycle` subscriber can launch/close
+    without a frame of delay); callbacks that fire off-thread (`TerminalSession.ProcessExited`) or inside
+    an ImGui window's own `Render` (`TerminalWindow.Closed`/`FocusChanged`, the in-world
+    `FocusChanged`) are **re-posted** to the pump before any state changes or consumer event fires, so
+    a consumer handler never runs inside a window's `Begin`/`End` scope; `Lifecycle` events are raised
+    on the main thread, one frame after the cause. Consequences for consumers: before purrTTY's
+    `OnFullyLoaded` there is no launcher (`TerminalLauncherRegistry.Current` is null — use `Changed`);
+    if the game stops calling after-GUI callbacks (or purrTTY unloads) a queued request waits — unload
+    cancels queued `RunAsync` tasks (`MainThreadPump.Shutdown`) so nothing hangs forever; `Created` (and
+    often `Started`) are raised before the `LaunchAsync` task even completes, so a handle-level
+    subscriber attached afterwards must check `IsOpen`/`IsRunning`/`ExitCode` instead of waiting for
+    them (the launcher-wide `Lifecycle` event sees everything). The pump source is compiled into
+    `purrTTY.Display.Tests` (`MainThreadPumpTests`) because the mod assembly itself needs the game.
+
+39. **Create the window BEFORE making the terminal UI visible (`IsVisible` ordering).**
+    `GhosttyTerminalController.IsVisible = true` with no open window spawns a **default-shell window**
+    (`OpenWindow()`); with windows open it calls `FocusTarget?.RequestFocus()`. The launcher therefore
+    always creates its window first (`CreateConfiguredWindow`) and only then sets `IsVisible` when
+    `TerminalWindowOptions.ShowTerminal` is true — flipping it first would leave a stray default shell
+    next to the requested one. Two follow-ons: `TerminalWindowOptions.Focus = false` is **best-effort**
+    (the window is created without a focus request and with `ImGuiWindowFlags.NoFocusOnAppearing`
+    via `TerminalWindowSettings.NoFocusOnAppearing`, but making a hidden UI visible re-focuses its
+    `FocusTarget`), and the cols×rows→pixels conversion of a new window is approximate (title strip height
+    from `ImGui.GetFrameHeight()`, cell from `InWorldTerminalRenderer.MeasureCell`); only a user resize
+    (or `NoResize` = false) tunes it. `FocusAsync` does not make a hidden UI visible.
+
+40. **An in-world click both focuses the quad and is forwarded as a mouse press ("click-also-press").**
+    In `InWorldTerminalManager.OnAfterGui`, `TickPicker()` handles `IsMouseClicked(Left)` first and
+    makes the nearest pickable quad `_focused`; the same frame then runs
+    `focused.Content.ProcessMouse(hitUv, io)`, whose `over && IsMouseClicked(Left)` branch encodes the
+    press for the program — but only when the program enabled mouse tracking
+    (`Surface.IsMouseTrackingEnabled`; otherwise the click merely focuses). So the click that gives a
+    quad focus also reaches a mouse-aware program as a **press**; its release is forwarded later as long
+    as the press was (`_appMousePressSent`, ungated), even if the cursor has left the quad. A program
+    that treats a press as an action (a door button) should act on **release**, or ignore a press whose
+    release never arrives. A click on empty world space (not over an ImGui widget) clears focus, and a
+    focused 2D window forcibly clears in-world focus every frame (so `TerminalInWorldOptions.Focus`
+    does not stick while a 2D terminal is active).

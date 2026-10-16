@@ -32,11 +32,31 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- WindowLayoutRecord exposes Brutal.Numerics.float2 (compile-time reference only; the
+             assembly itself is copied by the Brutal.Core.* glob below). -->
+        <Reference Include="Brutal.Core.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Core.Numerics.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Numerics.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <!-- The linked MainThreadPump source logs through ModLog (Brutal.Logging.LogCategory). -->
+        <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
         <!-- ThemeTomlFormat logs parse failures through purrTTY.Logging →
              Brutal.Logging; the Brutal.Core closure must be loadable at runtime. -->
         <None Include="$(KSAFolder)/Brutal.Core.*.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- MainThreadPump is the one GameMod launcher type with no game dependency (only ModLog), so
+             its source is compiled into this test assembly instead of referencing the KSA-bound mod. -->
+        <Compile Include="..\purrTTY.GameMod\Launcher\MainThreadPump.cs" Link="Launcher\MainThreadPump.cs"/>
     </ItemGroup>
 
     <ItemGroup>

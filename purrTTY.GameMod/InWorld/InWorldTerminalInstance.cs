@@ -6,6 +6,7 @@ using purrTTY.Display.Ghostty;
 using purrTTY.Display.Theming;
 using purrTTY.GameMod.InWorld.Display;
 using purrTTY.GameMod.InWorld.Settings;
+using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
 namespace purrTTY.GameMod.InWorld;
@@ -81,6 +82,15 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         }
     }
 
+    /// <summary>
+    ///     Raised when this instance gains (<c>true</c>) or loses (<c>false</c>) input focus —
+    ///     whenever the coordinator's focused instance changes (menu Focus, click-to-focus,
+    ///     removal of the focused instance, a 2D window taking the keyboard). Main thread only;
+    ///     raised from inside the coordinator's per-frame update, so subscribers should
+    ///     queue real work rather than touch ImGui state.
+    /// </summary>
+    public event Action<InWorldTerminalInstance, bool>? FocusChanged;
+
     public InWorldTerminalInstance(
         ThemeConfiguration config, ThemeCatalog catalog, InWorldTerminalRecord record, SharedQuadResource sharedQuad)
     {
@@ -138,6 +148,29 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
         // Register only after a successful build (the coordinator assigns a unique
         // name first, so this always succeeds).
         _registered = TerminalTargetRegistry.Register(this);
+    }
+
+    /// <summary>
+    ///     Coordinator hook: records the new focus state (driving the cursor style) and raises
+    ///     <see cref="FocusChanged"/> when it actually changed. A throwing subscriber must not
+    ///     break focus arbitration, so it is contained here.
+    /// </summary>
+    internal void NotifyFocusChanged(bool focused)
+    {
+        if (_hasFocus == focused)
+        {
+            return;
+        }
+
+        HasFocus = focused;
+        try
+        {
+            FocusChanged?.Invoke(this, focused);
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY in-world: FocusChanged handler threw for '{Name}': {ex.Message}");
+        }
     }
 
     /// <summary>Drives one off-screen terminal frame (which the world-space quad samples).</summary>

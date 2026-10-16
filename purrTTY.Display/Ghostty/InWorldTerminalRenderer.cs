@@ -33,8 +33,10 @@ namespace purrTTY.Display.Ghostty;
 /// Threading: <see cref="BuildUi"/> ticks the surface (<c>BuildFrame</c>) and must
 /// be called on the single game/render thread that owns the ImGui contexts — the
 /// in-world manager calls it from <c>OnAfterGui</c> with the secondary ImGui
-/// context current. Input/focus is wired in a later phase; for now the terminal
-/// renders unfocused (steady hollow cursor).
+/// context current. Input is wired: the in-world manager feeds the focused
+/// instance's keyboard through <see cref="TerminalInputEncoder"/> and, when the app
+/// enabled mouse tracking, forwards quad-hit mouse events via <see cref="ProcessMouse"/>;
+/// <see cref="HasFocus"/> drives the cursor (solid when focused, steady hollow box when not).
 /// </para>
 /// </summary>
 public sealed class InWorldTerminalRenderer : IDisposable
@@ -120,6 +122,19 @@ public sealed class InWorldTerminalRenderer : IDisposable
     public TerminalSession? ActiveSession => _sessions.ActiveSession;
 
     /// <summary>
+    /// Why the shell session could not be started (null while starting or once it started).
+    /// Written from the session-creation pool thread; the cross-mod launcher polls it.
+    /// </summary>
+    public string? SessionStartError => _sessionStartError;
+
+    /// <summary>
+    /// True once the session's surface has been sized to the off-screen texture's grid (after the
+    /// first tick with a session). Before that the surface still has the session's placeholder
+    /// size, which a grid observer must not mistake for a resize.
+    /// </summary>
+    public bool GridInitialized { get; private set; }
+
+    /// <summary>
     ///     Whether the in-world terminal currently has input focus. Drives the
     ///     cursor style (solid block when focused, steady hollow box when not).
     ///     Set by the in-world manager each frame.
@@ -165,6 +180,8 @@ public sealed class InWorldTerminalRenderer : IDisposable
             session.ProcessManager.Resize(cols, rows);
             _sessions.UpdateLastKnownTerminalDimensions(cols, rows);
         }
+
+        GridInitialized = true;
 
         // Mouse geometry for app-mouse cell mapping (see DrawContent's original notes).
         int mouseCellW = Math.Max(1, (int)_cellWidth);

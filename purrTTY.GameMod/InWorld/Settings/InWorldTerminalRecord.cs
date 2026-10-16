@@ -51,6 +51,17 @@ public sealed class InWorldTerminalRecord
     /// <summary>Id of the anchor top-level Part within the target vehicle. Empty = its first part.</summary>
     public string TargetPartId { get; set; } = "";
 
+    /// <summary>
+    ///     The game's per-session unique id of the anchor top-level part (<c>Part.InstanceId</c>).
+    ///     When set it is <b>preferred over</b> <see cref="TargetPartId"/> (which is ambiguous when
+    ///     several parts share a template id) and is matched across every vehicle, so it keeps
+    ///     resolving after the part moves to another vehicle; when no part has this id the
+    ///     <see cref="TargetPartId"/> match applies. Null (default) = not used. Session-scoped
+    ///     identity: layouts persist it best-effort (<c>part_instance_id</c>) but a new game run
+    ///     assigns new ids, so a stale value simply falls back to <see cref="TargetPartId"/>.
+    /// </summary>
+    public uint? TargetPartInstanceId { get; set; }
+
     /// <summary>Id of a SubPart of <see cref="TargetPartId"/> to anchor to instead. Empty = the part itself.</summary>
     public string TargetSubPartId { get; set; } = "";
 
@@ -106,6 +117,7 @@ public sealed class InWorldTerminalRecord
         Mode = Mode,
         TargetVehicleId = TargetVehicleId,
         TargetPartId = TargetPartId,
+        TargetPartInstanceId = TargetPartInstanceId,
         TargetSubPartId = TargetSubPartId,
         PartOffsetX = PartOffsetX,
         PartOffsetY = PartOffsetY,

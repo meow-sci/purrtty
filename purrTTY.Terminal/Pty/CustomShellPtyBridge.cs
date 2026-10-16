@@ -119,7 +119,10 @@ public class CustomShellPtyBridge : IProcessManager
                 InitialWidth = options.InitialWidth,
                 InitialHeight = options.InitialHeight,
                 WorkingDirectory = options.WorkingDirectory,
-                EnvironmentVariables = new Dictionary<string, string>(options.EnvironmentVariables)
+                EnvironmentVariables = new Dictionary<string, string>(options.EnvironmentVariables),
+                // Copy the entries (not the dictionary instance): the shell must not be able
+                // to mutate the launch options a restart will reuse.
+                Configuration = new Dictionary<string, object>(options.CustomShellConfiguration),
             };
 
             // Start the custom shell - the shell handles output asynchronously through

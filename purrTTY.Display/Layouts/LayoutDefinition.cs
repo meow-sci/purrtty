@@ -51,6 +51,13 @@ public sealed class TerminalEntry
     public string? VehicleId { get; set; }
     public string? PartId { get; set; }
     public string? PartName { get; set; }         // informational only (human re-pick aid)
+
+    /// <summary>
+    /// The game's per-session <c>Part.InstanceId</c> of the anchor part (<c>part_instance_id</c>);
+    /// preferred over <see cref="PartId"/> when it still resolves. Session-scoped identity, so
+    /// it is persisted best-effort (a new run assigns new ids and falls back to <see cref="PartId"/>).
+    /// </summary>
+    public uint? PartInstanceId { get; set; }
     public string? SubPartId { get; set; }
     public float? OffsetX { get; set; }
     public float? OffsetY { get; set; }

@@ -416,8 +416,19 @@ public sealed class LayoutManagerUI
         e.Shell.StartupCommand = NullIfEmpty(_entryStartup.ToString());
         if (e.Kind == TerminalKind.InWorld)
         {
-            e.VehicleId = _entryVehicle.ToString().Trim();
-            e.PartId = _entryPart.ToString().Trim();
+            string vehicleId = _entryVehicle.ToString().Trim();
+            string partId = _entryPart.ToString().Trim();
+
+            // A hand-edited vehicle/part id replaces a saved game instance id, which would
+            // otherwise keep taking precedence over the edit.
+            if (!string.Equals(e.VehicleId ?? string.Empty, vehicleId, StringComparison.Ordinal)
+                || !string.Equals(e.PartId ?? string.Empty, partId, StringComparison.Ordinal))
+            {
+                e.PartInstanceId = null;
+            }
+
+            e.VehicleId = vehicleId;
+            e.PartId = partId;
             e.SubPartId = _entrySubPart.ToString().Trim();
         }
 

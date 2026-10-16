@@ -54,6 +54,7 @@ public sealed class InWorldQuad : IDisposable
     private Part? _anchoredPart;
     private string? _anchoredForVehicleId;
     private string? _anchoredForPartId;
+    private uint? _anchoredForPartInstanceId;
     private string? _anchoredForSubPartId;
 
     /// <summary>
@@ -293,6 +294,7 @@ public sealed class InWorldQuad : IDisposable
         if (_anchoredPart != null && (
                 !string.Equals(_anchoredForVehicleId, _settings.TargetVehicleId, StringComparison.Ordinal) ||
                 !string.Equals(_anchoredForPartId, _settings.TargetPartId, StringComparison.Ordinal) ||
+                _anchoredForPartInstanceId != _settings.TargetPartInstanceId ||
                 !string.Equals(_anchoredForSubPartId, _settings.TargetSubPartId, StringComparison.Ordinal)))
         {
             _anchoredPart = null;
@@ -302,7 +304,7 @@ public sealed class InWorldQuad : IDisposable
         // when its vessel decouples/docks (KSA moves the same Part into the new vehicle).
         // The current owning vehicle (found by the search) drives the transform below, so a
         // decoupled part is placed in its new vessel's frame automatically.
-        if (_anchoredPart != null && !string.IsNullOrEmpty(_settings.TargetPartId))
+        if (_anchoredPart != null && HasSpecificPartTarget)
         {
             Vehicle? owner = VehicleLookup.FindContaining(_anchoredPart);
             if (owner != null)
@@ -314,25 +316,44 @@ public sealed class InWorldQuad : IDisposable
             _anchoredPart = null;
         }
 
-        Vehicle? vehicle = VehicleLookup.Resolve(_settings.TargetVehicleId);
-        if (vehicle == null) return false;
+        // A part addressed by its game-assigned InstanceId is unique per session, so look it up
+        // across every vehicle (it may already have been decoupled from the target vehicle).
+        Vehicle? vehicle;
+        Part? part;
+        if (_settings.TargetPartInstanceId is { } instanceId
+            && VehicleLookup.FindByInstanceId(instanceId) is { } hit)
+        {
+            vehicle = hit.Vehicle;
+            part = SelectSubPart(hit.Part);
+        }
+        else
+        {
+            vehicle = VehicleLookup.Resolve(_settings.TargetVehicleId);
+            if (vehicle == null) return false;
 
-        Part? part = ResolvePart(vehicle);
-        if (part == null) return false;
+            part = ResolvePart(vehicle);
+            if (part == null) return false;
+        }
 
         // Cache for follow-tracking only when a specific part was targeted; the empty-target
         // "first part" default keeps re-resolving so it stays with the controlled/target
         // vehicle rather than chasing a decoupled chunk.
-        if (!string.IsNullOrEmpty(_settings.TargetPartId))
+        if (HasSpecificPartTarget)
         {
             _anchoredPart = part;
             _anchoredForVehicleId = _settings.TargetVehicleId;
             _anchoredForPartId = _settings.TargetPartId;
+            _anchoredForPartInstanceId = _settings.TargetPartInstanceId;
             _anchoredForSubPartId = _settings.TargetSubPartId;
         }
 
         return ComputePartTransform(camera, vehicle, part, out model);
     }
+
+    // True when the record names a specific part (by id or by game instance id) rather than
+    // relying on the "first part of the target vehicle" default.
+    private bool HasSpecificPartTarget =>
+        !string.IsNullOrEmpty(_settings.TargetPartId) || _settings.TargetPartInstanceId.HasValue;
 
     private bool ComputePartTransform(Camera camera, Vehicle vehicle, Part part, out float4x4 model)
     {
@@ -393,12 +414,12 @@ public sealed class InWorldQuad : IDisposable
     private Part? ResolvePart(Vehicle vehicle)
     {
         Part? topLevel = ResolveTopLevelPart(vehicle);
-        if (topLevel == null)
-        {
-            return null;
-        }
+        return topLevel == null ? null : SelectSubPart(topLevel);
+    }
 
-        // A selected sub-part anchors to it instead of the whole part.
+    // A selected sub-part anchors to it instead of the whole part.
+    private Part SelectSubPart(Part topLevel)
+    {
         if (!string.IsNullOrEmpty(_settings.TargetSubPartId))
         {
             foreach (Part sub in topLevel.SubParts)
@@ -415,6 +436,18 @@ public sealed class InWorldQuad : IDisposable
 
     private Part? ResolveTopLevelPart(Vehicle vehicle)
     {
+        // The game-assigned instance id is unique, so it wins over the (possibly shared) id.
+        if (_settings.TargetPartInstanceId is { } instanceId)
+        {
+            foreach (Part p in vehicle.Parts.Parts)
+            {
+                if (p.InstanceId == instanceId)
+                {
+                    return p;
+                }
+            }
+        }
+
         if (!string.IsNullOrEmpty(_settings.TargetPartId))
         {
             foreach (Part p in vehicle.Parts.Parts)

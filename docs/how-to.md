@@ -112,6 +112,126 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
   never touches disk while drawing), and rewritten only when a terminal is actually created with a
   non-blank startup command.
 
+## Launch a terminal from another mod
+Another mod can open and manage purrTTY terminals — a 2D window, a tab, or an in-world quad on a vehicle
+part or the camera — running a registered custom shell or a real process, and observe them through
+handles and lifecycle events. The ABI is `purrTTY.CustomShellContract` (namespace `purrTTY.Core.Terminal`,
+`Launcher/` folder, assembly version 1.1.0.0+); purrTTY does all the main-thread/ImGui work.
+
+1. **Reference the contract.** Compile against `purrTTY.CustomShellContract.dll` and import it from
+   purrTTY's ALC so both mods share one `TerminalLauncherRegistry` (same recipe as registering a custom
+   shell):
+   ```toml
+   [[StarMap.ModDependencies]]
+   ModId = "purrTTY"
+   Optional = true
+   ImportedAssemblies = ["purrTTY.CustomShellContract", "purrTTY.Logging"]
+   ```
+2. **Get the launcher — it may not exist yet.** `TerminalLauncherRegistry.Current` is null until purrTTY has
+   finished loading (and again after it unloads). Null-check it and subscribe to `Changed` to attach late
+   or detach; the handler runs on the thread that published, so start work with `_ = LaunchAsync(...)`
+   instead of blocking inside it.
+   ```csharp
+   using purrTTY.Core.Terminal;
+
+   static ITerminalLauncher? _launcher;
+
+   [StarMapAllModsLoaded]
+   public void OnAllModsLoaded()
+   {
+       TerminalLauncherRegistry.Changed += OnLauncherChanged;
+       OnLauncherChanged(TerminalLauncherRegistry.Current);   // purrTTY may already be up
+   }
+
+   static void OnLauncherChanged(ITerminalLauncher? launcher)
+   {
+       _launcher = launcher;   // null = purrTTY went away: drop handles, stop launching
+       if (launcher is { IsAvailable: true }) { /* place the terminals this mod owns */ }
+   }
+   ```
+3. **A 2D window running your custom shell.** Register the shell first
+   (`CustomShellRegistry.Instance.RegisterShell(id, factory)`); its factory takes no arguments, so pass the
+   instance identity through `Environment` (it arrives in `CustomShellStartOptions.EnvironmentVariables`;
+   `Configuration` is forwarded to `CustomShellStartOptions.Configuration`). `Cols`/`Rows` size the window
+   from the theme's font cell (approximate), `Title` is the tab title.
+   ```csharp
+   ITerminalHandle window = await _launcher!.LaunchAsync(new TerminalLaunchRequest
+   {
+       Placement = TerminalPlacementKind.Window,
+       Program = new TerminalProgramSpec
+       {
+           CustomShellId = "ksa-script",
+           Environment = { ["KSA_SCRIPT"] = scriptPath },
+       },
+       Window = new TerminalWindowOptions { Name = "Door Panel", Title = "Door Panel", Cols = 60, Rows = 16, NoResize = true },
+   });
+   ```
+4. **A tab running a real process** (here `nvim`; give an absolute path — a game started from a desktop
+   environment often has a minimal `PATH`, notably on macOS). A tab joins the focused window (or opens a
+   window when none is open). Observe the real exit code:
+   ```csharp
+   ITerminalHandle tab = await _launcher!.LaunchAsync(new TerminalLaunchRequest
+   {
+       Placement = TerminalPlacementKind.Tab,
+       Program = new TerminalProgramSpec
+       {
+           Program = "/opt/homebrew/bin/nvim",
+           Arguments = { "notes.txt" },
+           WorkingDirectory = notesDir,
+       },
+       Window = new TerminalWindowOptions { Title = "notes.txt" },
+   });
+
+   var exited = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+   tab.Lifecycle += (h, e) => { if (e == TerminalLifecycleEvent.Exited) exited.TrySetResult(h.ExitCode); };
+   if (!tab.IsRunning && tab.ExitCode is { } code) exited.TrySetResult(code);   // exited before we subscribed
+   int? exitCode = await exited.Task;   // the tab stays open; CloseAsync() or the user closes it
+   ```
+5. **An in-world terminal on a part**, addressed by the game's `Part.InstanceId` (preferred over `PartId`,
+   looked up across all vehicles, session-scoped). The handle can then be moved, resized and re-themed live:
+   ```csharp
+   ITerminalHandle panel = await _launcher!.LaunchAsync(new TerminalLaunchRequest
+   {
+       Placement = TerminalPlacementKind.InWorldPart,
+       Program = new TerminalProgramSpec { CustomShellId = "ksa-script", Environment = { ["KSA_SCRIPT"] = scriptPath } },
+       InWorld = new TerminalInWorldOptions
+       {
+           Name = "Door Panel",
+           Cols = 40, Rows = 12,
+           PartInstanceId = part.InstanceId,        // KSA.Part.InstanceId; VehicleId "" = controlled vehicle
+           OffsetZ = 0.05f, WidthMeters = 0.6f, HeightMeters = 0.2f,
+           BackgroundOpacity = 0.85f,
+       },
+   });
+   await panel.SetPlacementAsync(new TerminalInWorldOptions { PartInstanceId = part.InstanceId, OffsetX = 0.1f, OffsetZ = 0.05f, WidthMeters = 0.6f, HeightMeters = 0.2f });
+   await panel.ResizeAsync(48, 14);
+   await panel.ApplyThemeAsync("Solarized Dark");
+   panel.WriteInput("hello\r"u8.ToArray());
+   await panel.CloseAsync();
+   ```
+Things to know:
+- **Threads.** `LaunchAsync` and every handle method may be called from any thread; the work runs at the
+  start of the next frame on the main thread and the task completes after it. `Lifecycle` events are raised
+  on the **main thread** (one frame after the cause) — marshal yourself if you need another thread, and do not
+  block in a handler. Properties (`IsOpen`, `IsRunning`, `ExitCode`, `Cols`, `Rows`, `Name`) are safe from any
+  thread. If the game is not running frames, queued tasks wait (gotcha 38); `IsAvailable` + `Changed` are the guards.
+- **Events vs. state.** `Created` (and often `Started`) fire before your `await` resumes, so a handle-level
+  subscriber should read `IsOpen`/`IsRunning`/`ExitCode` after subscribing; `ITerminalLauncher.Lifecycle` sees
+  everything. `Exited` is not `Closed`: the terminal stays open showing the final output until it is closed.
+  `Resized` is not raised for the first grid measurement.
+- **`ShowTerminal` ordering.** The launcher creates the window first and only then makes the terminal UI
+  visible (making it visible first would spawn an unwanted default shell — gotcha 39). Set
+  `ShowTerminal = false` to open a window while the UI stays hidden; `Focus = false` is best-effort.
+- **Names.** A requested `Name` that is taken becomes `Name 2`, `Name 3`, …; read `handle.Name`
+  (`launcher.Find(name)` is case-insensitive). A tab is not a registry entry: its handle name is the
+  requested one or `<window>#<8 hex of Id>`.
+- **Arguments.** `Program.Arguments` reach a real process (and the default shell); custom shells get no
+  argument vector — use `Environment`/`Configuration`.
+- **In-world clicks** both focus the quad and arrive as a mouse press when the program enabled mouse
+  tracking — act on the release (gotcha 40). In-world focus is cleared while a 2D terminal is focused.
+- **Where it lives.** Contract: `purrTTY.CustomShellContract/Launcher/`; implementation:
+  `purrTTY.GameMod/Launcher/`; pure mapping + state machine (unit-tested): `purrTTY.Display/Launcher/`.
+
 ## Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.
    `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed

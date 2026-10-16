@@ -172,7 +172,7 @@ public sealed class InWorldTerminalManager : IDisposable
 
         if (ReferenceEquals(_focused, instance))
         {
-            _focused = null;
+            SetFocused(null);
         }
 
         instance.HasFocus = false;
@@ -185,8 +185,39 @@ public sealed class InWorldTerminalManager : IDisposable
         }
     }
 
-    /// <summary>Gives input focus to a specific instance (the manager list's billboard focus path).</summary>
-    public void Focus(InWorldTerminalInstance? instance) => _focused = instance;
+    /// <summary>
+    ///     Gives input focus to a specific instance (the manager list's billboard focus path, and
+    ///     the cross-mod launcher); <c>null</c> clears focus. An instance that is no longer live
+    ///     (already removed) is ignored.
+    /// </summary>
+    public void Focus(InWorldTerminalInstance? instance)
+    {
+        if (instance != null && !_instances.Contains(instance))
+        {
+            return;
+        }
+
+        SetFocused(instance);
+    }
+
+    /// <summary>
+    ///     The single place the focused instance changes. Updates the losing and gaining
+    ///     instances' focus state immediately and raises their
+    ///     <see cref="InWorldTerminalInstance.FocusChanged"/> events (old instance first, so a
+    ///     subscriber never sees two focused terminals). A no-op when nothing changes.
+    /// </summary>
+    private void SetFocused(InWorldTerminalInstance? next)
+    {
+        var previous = _focused;
+        if (ReferenceEquals(previous, next))
+        {
+            return;
+        }
+
+        _focused = next;
+        previous?.NotifyFocusChanged(false);
+        next?.NotifyFocusChanged(true);
+    }
 
     /// <summary>
     ///     Replaces an existing in-world terminal with one rebuilt from
@@ -210,7 +241,7 @@ public sealed class InWorldTerminalManager : IDisposable
         var created = Create(newRecord);
         if (created != null && wasFocused)
         {
-            _focused = created;
+            SetFocused(created);
         }
 
         return created;
@@ -276,7 +307,7 @@ public sealed class InWorldTerminalManager : IDisposable
         // this frame, no quad does (prevents double-input).
         if (GhosttyTerminalController.IsAnyTerminalActive)
         {
-            _focused = null;
+            SetFocused(null);
         }
 
         // Click-to-focus: nearest part-mode quad under the cursor.
@@ -369,11 +400,11 @@ public sealed class InWorldTerminalManager : IDisposable
 
         if (nearest != null)
         {
-            _focused = nearest;
+            SetFocused(nearest);
         }
         else if (!ImGui.GetIO().WantCaptureMouse)
         {
-            _focused = null;
+            SetFocused(null);
         }
     }
 
@@ -446,7 +477,7 @@ public sealed class InWorldTerminalManager : IDisposable
         _disposed = true;
 
         Active = false;
-        _focused = null;
+        _focused = null; // direct: no FocusChanged events during shutdown
         Instance = null;
 
         // The mod only unloads at game shutdown, by which point the game has already

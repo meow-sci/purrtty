@@ -8,6 +8,10 @@
     <AssemblyName>purrTTY.CustomShellContract</AssemblyName>
     <Description>Custom shell contract interfaces for purrTTY terminal emulator</Description>
     <PackageId>purrTTY.CustomShellContract</PackageId>
+    <!-- 1.1.0.0: adds the cross-mod terminal launcher ABI (Launcher/ folder). Purely additive, so
+         consumers compiled against 1.0.0.0 still bind (the runtime accepts a higher assembly version). -->
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
   </PropertyGroup>
 
     <ItemGroup>

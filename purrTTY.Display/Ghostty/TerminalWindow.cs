@@ -31,6 +31,12 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
     /// <summary>Thickness of the focus/hover border overlay.</summary>
     private const float BorderThickness = 2f;
 
+    /// <summary>
+    /// The window padding (px, per side) the window is rendered with — zero, so the grid fills the
+    /// content region. The launcher uses it to convert a requested cols×rows into a window size.
+    /// </summary>
+    public const float ContentPadding = 0f;
+
     /// <summary>ImGui popup id for the grid's right-click copy/paste context menu.</summary>
     private const string GridContextMenuId = "##grid_context";
 
@@ -48,7 +54,11 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
     // empty window. Written from the session-creation pool thread.
     private volatile string? _sessionStartError;
     private bool _disposed;
+    private bool _closedRaised;
     private Guid? _lastActiveSessionId;
+
+    // Sessions whose surface this window has already sized to its pane (render thread only).
+    private readonly HashSet<Guid> _sizedSessions = new();
     private (float2 Pos, float2 Size)? _pendingPlacement;
 
     // Interactive-resize tracking for the grid snap (see TrackResizeSnap).
@@ -74,6 +84,13 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
     public bool HasFocus => _hasFocus;
 
     /// <summary>
+    /// Why the initial session could not be started (null while starting or after it started).
+    /// Written from the session-creation pool thread; the cross-mod launcher polls it to report
+    /// a start failure.
+    /// </summary>
+    public string? SessionStartError => _sessionStartError;
+
+    /// <summary>
     /// Stable, unique, user-facing identity for this window in the
     /// <see cref="TerminalTargetRegistry"/> (used by the theme picker). Auto-assigned
     /// ("Terminal", "Terminal 2", …) at construction and editable via
@@ -94,6 +111,19 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 
     public string Title => Sessions.ActiveSession?.Title ?? "purrTTY";
 
+    /// <summary>
+    /// The window's measured font cell size in pixels. Only meaningful once the window has rendered
+    /// at least once (<see cref="HasObservedGeometry"/>); before that it is a placeholder.
+    /// </summary>
+    public (float Width, float Height) CellSize => (_cellWidth, _cellHeight);
+
+    /// <summary>
+    /// True once this window has sized the given session's surface to its pane (it does so on the
+    /// session's first render as the active tab). Before that the surface still has the session's
+    /// placeholder size, which a grid observer must not mistake for a resize. Main thread only.
+    /// </summary>
+    public bool IsSessionSized(Guid sessionId) => _sizedSessions.Contains(sessionId);
+
     public float2 LastKnownPosition { get; private set; }
     public float2 LastKnownSize { get; private set; }
     public bool HasObservedGeometry { get; private set; }
@@ -103,6 +133,13 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 
     /// <summary>Raised when this window gains or loses ImGui focus.</summary>
     public event Action<TerminalWindow, bool>? FocusChanged;
+
+    /// <summary>
+    /// Raised exactly once when the window is closed — by <see cref="Close"/> (the "x" button,
+    /// closing the last tab) or, when that never happened, by <see cref="Dispose"/> (controller
+    /// teardown). Raised on the calling (main) thread; a throwing handler is logged and ignored.
+    /// </summary>
+    public event Action<TerminalWindow>? Closed;
 
     /// <summary>
     /// Raised whenever user input (key, mouse report, paste) was sent to the
@@ -185,8 +222,33 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
         }
     }
 
-    /// <summary>Closes the window; its sessions are disposed by the controller.</summary>
-    public void Close() => IsOpen = false;
+    /// <summary>
+    /// Closes the window; its sessions are disposed by the controller. Raises <see cref="Closed"/>
+    /// (once).
+    /// </summary>
+    public void Close()
+    {
+        IsOpen = false;
+        RaiseClosed();
+    }
+
+    private void RaiseClosed()
+    {
+        if (_closedRaised)
+        {
+            return;
+        }
+
+        _closedRaised = true;
+        try
+        {
+            Closed?.Invoke(this);
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Debug($"TerminalWindow: Closed handler threw: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Records why a session could not be started so the window can display it
@@ -307,6 +369,9 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
         float fontSize = Settings.FontSize;
         var fonts = ResolveFontsCached(fontSize);
 
+        // A per-window override (cross-mod launcher) beats the global "hide UI when not hovered".
+        hideChromeWhenNotHovered = Settings.HideChromeWhenNotHovered ?? hideChromeWhenNotHovered;
+
         // Lock mode: while unfocused the window takes no mouse input at all, so
         // clicks (and hover) fall through to whatever is beneath — game world or
         // game UI. A pending focus request (hot zone click, menu action, toggle
@@ -343,7 +408,7 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
             colorPushes += 4;
         }
 
-        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(0f, 0f));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new float2(ContentPadding, ContentPadding));
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, showChrome ? 1f : 0f);
 
         if (_pendingPlacement is { } placement)
@@ -374,6 +439,16 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 
         var flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
                     | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.MenuBar;
+        if (Settings.NoResize)
+        {
+            flags |= ImGuiWindowFlags.NoResize;
+        }
+
+        if (Settings.NoFocusOnAppearing)
+        {
+            flags |= ImGuiWindowFlags.NoFocusOnAppearing;
+        }
+
         if (clickThrough)
         {
             // NoMouseInputs removes the window from ImGui's hover resolution
@@ -428,6 +503,8 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
                 session.ProcessManager.Resize(cols, rows);
                 Sessions.UpdateLastKnownTerminalDimensions(cols, rows);
             }
+
+            _sizedSessions.Add(session.Id);
 
             // The engine's mouse encoder maps pixels to cells by dividing by
             // *integer* cell metrics, so the surface size must be the integer
@@ -489,7 +566,7 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
         else if (_hadSessions && Sessions.SessionCount == 0)
         {
             // The last tab was closed; retire the window.
-            IsOpen = false;
+            Close();
         }
         else if (_sessionStartError is { } startError && avail.X > 0f && avail.Y > 0f)
         {
@@ -686,9 +763,14 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
         return label;
     }
 
-    private void CloseSession(Guid sessionId)
+    /// <summary>
+    /// Closes one tab's session now (synchronously, on the calling tick thread — see the note in the
+    /// body). Closing the last tab retires the window on its next render.
+    /// </summary>
+    public void CloseSession(Guid sessionId)
     {
         _tabLabels.Remove(sessionId);
+        _sizedSessions.Remove(sessionId);
         try
         {
             // Deliberately synchronous on the tick thread: closing a session
@@ -791,8 +873,16 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 
         _disposed = true;
         IsOpen = false;
-        TerminalTargetRegistry.Unregister(this);
-        _imageCache?.Dispose();
-        Sessions.Dispose();
+        try
+        {
+            TerminalTargetRegistry.Unregister(this);
+            _imageCache?.Dispose();
+            Sessions.Dispose();
+        }
+        finally
+        {
+            // Teardown path for a window nobody Close()d (controller disposal / CloseWindow).
+            RaiseClosed();
+        }
     }
 }

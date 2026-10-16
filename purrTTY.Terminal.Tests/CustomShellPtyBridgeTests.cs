@@ -34,6 +34,59 @@ public sealed class CustomShellPtyBridgeTests
     }
 
     [Test]
+    public async Task StartAsync_ForwardsCustomShellConfiguration_AsACopy()
+    {
+        using var shell = new StubShell();
+        using var bridge = new CustomShellPtyBridge(shell);
+
+        var options = ProcessLaunchOptions.CreateCustomGame("StubShell");
+        options.CustomShellConfiguration["mode"] = "kiosk";
+        options.CustomShellConfiguration["retries"] = 3;
+
+        await bridge.StartAsync(options);
+
+        var received = shell.StartOptions!.Configuration;
+        Assert.That(received, Has.Count.EqualTo(2));
+        Assert.That(received["mode"], Is.EqualTo("kiosk"));
+        Assert.That(received["retries"], Is.EqualTo(3));
+
+        // The shell gets its own dictionary: mutating it must not leak into the launch
+        // options a later restart reuses.
+        Assert.That(received, Is.Not.SameAs(options.CustomShellConfiguration));
+        received["mode"] = "changed";
+        Assert.That(options.CustomShellConfiguration["mode"], Is.EqualTo("kiosk"));
+    }
+
+    [Test]
+    public async Task StartAsync_WithoutCustomShellConfiguration_PassesEmptyConfiguration()
+    {
+        using var shell = new StubShell();
+        using var bridge = new CustomShellPtyBridge(shell);
+
+        await bridge.StartAsync(ProcessLaunchOptions.CreateCustomGame("StubShell"));
+
+        Assert.That(shell.StartOptions!.Configuration, Is.Empty);
+    }
+
+    [Test]
+    public void ProcessLaunchOptions_Clone_CopiesCustomShellConfiguration()
+    {
+        var original = ProcessLaunchOptions.CreateCustomGame("StubShell");
+        original.CustomShellConfiguration["mode"] = "kiosk";
+
+        var clone = original.Clone();
+
+        Assert.That(clone.CustomShellConfiguration, Is.Not.SameAs(original.CustomShellConfiguration));
+        Assert.That(clone.CustomShellConfiguration["mode"], Is.EqualTo("kiosk"));
+
+        // Independent dictionaries: edits to one side do not show on the other.
+        clone.CustomShellConfiguration["extra"] = 1;
+        original.CustomShellConfiguration["mode"] = "changed";
+        Assert.That(original.CustomShellConfiguration.ContainsKey("extra"), Is.False);
+        Assert.That(clone.CustomShellConfiguration["mode"], Is.EqualTo("kiosk"));
+    }
+
+    [Test]
     public async Task StartAsync_WhileStarting_OrRunning_Throws()
     {
         using var shell = new StubShell();

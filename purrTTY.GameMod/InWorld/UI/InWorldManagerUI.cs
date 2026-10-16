@@ -607,8 +607,12 @@ public sealed class InWorldManagerUI
     {
         if (ImGuiWidgets.BeginFormTableFixed("##iw_part_form", labelWidth))
         {
+            // Picking a vehicle/part by hand drops a programmatic InstanceId anchor, which would
+            // otherwise keep overriding the picker's choice.
             DrawVehiclePartPicker(s.TargetVehicleId, s.TargetPartId, s.TargetSubPartId,
-                v => s.TargetVehicleId = v, p => s.TargetPartId = p, sp => s.TargetSubPartId = sp);
+                v => { s.TargetVehicleId = v; s.TargetPartInstanceId = null; },
+                p => { s.TargetPartId = p; s.TargetPartInstanceId = null; },
+                sp => s.TargetSubPartId = sp);
             DragRow("Offset X (m)", "##px", s.PartOffsetX, 0.05f, -200f, 200f, v => s.PartOffsetX = v);
             DragRow("Offset Y (m)", "##py", s.PartOffsetY, 0.05f, -200f, 200f, v => s.PartOffsetY = v);
             DragRow("Offset Z (m)", "##pz", s.PartOffsetZ, 0.05f, -200f, 200f, v => s.PartOffsetZ = v);

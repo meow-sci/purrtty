@@ -42,6 +42,29 @@ public sealed class TerminalWindowSettings
     /// </summary>
     public bool LockMode { get; set; }
 
+    /// <summary>
+    /// Runtime option (not persisted and not part of a theme): prevents the user from
+    /// resizing the window (<c>ImGuiWindowFlags.NoResize</c>). Programmatic placement
+    /// (<see cref="TerminalWindow.RequestPlacement"/>) still applies. Set by the cross-mod
+    /// terminal launcher.
+    /// </summary>
+    public bool NoResize { get; set; }
+
+    /// <summary>
+    /// Runtime option (not persisted, not part of a theme): the window does not take ImGui
+    /// focus when it first appears (<c>ImGuiWindowFlags.NoFocusOnAppearing</c>). Set by the
+    /// cross-mod terminal launcher for a terminal opened with <c>Focus = false</c>.
+    /// </summary>
+    public bool NoFocusOnAppearing { get; set; }
+
+    /// <summary>
+    /// Runtime per-window override (not persisted, not part of a theme) of the global
+    /// "hide UI when not hovered" setting: <c>true</c> hides the menu strip / tabs / border
+    /// while the mouse is away, <c>false</c> keeps them always visible, <c>null</c> follows the
+    /// global setting. Set by the cross-mod terminal launcher.
+    /// </summary>
+    public bool? HideChromeWhenNotHovered { get; set; }
+
     /// <summary>Show the click-to-focus hot zone while lock mode has the window click-through.</summary>
     public bool HotZoneEnabled { get; set; } = true;
 

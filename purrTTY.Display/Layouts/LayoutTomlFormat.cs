@@ -19,6 +19,7 @@ namespace purrTTY.Display.Layouts;
 /// <code>
 /// [layout]      name / description
 /// [[terminal]]  name / kind ("window"|"inworld") / theme / placement
+///               (in-world anchor: vehicle_id / part_id / part_instance_id / sub_part_id)
 ///   [terminal.shell] shell_type / custom_shell_path / custom_shell_id / arguments /
 ///                    working_directory / startup_command
 /// </code>
@@ -89,6 +90,7 @@ internal static class LayoutTomlFormat
             VehicleId = GetString(t, "vehicle_id"),
             PartId = GetString(t, "part_id"),
             PartName = GetString(t, "part_name"),
+            PartInstanceId = GetUInt(t, "part_instance_id"),
             SubPartId = GetString(t, "sub_part_id"),
             OffsetX = GetFloat(t, "offset_x"),
             OffsetY = GetFloat(t, "offset_y"),
@@ -161,6 +163,7 @@ internal static class LayoutTomlFormat
             AppendStr(sb, "vehicle_id", e.VehicleId);
             AppendStr(sb, "part_id", e.PartId);
             AppendStr(sb, "part_name", e.PartName);
+            AppendUInt(sb, "part_instance_id", e.PartInstanceId);
             AppendStr(sb, "sub_part_id", e.SubPartId);
             AppendNum(sb, "offset_x", e.OffsetX);
             AppendNum(sb, "offset_y", e.OffsetY);
@@ -226,6 +229,14 @@ internal static class LayoutTomlFormat
         }
     }
 
+    private static void AppendUInt(StringBuilder sb, string key, uint? value)
+    {
+        if (value is { } v)
+        {
+            sb.Append(key).Append(" = ").Append(v.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
+    }
+
     private static void AppendNum(StringBuilder sb, string key, float? value)
     {
         if (value is { } v)
@@ -278,6 +289,13 @@ internal static class LayoutTomlFormat
 
     private static int? GetInt(TomlTable table, string key)
         => table.TryGetValue(key, out var value) && value is long l ? (int)l : null;
+
+    // Tolerant: only an integer within 0..uint.MaxValue is accepted; a negative,
+    // oversized, or non-integer value is ignored (treated as absent) rather than failing the load.
+    private static uint? GetUInt(TomlTable table, string key)
+        => table.TryGetValue(key, out var value) && value is long l && l >= 0 && l <= uint.MaxValue
+            ? (uint)l
+            : null;
 
     private static float? GetFloat(TomlTable table, string key)
         => table.TryGetValue(key, out var value)

@@ -154,6 +154,76 @@ public sealed class LayoutTomlTests
     }
 
     [Test]
+    public void PartInstanceId_RoundTrips_AndIsWrittenAsPartInstanceIdKey()
+    {
+        var catalog = new LayoutCatalog();
+        var layout = SampleLayout();
+        layout.Terminals[0].PartInstanceId = 4000000000u; // > int.MaxValue: must survive as uint
+        catalog.Save(layout);
+
+        var loaded = catalog.Load("Flight Ops")!;
+
+        Assert.That(loaded.Terminals[0].PartInstanceId, Is.EqualTo(4000000000u));
+        Assert.That(loaded.Terminals[0].PartId, Is.EqualTo("CommandPod"), "the textual id still round-trips beside it");
+        Assert.That(
+            File.ReadAllText(Path.Combine(LayoutCatalog.GetLayoutsDirectory(), "Flight Ops.toml")),
+            Does.Contain("part_instance_id = 4000000000\n"));
+    }
+
+    [Test]
+    public void PartInstanceId_ZeroAndMaxValue_RoundTrip()
+    {
+        var catalog = new LayoutCatalog();
+        var layout = SampleLayout();
+        layout.Terminals[0].PartInstanceId = 0u;
+        layout.Header.Name = "Zero";
+        catalog.Save(layout);
+        layout.Terminals[0].PartInstanceId = uint.MaxValue;
+        layout.Header.Name = "Max";
+        catalog.Save(layout);
+
+        Assert.That(catalog.Load("Zero")!.Terminals[0].PartInstanceId, Is.EqualTo(0u));
+        Assert.That(catalog.Load("Max")!.Terminals[0].PartInstanceId, Is.EqualTo(uint.MaxValue));
+    }
+
+    [Test]
+    public void PartInstanceId_Absent_IsOmittedFromFile_AndLoadsAsNull()
+    {
+        var catalog = new LayoutCatalog();
+        catalog.Save(SampleLayout());
+
+        var loaded = catalog.Load("Flight Ops")!;
+
+        Assert.That(loaded.Terminals[0].PartInstanceId, Is.Null);
+        Assert.That(loaded.Terminals[1].PartInstanceId, Is.Null);
+        Assert.That(
+            File.ReadAllText(Path.Combine(LayoutCatalog.GetLayoutsDirectory(), "Flight Ops.toml")),
+            Does.Not.Contain("part_instance_id"));
+    }
+
+    [TestCase("-1")]
+    [TestCase("4294967296")] // uint.MaxValue + 1
+    [TestCase("\"12\"")]
+    [TestCase("12.5")]
+    [TestCase("true")]
+    public void PartInstanceId_InvalidValue_IsIgnored_WithoutFailingTheLoad(string rawValue)
+    {
+        var dir = LayoutCatalog.GetLayoutsDirectory();
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(
+            Path.Combine(dir, "Bad.toml"),
+            "[layout]\nname = \"Bad\"\n\n[[terminal]]\nname = \"T\"\nkind = \"inworld\"\n"
+            + "part_id = \"Pod\"\npart_instance_id = " + rawValue + "\n\n[terminal.shell]\nshell_type = \"Auto\"\n");
+
+        var loaded = new LayoutCatalog().Load("Bad");
+
+        Assert.That(loaded, Is.Not.Null, "an invalid optional key must not fail the whole layout");
+        Assert.That(loaded!.Terminals, Has.Count.EqualTo(1));
+        Assert.That(loaded.Terminals[0].PartInstanceId, Is.Null);
+        Assert.That(loaded.Terminals[0].PartId, Is.EqualTo("Pod"));
+    }
+
+    [Test]
     public void UnknownShellType_FallsBackToAuto()
     {
         // A hand-edited file with a bogus shell_type must degrade to Auto, not throw.

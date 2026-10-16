@@ -4,6 +4,7 @@ using purrTTY.Display.Configuration;
 using purrTTY.Display.Controllers;
 using purrTTY.Display.Theming;
 using purrTTY.Logging;
+using PurrTTY.Terminal.Sessions;
 
 namespace purrTTY.Display.Ghostty;
 
@@ -129,7 +130,12 @@ public sealed class GhosttyTerminalController : ITerminalController
     /// resolved theme, and the record's shell. The caller (layout manager) does the
     /// registry name-collision pre-check, so the requested name is honored exactly.
     /// </summary>
-    public TerminalWindow CreateConfiguredWindow(WindowLayoutRecord spec, ThemeDefinition? theme)
+    /// <param name="spec">Name, geometry, theme name and shell of the window.</param>
+    /// <param name="theme">The resolved theme to apply, or null for the configured defaults.</param>
+    /// <param name="sessionTitle">Initial session (tab) title; null = the automatic "Terminal N".</param>
+    /// <param name="requestFocus">Whether to request input focus for the new window (default true).</param>
+    public TerminalWindow CreateConfiguredWindow(
+        WindowLayoutRecord spec, ThemeDefinition? theme, string? sessionTitle = null, bool requestFocus = true)
     {
         var sessions = GhosttySessionManagerFactory.CreateSessionManager(_config);
         var settings = CreateWindowSettingsFromDefaults();
@@ -151,8 +157,12 @@ public sealed class GhosttyTerminalController : ITerminalController
         _windows.Add(window);
         _lastFocusedWindow ??= window;
 
-        StartSession(window, spec.Launch, title: null);
-        window.RequestFocus();
+        StartSession(window, spec.Launch, sessionTitle);
+        if (requestFocus)
+        {
+            window.RequestFocus();
+        }
+
         return window;
     }
 
@@ -214,18 +224,38 @@ public sealed class GhosttyTerminalController : ITerminalController
         target.RequestFocus();
     }
 
-    private static void StartSession(TerminalWindow window, ProcessLaunchOptions? launchOptions, string? title)
+    /// <summary>
+    /// Starts a session as a new tab in a <b>specific</b> window and returns the pending
+    /// session, so the caller learns exactly which session it created (the task completes on a
+    /// pool thread). Resolves to null when the session failed to start (already logged and
+    /// reported to the window). Used by the cross-mod launcher; the menus use <see cref="OpenTab"/>.
+    /// </summary>
+    public Task<TerminalSession?> OpenTabIn(
+        TerminalWindow target, ProcessLaunchOptions? launchOptions, string? sessionTitle, bool requestFocus = true)
     {
-        _ = Task.Run(async () =>
+        ArgumentNullException.ThrowIfNull(target);
+        var pending = StartSession(target, launchOptions, sessionTitle);
+        if (requestFocus)
+        {
+            target.RequestFocus();
+        }
+
+        return pending;
+    }
+
+    private static Task<TerminalSession?> StartSession(TerminalWindow window, ProcessLaunchOptions? launchOptions, string? title)
+    {
+        return Task.Run<TerminalSession?>(async () =>
         {
             try
             {
-                await window.Sessions.CreateSessionAsync(title, launchOptions);
+                return await window.Sessions.CreateSessionAsync(title, launchOptions);
             }
             catch (Exception ex)
             {
                 ModLog.Log.Error($"GhosttyTerminalController: failed to start session: {ex.Message}");
                 window.NotifySessionStartFailed(ex.Message);
+                return null;
             }
         });
     }

@@ -1,4 +1,5 @@
 using Brutal.ImGuiApi;
+using purrTTY.Core.Terminal;
 using purrTTY.Display.Configuration;
 using purrTTY.Display.Ghostty;
 using purrTTY.Display.Rendering;
@@ -6,6 +7,7 @@ using purrTTY.Display.Theming;
 using StarMap.API;
 using purrTTY.Logging;
 using purrTTY.GameMod.InWorld;
+using purrTTY.GameMod.Launcher;
 using purrTTY.GameMod.Layouts;
 using purrTTY.GameMod.Layouts.UI;
 using purrTTY.GameMod.UI;
@@ -48,6 +50,11 @@ public class TerminalMod
     private LayoutManager? _layoutManager;
     private LayoutManagerUI? _layoutUi;
 
+    // Cross-mod terminal launcher (published as TerminalLauncherRegistry.Current once everything is
+    // wired). Its work is queued from any thread and drained at the top of OnAfterUi.
+    private MainThreadPump? _launcherPump;
+    private TerminalLauncher? _launcher;
+
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
     /// <summary>
@@ -75,6 +82,12 @@ public class TerminalMod
 
         try
         {
+            // First thing in the frame: run the cross-mod launcher's queued requests (and poll its
+            // handles) while an ImGui frame is active but BEFORE the 2D controller renders and the
+            // in-world coordinator updates, so a terminal launched this frame is drawn this frame.
+            _launcherPump?.Drain();
+            _launcher?.Tick();
+
             bool modalVisible = RenderToggleHotkeyModal();
 
             // The theme + in-world manager are non-modal windows now (drawn here / in
@@ -148,10 +161,23 @@ public class TerminalMod
             // Layout manager (save/load/edit/tear-down sets of terminals) sits above both
             // the 2D controller and the in-world manager, so it is built last.
             TryInitializeLayouts();
+
+            // Last: publish the launcher only once everything it drives is wired, so a consumer that
+            // reacts to TerminalLauncherRegistry.Changed can launch immediately.
+            PublishLauncher();
         }
         catch (Exception ex)
         {
             ModLog.Log.Error($"purrTTY GameMod initialization failed: {ex.Message}");
+        }
+    }
+
+    private void PublishLauncher()
+    {
+        if (_launcher != null)
+        {
+            TerminalLauncherRegistry.Current = _launcher;
+            ModLog.Log.Debug("purrTTY GameMod: terminal launcher published");
         }
     }
 
@@ -172,6 +198,7 @@ public class TerminalMod
             _inWorld.Initialize(_controller.Configuration, _controller.Catalog);
 
             TerminalMenus.OpenInWorldManager = () => _inWorld?.OpenManager();
+            _launcher?.AttachInWorld(_inWorld);
         }
         catch (Exception ex)
         {
@@ -179,6 +206,7 @@ public class TerminalMod
             ModLog.Log.Error($"purrTTY GameMod: in-world terminal init failed: {ex.Message}");
             _inWorld?.Dispose();
             _inWorld = null;
+            _launcher?.AttachInWorld(null);
         }
     }
 
@@ -309,6 +337,11 @@ public class TerminalMod
             _themeDialog = new ThemeDialog(controller);
             TerminalMenus.OpenThemeDialog = _themeDialog.RequestOpen;
             TerminalMenus.MenuController = controller;
+
+            // Cross-mod launcher: built once the controller exists; the in-world coordinator is
+            // attached later (TryInitializeInWorld) and the launcher published at the end of OnFullyLoaded.
+            _launcherPump = new MainThreadPump();
+            _launcher = new TerminalLauncher(controller, _launcherPump);
 
             _isInitialized = true;
             ModLog.Log.Debug($"purrTTY GameMod: Terminal initialized successfully. Press {_toggleHotkey.ToDisplayString()} to toggle.");
@@ -657,6 +690,22 @@ public class TerminalMod
 
         try
         {
+            // The launcher goes first: withdraw it from other mods (only if it is still ours - another
+            // publisher may have replaced it), then shut it down so no queued request touches the
+            // terminals that are about to be disposed.
+            if (_launcher is { } launcher)
+            {
+                if (ReferenceEquals(TerminalLauncherRegistry.Current, launcher))
+                {
+                    TerminalLauncherRegistry.Current = null;
+                }
+
+                launcher.Dispose();
+            }
+
+            _launcher = null;
+            _launcherPump = null;
+
             // Dispose in reverse construction order: the in-world subsystem (built
             // after the controller in OnFullyLoaded) owns GPU resources and goes first.
             _inWorld?.Dispose();
