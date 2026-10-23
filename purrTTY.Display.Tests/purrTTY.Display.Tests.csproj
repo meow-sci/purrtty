@@ -34,13 +34,13 @@
     <ItemGroup>
         <!-- WindowLayoutRecord exposes Brutal.Numerics.float2 (compile-time reference only; the
              assembly itself is copied by the Brutal.Core.* glob below). -->
-        <Reference Include="Brutal.Core.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Core.Numerics.dll')">
-            <HintPath>$(KSAFolder)/Brutal.Core.Numerics.dll</HintPath>
+        <Reference Include="Brutal.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Numerics.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Numerics.dll</HintPath>
             <Private>false</Private>
         </Reference>
         <!-- The linked MainThreadPump source logs through ModLog (Brutal.Logging.LogCategory). -->
-        <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
-            <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+        <Reference Include="Brutal.Logging" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
             <Private>false</Private>
         </Reference>
     </ItemGroup>
@@ -48,7 +48,7 @@
     <ItemGroup>
         <!-- ThemeTomlFormat logs parse failures through purrTTY.Logging →
              Brutal.Logging; the Brutal.Core closure must be loadable at runtime. -->
-        <None Include="$(KSAFolder)/Brutal.Core.*.dll">
+        <None Include="$(KSAFolder)/Brutal.Core.dll;$(KSAFolder)/Brutal.Collections.dll;$(KSAFolder)/Brutal.Logging.dll;$(KSAFolder)/Brutal.Maths.dll;$(KSAFolder)/Brutal.Memory.dll;$(KSAFolder)/Brutal.Numerics.dll;$(KSAFolder)/Brutal.Strings.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>

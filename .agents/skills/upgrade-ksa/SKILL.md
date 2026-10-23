@@ -245,7 +245,7 @@ set (verify each still exists in `<current-ksa>/dll/`):
 - `KSA.dll`
 - `Brutal.ImGui`, `Brutal.ImGui.Abstractions`, `Brutal.ImGui.Extensions`
 - `Brutal.Vulkan`, `Brutal.Vulkan.Abstractions`, `Brutal.Vulkan.Vma`
-- `Brutal.Core.{Logging,Numerics,Collections,Common,Strings,Memory}`
+- `Brutal.Core` (was `Brutal.Core.Common`), `Brutal.{Logging,Numerics,Collections,Strings,Memory}` (were `Brutal.Core.*` before KSA 5638 — Brutal renamed the assemblies, namespaces unchanged)
 - `Brutal.Glfw`, `Brutal.Render.Common`, `Brutal.ShaderC`
 - `Planet.Core`, `Planet.Render.Core`
 - Copied native/loose DLLs (Display csproj `<None>`): `glfw3.dll`, `imgui.dll`, `VulkanEx.dll`

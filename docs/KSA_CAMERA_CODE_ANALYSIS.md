@@ -57,12 +57,12 @@ Reference these DLLs from the KSA installation directory (`C:\Program Files\Kitt
 | DLL | Purpose |
 |-----|---------|
 | `KSA.dll` | Main game assembly - Camera, Astronomical, Universe, Vehicle classes |
-| `Brutal.Core.Numerics.dll` | Math types - double3, doubleQuat, floatQuat, float4x4 |
-| `Brutal.Core.Common.dll` | Core utilities |
+| `Brutal.Numerics.dll` | Math types - double3, doubleQuat, floatQuat, float4x4 |
+| `Brutal.Core.dll` | Core utilities |
 | `Brutal.ImGui.dll` | ImGui bindings (for debug UI) |
 | `Brutal.ImGui.Extensions.dll` | Extended ImGui functionality |
 | `Planet.Render.Core.dll` | Rendering system |
-| `Brutal.Core.Strings.dll` | String utilities |
+| `Brutal.Strings.dll` | String utilities |
 
 ### Project File Reference Example
 
@@ -72,8 +72,8 @@ Reference these DLLs from the KSA installation directory (`C:\Program Files\Kitt
 </PropertyGroup>
 
 <ItemGroup>
-    <Reference Include="Brutal.Core.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Core.Numerics.dll')">
-        <HintPath>$(KSAFolder)/Brutal.Core.Numerics.dll</HintPath>
+    <Reference Include="Brutal.Numerics" Condition="Exists('$(KSAFolder)/Brutal.Numerics.dll')">
+        <HintPath>$(KSAFolder)/Brutal.Numerics.dll</HintPath>
         <Private>false</Private>
     </Reference>
     <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
@@ -88,7 +88,7 @@ Reference these DLLs from the KSA installation directory (`C:\Program Files\Kitt
 
 ## Core Types from Game Assemblies
 
-### From `Brutal.Core.Numerics.dll`
+### From `Brutal.Numerics.dll`
 
 | Type | Description | Key Members |
 |------|-------------|-------------|

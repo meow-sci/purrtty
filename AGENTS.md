@@ -111,10 +111,11 @@ Everything runs on the main thread inside `TerminalMod.OnAfterUi` — see gotcha
 
 ## Build and Test Commands
 
-Last offline KSA compatibility validation: **2026.10.10.5554** (assemblies commit
-`935a32b`), compared with **2026.9.22.5482** (`a2f724f`). No compatibility code changes
-were needed; build, tests, source/asset review, and all six Harmony patch applications
-passed. See [docs/build-and-test.md](docs/build-and-test.md#ksa-compatibility-baseline)
+Last offline KSA compatibility validation: **2026.10.19.5638** (assemblies commit
+`edda844`), compared with **2026.10.10.5554** (`935a32b`). Brutal renamed its core
+assemblies (`Brutal.Core.Logging` → `Brutal.Logging`, `Brutal.Core.Common` → `Brutal.Core`, …),
+so project references changed; no source changes were needed. Build, tests, source/asset
+review, and all six Harmony patch applications passed. See [docs/build-and-test.md](docs/build-and-test.md#ksa-compatibility-baseline)
 for the review and its runtime limits.
 
 ```bash

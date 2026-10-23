@@ -49,8 +49,8 @@
             <HintPath>$(KSAFolder)/Brutal.ImGui.dll</HintPath>
             <Private>false</Private>
         </Reference>
-        <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
-            <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+        <Reference Include="Brutal.Logging" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
             <Private>false</Private>
         </Reference>
     </ItemGroup>
@@ -64,7 +64,7 @@
         </None>
         <!-- Transitive runtime closure of ImColor8 (byte4 / Color conversions
              reach into the Brutal.Core.* assemblies). -->
-        <None Include="$(KSAFolder)/Brutal.Core.*.dll">
+        <None Include="$(KSAFolder)/Brutal.Core.dll;$(KSAFolder)/Brutal.Collections.dll;$(KSAFolder)/Brutal.Logging.dll;$(KSAFolder)/Brutal.Maths.dll;$(KSAFolder)/Brutal.Memory.dll;$(KSAFolder)/Brutal.Numerics.dll;$(KSAFolder)/Brutal.Strings.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>
