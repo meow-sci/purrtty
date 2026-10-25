@@ -237,6 +237,25 @@ need longer than the guess). Synchronize on the actual completion signal instead
   (`StopAsync_WithTimeout_CancelsPumpIfNotDrained`). If you believe a new fixed sleep is
   justified, document the reason in a comment at the sleep site.
 
+## Session-start failure diagnostics
+
+When a 2D window/tab cannot start its shell, `GhosttyTerminalController.StartSession` logs the
+context message and the full exception (including nested exceptions and stack traces). The
+window continues to show the concise error message.
+
+`Ghostty/SessionStartDiagnostics.cs` also logs the .NET runtime, OS, process architecture, and
+every loaded copy of `Renci.SshNet`, `BouncyCastle.Cryptography`, and
+`System.Security.Cryptography`: assembly identity, file version, path, and load-context
+name/identity. Missing assemblies are reported as `not loaded`. This enumerates already-loaded
+assemblies only; it does not force dependencies to load or change resolution order. File-metadata
+collection is best-effort so it cannot replace the original startup error.
+
+For a gatOS SSH startup failure, capture these entries from the game log together with the full
+exception chain. A dependency listed in `gatOS.GameMod.deps.json` can still be resolved from a
+shared StarMap/game load context, so compare the logged paths and file versions with the installed
+mod. After correcting a type-initializer failure, restart the game before retrying: .NET caches
+the failed initialization for that loaded type.
+
 ## Building the native libghostty-vt
 
 P/Invoke needs the **shared library** (`.dylib`/`.dll`/`.so`). Prebuilt binaries for all three

@@ -254,6 +254,8 @@ public sealed class GhosttyTerminalController : ITerminalController
             catch (Exception ex)
             {
                 ModLog.Log.Error($"GhosttyTerminalController: failed to start session: {ex.Message}");
+                ModLog.Log.Error(ex);
+                SessionStartDiagnostics.LogLoadedAssemblies();
                 window.NotifySessionStartFailed(ex.Message);
                 return null;
             }

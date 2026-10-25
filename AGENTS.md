@@ -136,6 +136,10 @@ dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v qui
 Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sleeps** — see
 [docs/build-and-test.md](docs/build-and-test.md) for the full rules.
 
+2D session-start failures log the full exception chain and a snapshot of the runtime plus loaded
+SSH/crypto assembly identities, file versions, paths, and load contexts. See the session-start
+diagnostics section in [docs/build-and-test.md](docs/build-and-test.md#session-start-failure-diagnostics).
+
 Release policy checks: `python3 scripts/check-release-policy.py` (offline, no GitHub writes).
 CI publishes stable `1.<run number>.0` releases from `main` and `-beta` prereleases from
 `feature/**`, retaining 10 stable releases and five betas across feature branches. The
