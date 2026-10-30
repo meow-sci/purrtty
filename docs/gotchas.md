@@ -450,8 +450,8 @@
     dimmed by bloom. That is accepted as intended (the quad reads as world geometry); the VAB editor
     pass already bloomed translucency before 5482, and secondary viewports (kitten cams) run their only
     bloom — sun bloom — before it. **KSA 5554 (revs 5530/5534)** adds atmosphere and terrain to
-    secondary viewports; their `RenderAtmosphereOnly` call also precedes translucency, so the
-    same injection point remains valid. The postfix still draws with the **main camera** in every
+    secondary viewports; their atmosphere call (`RenderAtmosphereAndClouds` since KSA 5707, which
+    also added clouds there) precedes translucency too, so the same injection point remains valid. The postfix still draws with the **main camera** in every
     viewport; secondary-camera placement is an existing limitation, not validated by the offline
     upgrade checks. None of those later passes re-derive colour from depth, so gotcha 32's cutout can't
     return through them. Three consequences baked into the fix:

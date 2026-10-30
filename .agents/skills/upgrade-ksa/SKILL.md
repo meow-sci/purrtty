@@ -133,6 +133,15 @@ body in a separate `NoInlining` method); `Patch()` returns the generated *replac
 `KSA.dll` is **IL-only but flagged x64** (PE32+, no ReadyToRun), so on an arm64 host copy the dll
 folder to scratch and set the copy's COFF `Machine` to `0xAA64` (never touch the snapshot itself).
 
+**Offline binding check for released builds.** A green build against `<current-ksa>` says nothing
+about the mod players already have. Build the *unfixed* tree against `<previous-ksa>/dll` (a
+detached `git worktree` in scratch), then, with the same resolver setup, call
+`RuntimeHelpers.PrepareMethod` on every non-generic, non-abstract method and constructor of
+`purrTTY.Display`, `purrTTY.GameMod`, `purrTTY.Logging` and `purrTTY.CustomShells` against
+`<current-ksa>/dll`. Each `MissingMethodException`/`TypeLoadException` is a member the shipped mod
+binds to that no longer exists, so you can say exactly what degrades before a release goes out (KSA
+5707: only `ImageTextureCache.UploadOne`). Re-run it on the fixed build, which should report 0 failures.
+
 ### 2. Render / GPU pipeline (Brutal Vulkan + KSA render objects)
 
 The in-world terminal feature (`purrTTY.GameMod/InWorld/`) is deeply coupled to KSA's
@@ -163,6 +172,14 @@ semantic changes to formats, sample counts, layouts, or draw order.
     gamma-decodes (`pow(2.2)`) → re-premultiplies, because KSA's ImGui backend blends over
     a transparent clear (premultiplied output) and the stock frag would force alpha=1.
     If KSA's ImGui compositing or gamma handling changes, the quad's color/opacity is wrong.
+  - **HDR output** (KSA 5707, rev 5645; `Render/HdrOutput.cs`, `HdrPresentPass`): when
+    `HdrOutput.Active`, KSA's main ImGui pass renders into `Renderer.HdrUiImage` (still
+    `B8G8R8A8UNorm`, transparent clear) instead of the swapchain, and `hdr_present.frag` blends it
+    premultiplied in sRGB space over the linear scene (`ui.rgb + scene * (1 - ui.a)`, the same as
+    SDR blending), with the scene always GT7-tonemapped and scaled so scene value 1 is paper white.
+    The offscreen scene target is unchanged, so the quad pipeline is unaffected, but its brightness
+    under HDR is tonemapped differently than SDR. Re-check `hdr_present.frag` and
+    `Program.GetCompositeData` if 2D window opacity or quad brightness looks off only with HDR on.
 - **`OffscreenRenderTarget.cs`** (`InWorld/`): purrTTY's **own** sampleable colour+depth target (KSA rev 5154 deleted the old `KSA.RenderTarget`/`Framebuffer` it used to wrap). It reproduces the usage flags of the deleted `RenderTarget.BuildAttachments` directly on `ImageEx` and uses `Presets.Sampler.SamplerLinearClamped`. Low KSA coupling now; only the `Presets` sampler and the Brutal Vulkan image/allocator API matter.
 - **`InWorldQuad.cs`** (`InWorld/Display/`): `Program.GetMainCamera()`, `Camera.MVP.{projection,viewProjection}`, `Camera.VPInv.view`, `Program.SetViewport(cmd)`. Camera matrix conventions (row-vector `mvp = model * viewProjection`) are load-bearing — a handedness/convention change silently mislocates/mirrors the quad.
 - **`PerFrameRenderer.cs`** / **`InWorldTerminalInstance.cs`**: `Program.GetRenderer()` (null before renderer live), device queue submit, `Device.WaitIdle()`.
@@ -176,7 +193,7 @@ Whole-feature check: diff `SuperMeshRenderSystem`, `OffscreenTarget`, `RenderTar
 ### 3. ImGui backend (Brutal.ImGui + its Vulkan impl)
 
 - **Secondary context / offscreen backend** (`InWorld/OffscreenImGuiBackend.cs`, `OffscreenImGuiContext.cs`): `ImGuiBackendVulkanImpl` with `.CreateInfo { Device, GraphicsQueue, RenderPass, SubPass, MinImageCount, ImageCount, SampleCount, DescriptorPoolSize }`, `.RenderDrawData(drawData, cmd)`, `.Dispose()`. Asserts `MinImageCount>=2`, `ImageCount>=MinImageCount`, `DescriptorPoolSize>0`. The context install/detach reads `ImGui.GetIO().BackendRendererUserData` and `ImGui.GetMainViewport().RendererUserData`. A backend-API change (ctor fields, the single-backend assertion, the userdata slots) breaks in-world rendering.
-- **Kitty-graphics texture registration** (`purrTTY.Display/Ghostty/ImageTextureCache.cs`): `ImGuiBackend.Vulkan.AddTexture(sampler, imageView)` → `ImTextureRef`, `.RemoveTexture(texRef)`; `SimpleVkTexture(...)` ctor; `Renderer.LinearSampler`; shared **1000-slot descriptor pool** assumption (LRU eviction). If `AddTexture`/`ImTextureRef` semantics or the pool budget change, kitty images fail to display or exhaust descriptors. (`InWorldTerminalRenderer.cs` notes `ImTextureRef` is the raw `VkDescriptorSet`.)
+- **Kitty-graphics texture registration** (`purrTTY.Display/Ghostty/ImageTextureCache.cs`): `ImGuiBackend.Vulkan.AddTexture(sampler, texture.VkImageView)` → `ImTextureRef`, `.RemoveTexture(texRef)`; `SimpleVkTexture(...)` ctor + `.UploadData(...)`; `Renderer.LinearSampler`; shared **1000-slot descriptor pool** assumption (LRU eviction). If `AddTexture`/`ImTextureRef` semantics or the pool budget change, kitty images fail to display or exhaust descriptors. (`InWorldTerminalRenderer.cs` notes `ImTextureRef` is the raw `VkDescriptorSet`.) KSA 5707 (Brutal update, rev 5652) renamed `SimpleVkTexture.ImageView`/`.Image` → `VkImageView`/`VkImage` when `IImageView`/`IImageSubresourceRange` moved from `RenderCore` to `Brutal.VulkanApi.Abstractions`. `KSA.Rendering.RenderImage` kept `ImageView`, which `RenderTranslucencyPassPatch` reads. The failure mode of a drift here is silent: `Upload` catches per-image exceptions (including the `MissingMethodException` an old build hits) and logs them at Debug level, so the only symptom is images not appearing.
 - **Font atlas** (`purrTTY.Display/Rendering/PurrTTYFontManager.cs`): `ImGui.GetIO().Fonts` → `ImFontAtlasPtr.AddFontFromFileTTF(ImString, 32.0f)`; `FontManager.Fonts[name]`. Atlas-API or KSA `FontManager` change → fonts don't load.
 - **IO reads** across `TerminalWindow*.cs`: `ImGui.GetIO().WantTextInput`, character queue, key-state queries, `ImGui.GetMainViewport()`. Mostly stock ImGui (stable), but Brutal's binding versions the exact ptr shapes.
 - **Reflection into ImGui IO** (`ToggleHotkeyBinding.cs:303`): `typeof(ImGuiIOPtr).GetProperty("KeySuper", …)` — a possibly-absent property probed by name. If Brutal renames/removes `KeySuper`, the Super-modifier read silently returns null (no error). This is the **only reflection touchpoint** and it targets ImGui, not KSA game types.

@@ -165,7 +165,7 @@ internal sealed class ImageTextureCache : IDisposable
         {
             UploadPixels(renderer, texture, img);
 
-            var texRef = ImGuiBackend.Vulkan.AddTexture(renderer.LinearSampler, texture.ImageView);
+            var texRef = ImGuiBackend.Vulkan.AddTexture(renderer.LinearSampler, texture.VkImageView);
             // GPU upload and ImGui registration both succeeded — release the CPU buffer now.
             img.ClearPixelData();
 

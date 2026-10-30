@@ -18,93 +18,103 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 
 ## KSA compatibility baseline
 
-Reviewed on **2026-10-23** with the `upgrade-ksa` skill:
+Reviewed on **2026-10-29** with the `upgrade-ksa` skill:
 
-- Previous validated snapshot: **2026.10.10.5554**, `ksa-game-assemblies` commit `935a32b`.
-- Current snapshot: **2026.10.19.5638**, commit `edda844`.
-- The current `version.json` covers only 5603 → 5637; the 5555–5602 gap was covered by
-  diffing the complete decompiled source between the two commits. Revision 5630 turned on full
-  compiler optimisations for release builds, so most of that diff is decompiler restructuring
-  with no behavioural change; each coupling touchpoint was checked member by member.
-- **Verdict: project-file changes only — no source changes.** The Brutal assembly rename
-  below is mandatory: purrTTY builds made against an earlier KSA build fail to load on 5638.
+- Previous validated snapshot: **2026.10.19.5638**, `ksa-game-assemblies` commit `edda844`.
+- Current snapshot: **2026.10.25.5707**, commit `4b3e9e2`.
+- The current `version.json` lists revs 5639 → 5703 although `toRevision` is 5707; the
+  5704–5707 tail was covered by diffing the complete decompiled source between the two commits.
+- No reference assembly was renamed, added or removed (the previous baseline, 5638, is where
+  Brutal renamed `Brutal.Core.*` → `Brutal.*`; see the `upgrade-ksa` skill, §8).
+- **Verdict: one mechanical source fix.** Builds made against 5638 still load on 5707, but kitty
+  graphics images silently fail to display until the fix below is shipped.
 
 Source paths below refer to `current/decomp/` or `current/Content/` in that assemblies
-repository at `edda844`. Severity describes the impact on purrTTY, not the size of KSA's change.
+repository at `4b3e9e2`. Severity describes the impact on purrTTY, not the size of KSA's change.
 
-### Brutal assembly rename — Critical (fixed)
+### Kitty-graphics texture view rename — Medium (fixed)
 
-- **KSA delta:** rev 5618 ("Update to latest Brutal packages") renamed the Brutal core
-  assemblies; namespaces and types are unchanged:
-  `Brutal.Core.Logging` → `Brutal.Logging`, `Brutal.Core.Numerics` → `Brutal.Numerics`,
-  `Brutal.Core.Strings` → `Brutal.Strings`, `Brutal.Core.Memory` → `Brutal.Memory`,
-  `Brutal.Core.Collections` → `Brutal.Collections`, `Brutal.Core.Maths` → `Brutal.Maths`, and
-  `Brutal.Core.Common` (absorbing the deleted `Brutal.Core.Package`) → `Brutal.Core`.
-- **purrTTY location:** the `<Reference>` items in nine `.csproj` files, plus the runtime
-  copy lists in `purrTTY.Display.Tests` and `purrTTY.CustomShells.Tests`.
-- **Coupling kind:** build-ref (and runtime assembly binding).
-- **Impact:** compile break (`CS0246` in `purrTTY.Logging`); a previously released mod fails to
-  load because `purrTTY.Logging.dll` binds to `Brutal.Core.Logging`. The tests' former
-  `Brutal.Core.*.dll` copy glob silently matches nothing after the rename. Mods that consume the
-  exported `purrTTY.Logging` (`ModLog.Log` is a `LogCategory`) must also be rebuilt against 5638.
-- **Change made:** references renamed; the test projects now copy an explicit list
-  (`Brutal.Core`, `Brutal.Collections`, `Brutal.Logging`, `Brutal.Maths`, `Brutal.Memory`,
-  `Brutal.Numerics`, `Brutal.Strings`).
+- **KSA delta:** rev 5652 ("Update to latest Brutal packages") moved `IImageView`,
+  `IImageSubresourceRange` and the descriptor-set wrapper interfaces from `RenderCore`
+  (Planet.Render.Core) into `Brutal.VulkanApi.Abstractions`, renaming the members to
+  `VkImageView`/`VkImage`. `RenderCore/SimpleVkTexture.cs` follows: `ImageView` → `VkImageView`,
+  `Image` → `VkImage`. `KSA.Rendering.RenderImage` keeps its public `ImageView`/`Image`.
+- **purrTTY location:** `purrTTY.Display/Ghostty/ImageTextureCache.cs` (`UploadOne`).
+- **Coupling kind:** direct call (compile) and runtime member binding.
+- **Impact:** compile break (`CS1061`). A build made against 5638 throws `MissingMethodException`
+  when `UploadOne` is first compiled; `Upload` catches it and logs at Debug level, so kitty images
+  never appear in 2D or in-world terminals and nothing else fails.
+- **Change made:** `AddTexture(renderer.LinearSampler, texture.VkImageView)`.
 
-### Render pipeline and draw order — Low
+### HDR output — Low
 
-- **KSA delta:** revs 5623–5636 add aurora (now its own `AuroraRenderer`), rendered from
-  `PlanetTransparenciesRenderer.Render` via `RenderAuroraAfterClouds`. A map-only
-  `RadiationBeltPass` (Magnetospheres overlay) runs after the post-translucency resolve.
-  Secondary viewports gain a terrain depth prepass (`KSA/Program.cs` `RenderViewport`, depth
-  load op `Load`). `SimpleVkTexture`'s constructor gains an optional `extraCreateFlags`.
-- **purrTTY location:** `InWorld/Patches/RenderTranslucencyPassPatch.cs`,
-  `InWorld/Display/SharedQuadResource.cs`, `purrTTY.Display/Ghostty/ImageTextureCache.cs`.
-- **Coupling kind:** Harmony, render/behavioral, asset-id.
-- **Impact:** compatible. `RenderTranslucencyPass` and its closed dynamic-rendering scope are
-  unchanged; atmosphere, aurora, clouds and ocean still precede the quad (gotcha 32), and resolve,
-  underwater, bloom and part-select still follow it. `RenderTarget`, `RenderImage`,
-  `ImageBarrierInfo`, `RenderingPresets`, `Renderer`, `ShaderModuleUtils`,
-  `ImGuiBackendVulkanImpl` and `FontManager` keep their contracts; `UnlitMeshVert` and
-  `UnlitMesh.vert` are unchanged.
-- **Change needed:** none.
+- **KSA delta:** rev 5645 adds optional HDR presentation (`Render/HdrOutput.cs`,
+  `KSA.Rendering.PostProcessing/HdrPresentPass.cs`; off by default, Display settings). When it is
+  active, `Renderer.ColorFormat` stays `B8G8R8A8UNorm` but the main ImGui pass renders into
+  `Renderer.HdrUiImage` with a transparent clear instead of the swapchain; `hdr_present.frag` then
+  blends that UI as premultiplied colour over the scene in sRGB space
+  (`ui.rgb + scene * (1 - ui.a)`, matching SDR blending) and encodes scRGB or HDR10. The scene
+  composite always uses the GT7 tonemapper in HDR, with paper white as scene value 1.
+- **purrTTY location:** 2D windows (drawn through KSA's ImGui), `InWorld/Display/SharedQuadResource.cs`
+  (gotcha 28), `purrTTY.Display/Ghostty/ImageTextureCache.cs`.
+- **Coupling kind:** render/behavioral.
+- **Impact:** compatible. 2D window opacity composites the same as under SDR. The offscreen scene
+  target's formats and sample count are unchanged, purrTTY's in-world ImGui backend owns its own
+  render pass, and kitty textures are plain sampled images. The in-world quad is still tonemapped
+  with the scene, so its brightness under HDR may differ from SDR.
+- **Change needed:** none; check the in-world quad in-game with HDR enabled.
 
-### Game state, camera and platform — Low
+### Render pipeline, game state and input — Low
 
-- **KSA delta:** `Vehicle.Split` now partitions symmetry links; saves with removed parts drop
-  the vehicle (revs 5632/5633); `IViewport` gains `SetInsideVehicle`. Linux now starts GLFW on
-  X11 by default (rev 5622); the new `-wayland` option disables multiple windows.
-- **purrTTY location:** `InWorld/VehicleLookup.cs`, `InWorld/Display/InWorldQuad.cs`.
-- **Coupling kind:** game-state, render/behavioral.
-- **Impact:** compatible. `Part.PositionEgo`/`Asmb2Ego`, `Vehicle.GetMatrixAsmb2Ego`, camera
-  matrix conventions, `Cursor.GetEgoRay`, `Ray` and `Brutal.Numerics` are unchanged; split/merge
-  still move the same `Part` instances (gotcha 31). purrTTY only consumes `IViewport` and does not
-  depend on multi-window support.
+- **KSA delta:** clouds now render in secondary viewports (rev 5663;
+  `PlanetTransparenciesRenderer.RenderAtmosphereOnly` → `RenderAtmosphereAndClouds`, still before
+  `RenderTranslucencyPass`). Terrain moved into the depth-normal pre-pass and gained compute
+  tessellation (revs 5654–5690). Rev 5643 made `Part` collections lazy (`SubParts` returns an
+  empty span when there are none) and added an editor-only `PartCloner`. Rev 5642 makes
+  `ImGui.GetClipboardText` return empty when the clipboard holds non-text. On Windows the ImGui
+  monitor list now comes from Win32 and refreshes only on display changes (rev 5702).
+- **purrTTY location:** `InWorld/Patches/RenderTranslucencyPassPatch.cs`, `InWorld/VehicleLookup.cs`,
+  `InWorld/Display/InWorldQuad.cs`, `Ghostty/TerminalWindow.Input.cs`, `Ghostty/TerminalInputEncoder.cs`.
+- **Coupling kind:** Harmony, render/behavioral, game-state.
+- **Impact:** compatible. The flight pass order is unchanged: atmosphere/clouds, ocean and
+  transparencies precede the quad (gotcha 32); resolve, underwater, bloom and part-select follow
+  it. Depth still holds terrain before the main pass. `Part.PositionEgo`/`Asmb2Ego`,
+  `Vehicle.GetMatrixAsmb2Ego`, `PartTree.Parts` and `Universe.CurrentSystem.All` are unchanged,
+  and decouple/dock still move the same `Part` instances (gotcha 31). purrTTY's paste already
+  ignores empty clipboard text.
 - **Change needed:** none.
 
 ### Unchanged contracts and validation
 
 `Program.OnKey`, `DispatchKeyEvent`, `OnMouseButton`, `GameSettings.OnKeyAll`,
-`DrawProgramMenusHook`, `ConsoleWindow`, `GlfwKeyEvent` and the `KeySuper` ImGui IO property are
-unchanged apart from decompiler restructuring.
+`DrawProgramMenusHook`, `IGameViewportLifecycle`, `ConsoleWindow`, `GlfwKeyEvent`, `Input`,
+`SuperMeshRenderSystem.RenderTranslucencyPass`, `RenderTarget`, `RenderImage`,
+`CommandBufferEx.PipelineBarrier2`, `Camera`, `Cursor`, `Ray`, `IViewport`, `RenderingPresets`,
+`ShaderModuleUtils`, `VkUtils`, `ImGuiBackend`, `ImGuiBackendVulkanImpl`, `FontManager`,
+`ModLibrary`, `UnlitMeshVert`/`UnlitMesh.vert` and all of `Brutal.ImGuiApi` (including the
+`KeySuper` IO property) are unchanged. The `Brutal.VulkanApi.Abstractions` types purrTTY uses
+(`Presets`, `VertexInput`, `BufferEx`, `ImageEx`, `DescriptorSetLayoutEx`) only gained members.
 
-- Full Debug solution build against 5638: **0 warnings, 0 errors**.
+- Full Debug solution build against 5707: **0 warnings, 0 errors**.
 - Full NUnit suite on macOS arm64: **498 passed, 2 platform skips, 0 failed**.
 - Offline Harmony 2.4.2 check: **all six patches applied to six distinct targets**, using the
   built mod and scratch copies of the current assemblies (only the scratch `KSA.dll` had its
   IL-only PE machine flag changed from x64 to arm64). This checks patch binding, not execution.
-- No live KSA GPU session or StarMap load/unload was exercised; visual behavior and loader
-  lifecycle remain in-game smoke checks.
+- Offline force-JIT check (`RuntimeHelpers.PrepareMethod` on every method of `purrTTY.Display`,
+  `purrTTY.GameMod`, `purrTTY.Logging` and `purrTTY.CustomShells` against the 5707 assemblies):
+  **1 failure for a build made against 5638** (`ImageTextureCache.UploadOne`), **0 with the fix**.
+- No live KSA GPU session, HDR display or StarMap load/unload was exercised; visual behavior and
+  loader lifecycle remain in-game smoke checks.
 
 | Touchpoint | Severity | Change needed |
 |---|---|---|
-| Brutal assembly rename (refs + test copy lists) | Critical | Done (project files) |
+| Kitty textures: `SimpleVkTexture.ImageView` → `VkImageView` | Medium | Done (one line) |
+| HDR output (UI layer, in-world quad tonemapping) | Low; compatible | None; in-game check |
 | Translucency pass, draw order, shader assets | Low; compatible | None |
-| ImGui backend, textures, fonts, reflection | Low; compatible | None |
 | Camera transforms, vehicle lookup, part identity | Low; compatible | None |
-| Keyboard/mouse gates, menu, console capture | Unchanged | None |
+| Keyboard/mouse gates, menu, console capture, build refs | Unchanged | None |
 
-Overall verdict: **project-file fixes only for KSA 5638**.
+Overall verdict: **mechanical fix only for KSA 5707**.
 
 ## CI / releases (`.github/workflows/release.yml`)
 

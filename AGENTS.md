@@ -111,12 +111,13 @@ Everything runs on the main thread inside `TerminalMod.OnAfterUi` — see gotcha
 
 ## Build and Test Commands
 
-Last offline KSA compatibility validation: **2026.10.19.5638** (assemblies commit
-`edda844`), compared with **2026.10.10.5554** (`935a32b`). Brutal renamed its core
-assemblies (`Brutal.Core.Logging` → `Brutal.Logging`, `Brutal.Core.Common` → `Brutal.Core`, …),
-so project references changed; no source changes were needed. Build, tests, source/asset
-review, and all six Harmony patch applications passed. See [docs/build-and-test.md](docs/build-and-test.md#ksa-compatibility-baseline)
-for the review and its runtime limits.
+Last offline KSA compatibility validation: **2026.10.25.5707** (assemblies commit
+`4b3e9e2`), compared with **2026.10.19.5638** (`edda844`). A Brutal update renamed
+`SimpleVkTexture.ImageView` → `VkImageView`, so `ImageTextureCache` (kitty graphics) needed a
+one-line fix; KSA's new optional HDR output needs no purrTTY change. Build, tests, source/asset
+review, all six Harmony patch applications, and a force-JIT binding check passed. See
+[docs/build-and-test.md](docs/build-and-test.md#ksa-compatibility-baseline) for the review and its
+runtime limits.
 
 ```bash
 dotnet build purrtty.slnx              # Build the whole solution
