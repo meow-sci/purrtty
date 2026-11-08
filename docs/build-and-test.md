@@ -48,13 +48,16 @@ KSA_DLL_DIR="/path/to/ksa-game-assemblies/current/dll" PURRTTY_DIST_DIR="$PWD/di
 ## CI / releases (`.github/workflows/release.yml`)
 
 Three jobs. A **test matrix** runs `dotnet test purrtty.slnx -c Release` on ubuntu-latest,
-windows-latest, and macos-14 — each runner loads **its own** vendored native libghostty-vt
+windows-latest, and macos-latest — each runner loads **its own** vendored native libghostty-vt
 (linux-x64 / win-x64 / osx-arm64), so `RawCellLayout.Validate()` and the per-OS PTY backends get
 real coverage on every platform after a pin bump. The test and build jobs check out
 `meow-sci/ksa-game-assemblies` (private repo holding the KSA DLLs under `current/dll/`; access
 via the `KSA_GAME_ASSEMBLIES_PAT` secret — a read-only fine-grained PAT, same pattern as flexo).
 TRX results are published as per-OS check runs (`dorny/test-reporter`, pinned to the v3 commit
 SHA because it holds `checks: write`) and uploaded as `test-results-<os>` artifacts.
+Runner labels follow GitHub's supported stable images; `macos-latest` uses ARM64 to match
+the vendored `osx-arm64` library. The workflow uses `actions/checkout@v7`,
+`actions/setup-dotnet@v6` (installing .NET 10), and `actions/upload-artifact@v7`.
 
 A **build job** (ubuntu, `needs: test`) verifies the release policy with
 `python3 scripts/check-release-policy.py`, computes metadata, and builds the Release dist

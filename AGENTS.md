@@ -119,6 +119,8 @@ Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sl
 [docs/build-and-test.md](docs/build-and-test.md) for the full rules.
 
 Release policy checks: `python3 scripts/check-release-policy.py` (offline, no GitHub writes).
+CI tests on `ubuntu-latest`, `windows-latest`, and `macos-latest` (ARM64), using
+`actions/checkout@v7` and `actions/setup-dotnet@v6` with .NET 10.
 CI publishes stable `1.<run number>.0` releases from `main` and `-beta` prereleases from
 `feature/**`, retaining 10 stable releases and five betas across feature branches. The
 three legacy stable releases count toward the stable limit. See the CI / releases section

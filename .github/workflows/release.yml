@@ -49,7 +49,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        # Follow supported images; macos-latest uses ARM64 for our osx-arm64 lib.
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -57,10 +58,10 @@ jobs:
       KSA_DLL_DIR: ${{ github.workspace }}/.tmp/ksa-game-assemblies/current/dll
     steps:
       - name: Checkout purrtty
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Checkout private KSA assemblies
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: meow-sci/ksa-game-assemblies
           path: .tmp/ksa-game-assemblies
@@ -69,7 +70,7 @@ jobs:
           ref: main
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -109,10 +110,10 @@ jobs:
       PURRTTY_DIST_DIR: ${{ github.workspace }}/.tmp/dist
     steps:
       - name: Checkout purrtty
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Checkout private KSA assemblies
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: meow-sci/ksa-game-assemblies
           path: .tmp/ksa-game-assemblies
@@ -121,7 +122,7 @@ jobs:
           ref: main
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -181,7 +182,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout retention policy
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Keep 10 stable releases (including the three legacy named releases) and
       # 5 beta releases. Fetch every page so retention is not capped at 200.
