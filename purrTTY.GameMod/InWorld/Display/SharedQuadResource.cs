@@ -330,7 +330,7 @@ public sealed class SharedQuadResource : IDisposable
         {
             try { device.DestroyDescriptorSetLayout(DescriptorSetLayout, null); } catch { /* best-effort */ }
         }
-        try { _vertexInput?.Bindings.Dispose();   } catch { /* best-effort */ }
-        try { _vertexInput?.Attributes.Dispose(); } catch { /* best-effort */ }
+        // VertexInput owns its native lists and create-info allocation (Brutal 2026.11).
+        try { _vertexInput?.Dispose(); } catch { /* best-effort */ }
     }
 }

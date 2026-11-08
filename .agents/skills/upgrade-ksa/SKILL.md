@@ -151,6 +151,9 @@ semantic changes to formats, sample counts, layouts, or draw order.
     `VkPipelineRenderingCreateInfo` (dynamic rendering; there is **no** `VkRenderPass` — KSA rev
     5154 deleted `Program.OffScreenPass`/`Core.RenderPassState`; `Program.MainPass` is now a
     `Core.SwapchainPassState`). Format/MSAA change → validation error or silent depth misbehavior.
+    KSA 5801 uses `B10G11R11UfloatPack32` for scene colour; purrTTY keeps its own sampled
+    terminal texture RGBA8 for alpha and reads the scene attachment format dynamically.
+    HDR scene/UI brightness is applied later by KSA.
   - `RenderCore.ShaderModuleUtils.FromString(...)` — runtime shaderc compile (needs
     `Brutal.ShaderC`).
   - Presets: `RenderingPresets.ReverseZDepthStencil.{DepthTestNoWrite,NoDepthTest}`,
@@ -159,6 +162,9 @@ semantic changes to formats, sample counts, layouts, or draw order.
     reverse-Z, depth compare flips.
   - `Renderer` members: `.Device`, `.Graphics`, `.Allocator`, `.DynamicStateInfo`,
     `.ViewportState`; `VertexInput`, `BufferEx`, `DescriptorSetLayoutEx`, `VkUtils.StageAndUploadToBuffer`.
+    Since KSA 5801, `VertexInput` implements `IDisposable`: dispose the whole object, which
+    owns both native lists **and** a private create-info allocation (gotcha 38). Brutal's new
+    collections require explicit disposal; check all native owners on future bumps.
   - **Premultiplied-alpha assumption** (gotcha 28): `QuadFragGlsl` un-premultiplies →
     gamma-decodes (`pow(2.2)`) → re-premultiplies, because KSA's ImGui backend blends over
     a transparent clear (premultiplied output) and the stock frag would force alpha=1.
@@ -176,7 +182,7 @@ Whole-feature check: diff `SuperMeshRenderSystem`, `OffscreenTarget`, `RenderTar
 ### 3. ImGui backend (Brutal.ImGui + its Vulkan impl)
 
 - **Secondary context / offscreen backend** (`InWorld/OffscreenImGuiBackend.cs`, `OffscreenImGuiContext.cs`): `ImGuiBackendVulkanImpl` with `.CreateInfo { Device, GraphicsQueue, RenderPass, SubPass, MinImageCount, ImageCount, SampleCount, DescriptorPoolSize }`, `.RenderDrawData(drawData, cmd)`, `.Dispose()`. Asserts `MinImageCount>=2`, `ImageCount>=MinImageCount`, `DescriptorPoolSize>0`. The context install/detach reads `ImGui.GetIO().BackendRendererUserData` and `ImGui.GetMainViewport().RendererUserData`. A backend-API change (ctor fields, the single-backend assertion, the userdata slots) breaks in-world rendering.
-- **Kitty-graphics texture registration** (`purrTTY.Display/Ghostty/ImageTextureCache.cs`): `ImGuiBackend.Vulkan.AddTexture(sampler, imageView)` → `ImTextureRef`, `.RemoveTexture(texRef)`; `SimpleVkTexture(...)` ctor; `Renderer.LinearSampler`; shared **1000-slot descriptor pool** assumption (LRU eviction). If `AddTexture`/`ImTextureRef` semantics or the pool budget change, kitty images fail to display or exhaust descriptors. (`InWorldTerminalRenderer.cs` notes `ImTextureRef` is the raw `VkDescriptorSet`.)
+- **Kitty-graphics texture registration** (`purrTTY.Display/Ghostty/ImageTextureCache.cs`): `ImGuiBackend.Vulkan.AddTexture(sampler, imageView)` → `ImTextureRef`, `.RemoveTexture(texRef)`; `SimpleVkTexture.VkImageView` (renamed from `ImageView` in KSA 5801), `SimpleVkTexture(...)` ctor; `Renderer.LinearSampler`; shared **1000-slot descriptor pool** assumption (LRU eviction). If `AddTexture`/`ImTextureRef` semantics or the pool budget change, kitty images fail to display or exhaust descriptors. (`InWorldTerminalRenderer.cs` notes `ImTextureRef` is the raw `VkDescriptorSet`.)
 - **Font atlas** (`purrTTY.Display/Rendering/PurrTTYFontManager.cs`): `ImGui.GetIO().Fonts` → `ImFontAtlasPtr.AddFontFromFileTTF(ImString, 32.0f)`; `FontManager.Fonts[name]`. Atlas-API or KSA `FontManager` change → fonts don't load.
 - **IO reads** across `TerminalWindow*.cs`: `ImGui.GetIO().WantTextInput`, character queue, key-state queries, `ImGui.GetMainViewport()`. Mostly stock ImGui (stable), but Brutal's binding versions the exact ptr shapes.
 - **Reflection into ImGui IO** (`ToggleHotkeyBinding.cs:303`): `typeof(ImGuiIOPtr).GetProperty("KeySuper", …)` — a possibly-absent property probed by name. If Brutal renames/removes `KeySuper`, the Super-modifier read silently returns null (no error). This is the **only reflection touchpoint** and it targets ImGui, not KSA game types.
@@ -192,7 +198,7 @@ decouple) are not.
 
 - **`InWorld/VehicleLookup.cs`**: `Universe.CurrentSystem?.All.UnsafeAsList().OfType<Vehicle>()`; `Program.ControlledVehicle`; `Vehicle.Id`; `Vehicle.Parts.Parts`; `Part.SubParts`. Relies on KSA **moving the same `Part` instance** into a new vehicle on decouple/dock (identity follow — gotcha 31). If KSA starts rebuilding parts on reparent, follow-tracking breaks.
 - **`InWorld/Display/InWorldQuad.cs`**: `Vehicle.GetMatrixAsmb2Ego(camera)`, `Vehicle.Asmb2Ego`, `Part.PositionEgo(in double4x4)`, `Part.Asmb2Ego(doubleQuat)`, `Part.Id`, `Part.SubParts`. **Ego-space** transform conventions and the choice to exclude the part's own scale (not baking `MatrixAsmb2Ego`) are semantic assumptions — diff these methods in `Part`/`Vehicle`.
-- **Ray picking**: `Cursor.GetEgoRay(IViewport)` (a `Ray`; purrTTY passes `Program.MainViewport` because quads are placed with the main camera — KSA 5402 deleted the once-per-frame `Cursor.InputRay`, the ray is now `viewport.GetCamera().ScreenToEgoRay(desktopPos - viewport.Position)` on demand), `Ray.RaycastMollerTrumbore(v0,v1,v2,out t)`. Used for click-to-focus and app-mouse mapping in `InWorldTerminalManager.cs` and `InWorldQuad.TryRaycast`. Ego-space assumption must match the transform above.
+- **Ray picking**: `Cursor.GetEgoRay(IViewport)` (a `Ray`; purrTTY passes `Program.MainViewport` because quads are placed with the main camera — KSA 5402 deleted the once-per-frame `Cursor.InputRay`, the ray is now `viewport.GetCamera().ScreenToEgoRay(desktopPos - viewport.Position)` on demand), `Ray.RaycastMollerTrumbore(v0,v1,v2,out t)`. Used for click-to-focus and app-mouse mapping in `InWorldTerminalManager.cs` and `InWorldQuad.TryRaycast`. Ego-space assumption must match the transform above. KSA 5801 camera unprojection uses logical `Camera.ScreenSize` instead of framebuffer pixels (scaled-window input); keep delegating to `Cursor.GetEgoRay` rather than applying a second DPI correction.
 - **Numerics** (`Brutal.Numerics`): `double3`, `float3`, `float2`, `float4x4`, `double4x4`, `doubleQuat`, `floatQuat` and their ops (`float3.Transform`, `float4x4.CreateFromQuaternion/CreateTranslation/CreateScale/CreateRotation*`, `floatQuat.Pack`, `double3.Dot`). Row-vector multiply order is assumed throughout.
 
 Diff `Universe`, `Vehicle`, `Part`, `Program` (ControlledVehicle/GetMainCamera/GetRenderer),
@@ -245,10 +251,16 @@ set (verify each still exists in `<current-ksa>/dll/`):
 - `KSA.dll`
 - `Brutal.ImGui`, `Brutal.ImGui.Abstractions`, `Brutal.ImGui.Extensions`
 - `Brutal.Vulkan`, `Brutal.Vulkan.Abstractions`, `Brutal.Vulkan.Vma`
-- `Brutal.Core.{Logging,Numerics,Collections,Common,Strings,Memory}`
+- `Brutal.Core`, `Brutal.{Logging,Numerics,Collections,Strings,Memory}` (KSA 5801 / Brutal 2026.11; older builds used `Brutal.Core.Common` and `Brutal.Core.*`)
 - `Brutal.Glfw`, `Brutal.Render.Common`, `Brutal.ShaderC`
 - `Planet.Core`, `Planet.Render.Core`
 - Copied native/loose DLLs (Display csproj `<None>`): `glfw3.dll`, `imgui.dll`, `VulkanEx.dll`
+
+Test runtime copies must follow assembly renames too: `purrTTY.Display.Tests` and
+`purrTTY.CustomShells.Tests` copy the explicit Brutal core dependency family (including
+Buffers and Maths); `purrTTY.CustomShellContract.Tests` copies Logging. An old
+`Brutal.Core.*.dll` glob silently misses renamed DLLs even when compilation passes.
+These are test-only copies; game references stay `Private=false` in the mod.
 
 `purrTTY.GameMod.csproj` also copies non-KSA deps into the mod (`Ghostty.Vt.dll`,
 `ghostty-vt.dll` native, `Tomlyn`, `StbImageSharp`, `ModMenu.Attributes`,

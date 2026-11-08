@@ -19,14 +19,14 @@
 
   <ItemGroup>
 
-    <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
-      <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+    <Reference Include="Brutal.Logging" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
+      <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="$(KSAFolder)/Brutal.Core.Logging.dll" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
+    <None Include="$(KSAFolder)/Brutal.Logging.dll" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

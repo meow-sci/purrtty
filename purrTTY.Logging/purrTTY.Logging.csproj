@@ -16,8 +16,8 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
-        <Reference Include="Brutal.Core.Logging" Condition="Exists('$(KSAFolder)/Brutal.Core.Logging.dll')">
-            <HintPath>$(KSAFolder)/Brutal.Core.Logging.dll</HintPath>
+        <Reference Include="Brutal.Logging" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
             <Private>false</Private>
         </Reference>
     </ItemGroup>

@@ -576,7 +576,7 @@
 
 37. **`ImageEx` is a `readonly struct` whose `Dispose()` NREs on `default` — never dispose one
     unguarded.** `Brutal.VulkanApi.Abstractions.ImageEx.Dispose()` is a bare
-    `_allocator.FreeAllocation(in AllocationInfo)`, and `_allocator` is a private reference field: on
+    `Allocator.FreeAllocation(in AllocationInfo)`, and `Allocator` is a reference: on
     `default(ImageEx)` it is `null`, so calling `Dispose()` throws a bare
     `NullReferenceException` with no useful message. This bites in the recreate-in-place idiom, where
     the constructor calls `Resize()` and `Resize()` starts by tearing down the previous allocation —
@@ -589,3 +589,12 @@
     staying a struct. Both in-world catch sites log the full exception (`{ex}`, not `ex.Message`) so
     the next such failure names its frame instead of just "Object reference not set to an instance of
     an object."
+
+
+38. **Dispose the whole `VertexInput` on KSA 5801 / Brutal 2026.11.** It now implements
+    `IDisposable` and owns `Bindings`, `Attributes` **and** a private
+    `PtrOwner<VkPipelineVertexInputStateCreateInfo>`. Manually disposing only the lists
+    leaves the create-info allocation to its owner's finalizer. `SharedQuadResource.DestroyGpu`
+    calls `_vertexInput?.Dispose()` once, releasing all three allocations at teardown. The
+    new Brutal native collections have no finalizer, so every owned collection still needs
+    deterministic disposal; do not assume garbage collection releases those buffers.

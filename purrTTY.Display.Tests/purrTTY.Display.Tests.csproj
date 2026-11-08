@@ -33,8 +33,15 @@
 
     <ItemGroup>
         <!-- ThemeTomlFormat logs parse failures through purrTTY.Logging →
-             Brutal.Logging; the Brutal.Core closure must be loadable at runtime. -->
-        <None Include="$(KSAFolder)/Brutal.Core.*.dll">
+             Brutal.Logging; the Brutal core closure must be loadable at runtime. -->
+        <None Include="$(KSAFolder)/Brutal.Core.dll;
+                       $(KSAFolder)/Brutal.Buffers.dll;
+                       $(KSAFolder)/Brutal.Collections.dll;
+                       $(KSAFolder)/Brutal.Logging.dll;
+                       $(KSAFolder)/Brutal.Maths.dll;
+                       $(KSAFolder)/Brutal.Memory.dll;
+                       $(KSAFolder)/Brutal.Numerics.dll;
+                       $(KSAFolder)/Brutal.Strings.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>
