@@ -92,12 +92,14 @@ See gotcha 28 before touching the compositing.
 
 ## Build and Test Commands
 
-Last offline KSA compatibility validation: **2026.11.10.5801** (assemblies snapshot
-`4de698e`, checkout `d07b870`), compared with the last validated **2026.10.10.5554**
-(`935a32b`). Updated renamed Brutal references/test runtime copies, Kitty's texture-view
-handle, and whole-`VertexInput` disposal. Build, 382 tests (two platform skips), source/asset
+Last offline KSA compatibility validation: **2026.11.16.5901** (assemblies snapshot
+`8d2ad13`), compared with the last validated **2026.11.10.5801** (`4de698e`). KSA moved its
+ImGui Vulkan backend to dynamic rendering, so the in-world off-screen pass now records a
+colour-only `BeginRendering` scope with explicit layout transitions (no render pass,
+framebuffer or depth attachment — gotcha 39); purrTTY menus open through
+`ImGuiHelper.BeginMenu` like KSA's own. Build, 382 tests (two platform skips), source/asset
 review and all six offline Harmony patch applications passed. See
-[docs/ksa-5801-compatibility.md](docs/ksa-5801-compatibility.md) for the review and its
+[docs/ksa-5901-compatibility.md](docs/ksa-5901-compatibility.md) for the review and its
 runtime limits.
 
 ```bash
@@ -132,7 +134,7 @@ in [docs/build-and-test.md](docs/build-and-test.md) for branch rules and retenti
 |------|----------|
 | [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
 | [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem, layouts |
-| [docs/gotchas.md](docs/gotchas.md) | 38 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, in-world part-follow tracking, `ImageEx` struct-dispose NRE, etc.) |
+| [docs/gotchas.md](docs/gotchas.md) | 39 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, in-world part-follow tracking, `ImageEx` struct-dispose NRE, off-screen dynamic rendering, etc.) |
 | [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, deploy |
 
 Other reference:

@@ -118,13 +118,13 @@ internal static class TerminalMenus
 
         ImGui.Separator();
 
-        if (ImGui.BeginMenu("New Tab"))
+        if (KSA.ImGuiHelper.BeginMenu("New Tab"))
         {
             DrawShellItems(controller, LaunchAsTab);
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("New Window"))
+        if (KSA.ImGuiHelper.BeginMenu("New Window"))
         {
             DrawShellItems(controller, LaunchAsWindow);
             ImGui.EndMenu();
@@ -139,7 +139,7 @@ internal static class TerminalMenus
             OpenThemeDialog?.Invoke();
         }
 
-        if (ImGui.BeginMenu("Window"))
+        if (KSA.ImGuiHelper.BeginMenu("Window"))
         {
             DrawWindowMenu(controller);
             ImGui.EndMenu();
@@ -249,7 +249,7 @@ internal static class TerminalMenus
         // Only reached when the snapshot contains a Wsl entry, which requires at
         // least one detected distribution — no generic bare-`wsl` fallback item
         // (launching wsl.exe without a distribution yields a dead session).
-        if (ImGui.BeginMenu("WSL2"))
+        if (KSA.ImGuiHelper.BeginMenu("WSL2"))
         {
             var distributions = snapshot.WslDistributions;
             for (int i = 0; i < distributions.Count; i++)

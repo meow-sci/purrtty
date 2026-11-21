@@ -105,15 +105,15 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
             // sampled texel, expecting gamma-encoded bytes. An SRGB target would
             // double-decode and render the in-world terminal noticeably dark.
             _target = new OffscreenRenderTarget(
-                renderer, "purrTTY-Offscreen", width, height, VkFormat.R8G8B8A8UNorm, renderer.DepthFormat);
+                renderer, "purrTTY-Offscreen", width, height, VkFormat.R8G8B8A8UNorm);
 
             // Secondary ImGui context (shares the main font atlas) + a second Vulkan
-            // ImGui backend bound to the off-screen pass. The backend ctor mutates
-            // the current context's IO, so build it under With(...).
+            // ImGui backend whose pipeline targets the off-screen colour format. The
+            // backend ctor mutates the current context's IO, so build it under With(...).
             _ctx = new OffscreenImGuiContext(width, height);
             _ctx.With(() =>
             {
-                _backend = new OffscreenImGuiBackend(renderer, _target.RenderPass,
+                _backend = new OffscreenImGuiBackend(renderer, _target.ColorFormat,
                     minImageCount: 2, imageCount: 2, descriptorPoolSize: 256);
             });
 
@@ -259,8 +259,8 @@ public sealed class InWorldTerminalInstance : INamedTerminal, IDisposable
     // the resize was pending) and our own off-screen submits are synchronous, so a
     // device drain leaves zero live references — the target can be rebuilt and the
     // descriptor set rewritten in place. The ImGui backend is NOT rebuilt: its
-    // pipeline, created against the original render pass, remains valid with the
-    // recreated (identically-formatted, therefore render-pass-compatible) one.
+    // dynamic-rendering pipeline depends only on the colour format, which the
+    // recreated target keeps.
     private void ApplyResize(int width, int height)
     {
         _renderer.Device.WaitIdle();

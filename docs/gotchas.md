@@ -330,14 +330,14 @@
     postfix never touches freed handles. A **grid resize is live and in-place** (`TrySetGridSize`) and
     follows the same drain discipline: it commits the new cols×rows to the record, stops recording the
     quad immediately, waits out the same `TeardownDelayFrames` window, then under a device `WaitIdle()`
-    rebuilds the `OffscreenRenderTarget` (`Resize` — new image/view/sampler/render-pass/framebuffer),
+    rebuilds the `OffscreenRenderTarget` (`Resize` — new colour image/view/sampler),
     resizes the secondary context, and rewrites the quad's descriptor set (`InWorldQuad.RebindTarget`).
     The shell **survives**: the next off-screen frame sees the new extent and `InWorldTerminalRenderer`
     resizes the engine grid + PTY (ConPTY resize / `TIOCSWINSZ`→SIGWINCH), so the running app reflows
-    like a 2D-window drag. The off-screen ImGui backend is deliberately **not** rebuilt — its pipeline
-    was created against the original render pass, and the recreated pass (identical formats/samples)
-    is render-pass-compatible per the Vulkan spec (verified: KSA's `ImGuiBackendVulkanImpl` creates its
-    main pipeline once in the ctor and never re-reads the stored render pass). A font/shell change
+    like a 2D-window drag. The off-screen ImGui backend is deliberately **not** rebuilt — since KSA
+    5901 its dynamic-rendering pipeline depends only on the colour format and sample count, which the
+    recreated target keeps (verified: KSA's `ImGuiBackendVulkanImpl` creates its main pipeline once in
+    the ctor from `CreateInfo.ColorFormat`; see gotcha 39). A font/shell change
     still routes through **`Recreate`** (Remove + Create preserving name + focus); the shell restarts.
 
 26. **Shutdown is the opposite rule: never touch the Vulkan device.** The mod only unloads at game
@@ -598,3 +598,21 @@
     calls `_vertexInput?.Dispose()` once, releasing all three allocations at teardown. The
     new Brutal native collections have no finalizer, so every owned collection still needs
     deterministic disposal; do not assume garbage collection releases those buffers.
+
+39. **The off-screen ImGui pass is colour-only dynamic rendering with explicit barriers (KSA 5901).**
+    Rev 5816 moved `ImGuiBackendVulkanImpl` to dynamic rendering: `CreateInfo.RenderPass`/`SubPass`
+    were replaced by a required `ColorFormat`, baked into its pipeline through
+    `VkPipelineRenderingCreateInfo` with **one colour format and no depth format**. Two consequences:
+    (a) the pipeline is invalid inside any `VkRenderPass`, so `PerFrameRenderer` records a
+    `BeginRendering`/`EndRendering` scope; (b) that scope must carry **no depth attachment** — a depth
+    view whose format differs from the pipeline's (`Undefined`) is a validation error unless
+    `dynamicRenderingUnusedAttachments` is enabled. `OffscreenRenderTarget` therefore owns only a colour
+    image (ImGui never depth-tests; nothing sampled the old depth image). Dynamic rendering performs no
+    implicit layout transitions, so `PerFrameRenderer` issues the two the old render pass did via
+    `CommandBuffer.TransitionImages2`. The pre-scope transition goes from `Undefined`, which is safe
+    because the scope clears. Its source stages are `ColorAttachmentOutput | FragmentShader`. That
+    covers the scene pass's fragment-shader sampling of the quad from an earlier submission, a
+    write-after-read hazard the old external subpass dependency handled implicitly. It also covers our
+    own previous writes. The post-scope transition goes to `SampledReadF` (`ShaderReadOnlyOptimal`), the
+    layout `InWorldQuad`'s descriptor set declares. Skipped (non-dirty) frames leave the image in that
+    layout.

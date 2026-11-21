@@ -2,6 +2,8 @@ using Brutal.ImGuiApi;
 using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Core;
+using KSA;
+using KSA.Rendering;
 using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
@@ -13,15 +15,18 @@ namespace purrTTY.GameMod.InWorld;
 ///     <see cref="_cmds"/> + <see cref="_fences"/> over <see cref="MaxFramesInFlight"/>
 ///     slots so the CPU can keep recording without stalling the GPU.
 ///     <para>
-///         The off-screen render pass (created by KSA's <c>RenderTarget.CreateRenderPass</c>)
-///         already handles both image-layout transitions implicitly:
+///         The frame is a colour-only Vulkan <b>dynamic-rendering</b> scope over the
+///         off-screen target (KSA 2026.11.16.5901, rev 5816, moved
+///         <c>ImGuiBackendVulkanImpl</c> to dynamic rendering, so its pipeline no longer
+///         binds inside a <c>VkRenderPass</c>). Dynamic rendering performs no implicit
+///         layout transitions, so this class issues the two the old render pass did:
 ///         <list type="bullet">
-///             <item>The first subpass dependency moves the color attachment
-///                   <c>Undefined</c> → <c>ColorAttachmentOptimal</c>.</item>
-///             <item>The render pass's <c>FinalLayout = ShaderReadOnlyOptimal</c>
-///                   moves it back to a sampleable layout at <c>EndRenderPass</c>.</item>
+///             <item>Before the scope: <c>Undefined</c> → <c>ColorAttachmentOptimal</c>
+///                   (contents discarded — the scope clears), waiting out the previous
+///                   frame's quad sampling and our own previous writes.</item>
+///             <item>After the scope: → <c>ShaderReadOnlyOptimal</c>, making the writes
+///                   visible to the in-world quad's fragment-shader sampling.</item>
 ///         </list>
-///         Therefore <b>no explicit pre/post barriers are issued</b> from this class.
 ///     </para>
 ///     <para>
 ///         All ImGui mutations (NewFrame/Render) and the backend's RenderDrawData
@@ -176,7 +181,7 @@ public sealed class PerFrameRenderer : IDisposable
         cmd.Reset(VkCommandBufferResetFlags.None);
         cmd.Begin(VkCommandBufferUsageFlags.OneTimeSubmitBit);
 
-        RecordRenderPass(cmd, drawData);
+        RecordRendering(cmd, drawData);
 
         cmd.End();
 
@@ -191,34 +196,53 @@ public sealed class PerFrameRenderer : IDisposable
         _currentIndex = (_currentIndex + 1) % _cmds.Length;
     }
 
-    private unsafe void RecordRenderPass(CommandBuffer cmd, ImDrawDataPtr drawData)
+    /// <summary>
+    ///     Source state of the pre-scope transition: the texture's previous use. Its layout is
+    ///     <c>Undefined</c> so the old contents are discarded (the scope clears them), and its
+    ///     stages cover both earlier consumers — our previous frame's colour writes and the
+    ///     scene pass's fragment-shader sampling of the quad (a write-after-read hazard across
+    ///     submissions on the same queue). The old render pass's external subpass dependency
+    ///     provided this implicitly.
+    /// </summary>
+    private static readonly ImageBarrierInfo PreviousUse = new(
+        VkImageLayout.Undefined,
+        VkAccessFlags2.ColorAttachmentWriteBit,
+        VkPipelineStageFlags2.ColorAttachmentOutputBit | VkPipelineStageFlags2.FragmentShaderBit);
+
+    private unsafe void RecordRendering(CommandBuffer cmd, ImDrawDataPtr drawData)
     {
-        // Two clear values: color (slot 0) and depth/stencil (slot 1). Order must
-        // match the attachment order in RenderTarget.CreateRenderPass.
-        VkClearValue* clearValues = stackalloc VkClearValue[2];
-        clearValues[0] = new VkClearValue
+        // ImGui blends, so the attachment is read as well as written inside the scope.
+        ReadOnlySpan<ImageTransition> toAttachment =
+            [new ImageTransition(_target.ColorImage, PreviousUse, ImageBarrierInfo.Presets.ColorAttachmentReadWrite)];
+        cmd.TransitionImages2(toAttachment);
+
+        // Colour only: ImGuiBackendVulkanImpl's pipeline is created with one colour format and
+        // no depth format, so a depth attachment here would not match it.
+        var colorAttachment = new VkRenderingAttachmentInfo
         {
+            ImageView   = _target.ColorImageView,
+            ImageLayout = VkImageLayout.ColorAttachmentOptimal,
+            ResolveMode = VkResolveModeFlags.None,
+            LoadOp      = VkAttachmentLoadOp.Clear,
+            StoreOp     = VkAttachmentStoreOp.Store,
             // Fully transparent (alpha 0). The terminal background rect is drawn at the
             // theme's BackgroundOpacity, so untouched/translucent regions keep a sub-1
             // alpha in the R8G8B8A8 texture — the world-space quad composites that
             // per-pixel coverage over the 3D scene (premultiplied-alpha).
-            Color = new VkClearColorValue { Float32 = new Brutal.Numerics.float4(0f, 0f, 0f, 0f) },
+            ClearValue  = new VkClearValue
+            {
+                Color = new VkClearColorValue { Float32 = new Brutal.Numerics.float4(0f, 0f, 0f, 0f) },
+            },
         };
-        clearValues[1] = new VkClearValue
+        var renderingInfo = new VkRenderingInfo
         {
-            DepthStencil = new VkClearDepthStencilValue { Depth = 1f, Stencil = 0 },
+            RenderArea           = new VkRect2D(_target.Extent),
+            LayerCount           = 1,
+            ColorAttachmentCount = 1,
+            ColorAttachments     = &colorAttachment,
         };
 
-        var beginInfo = new VkRenderPassBeginInfo
-        {
-            RenderPass      = _target.RenderPass,
-            Framebuffer     = _target.Framebuffer,
-            RenderArea      = new VkRect2D(_target.Extent),
-            ClearValueCount = 2,
-            ClearValues     = clearValues,
-        };
-
-        cmd.BeginRenderPass(in beginInfo, VkSubpassContents.Inline);
+        cmd.BeginRendering(in renderingInfo);
 
         // The KSA Vulkan ImGui backend installs its draw state into the
         // currently-bound ImGui context's IO/viewport user-data, so we MUST make
@@ -251,9 +275,10 @@ public sealed class PerFrameRenderer : IDisposable
                 // references it on the same frame, the assert in ImDrawCmd.GetTexID
                 // fires here. Main's RenderDrawData later this same frame assigns the
                 // TexID, so next frame the same texture is OK. Skip this frame's
-                // draws (the render pass is still cleanly bracketed by
-                // Begin/EndRenderPass) and let the next frame succeed — far better
-                // than disabling the whole feature for a one-frame transient.
+                // draws (the scope is still cleanly bracketed by
+                // Begin/EndRendering and the post transition) and let the next frame
+                // succeed — far better than disabling the whole feature for a
+                // one-frame transient.
                 ModLog.Log.Debug($"purrTTY in-world: skipping frame (atlas texture not yet uploaded by main backend): {ex.Message}");
             }
         }
@@ -262,7 +287,13 @@ public sealed class PerFrameRenderer : IDisposable
             drawData.Textures = savedTextures;
         }
 
-        cmd.EndRenderPass();
+        cmd.EndRendering();
+
+        // Back to the layout the quad's descriptor set declares, with the colour writes made
+        // visible to its fragment-shader sampling (the old render pass's FinalLayout).
+        ReadOnlySpan<ImageTransition> toSampled =
+            [new ImageTransition(_target.ColorImage, ImageBarrierInfo.Presets.ColorAttachmentWrite, ImageBarrierInfo.Presets.SampledReadF)];
+        cmd.TransitionImages2(toSampled);
     }
 
     public void Dispose()

@@ -6,32 +6,32 @@ namespace purrTTY.GameMod.InWorld;
 
 /// <summary>
 ///     Owns a sampleable off-screen render target for the in-world terminal:
-///     a colour + depth attachment pair, a <see cref="VkRenderPass"/>, a
-///     <see cref="VkFramebuffer"/>, and a linear-clamped <see cref="VkSampler"/>.
+///     a single colour attachment and a linear-clamped <see cref="VkSampler"/>.
 ///     <para>
-///         The render pass finalizes the colour attachment to
-///         <c>ShaderReadOnlyOptimal</c>, so a later pass (the in-world quad) can
-///         sample the texture with no manual layout transition.
+///         There is no render pass or framebuffer: <see cref="PerFrameRenderer"/> renders into
+///         <see cref="ColorImageView"/> with Vulkan dynamic rendering and issues the layout
+///         transitions explicitly (<c>Undefined</c> → <c>ColorAttachmentOptimal</c> before the
+///         scope, → <c>ShaderReadOnlyOptimal</c> after it), so the in-world quad samples the
+///         texture in the layout its descriptor set declares.
 ///     </para>
 ///     <para>
 ///         <b>KSA 2026.8.5.5168 (rev 5154):</b> this used to delegate to KSA's
 ///         <c>RenderTarget</c>/<c>Framebuffer</c> helpers. That revision moved the game's own
 ///         offscreen rendering onto Vulkan dynamic rendering and <b>deleted</b>
-///         <c>KSA.RenderTarget</c>, <c>KSA.Framebuffer</c> and <c>KSA.OffscreenTarget</c>. The
-///         replacement <c>KSA.Rendering.RenderTarget</c> is an unrelated dynamic-rendering type with
-///         no render pass or framebuffer, but <see cref="OffscreenImGuiBackend"/> builds its
-///         pipelines against a real <see cref="VkRenderPass"/>. So the attachment/pass/framebuffer
-///         construction the deleted helpers performed is reproduced here verbatim — purrTTY now owns
-///         it outright and no longer tracks KSA's render architecture at all.
+///         <c>KSA.RenderTarget</c>, <c>KSA.Framebuffer</c> and <c>KSA.OffscreenTarget</c>, so purrTTY
+///         reproduced the attachment/pass/framebuffer construction itself.
+///     </para>
+///     <para>
+///         <b>KSA 2026.11.16.5901 (rev 5816):</b> <see cref="OffscreenImGuiBackend"/>'s underlying
+///         <c>ImGuiBackendVulkanImpl</c> now builds its pipeline for dynamic rendering against one
+///         colour format with <b>no depth format</b>. Its pipeline can neither be bound inside a
+///         <see cref="VkRenderPass"/> nor in a rendering scope that carries a depth attachment, so the
+///         render pass, framebuffer and the never-sampled depth attachment were removed. ImGui does
+///         not depth-test; nothing else read the depth image.
 ///     </para>
 /// </summary>
 public sealed class OffscreenRenderTarget : IDisposable
 {
-    // Attachment slot order — must match the clear-value order in PerFrameRenderer.
-    private const int ColorAttachmentIndex = 0;
-    private const int DepthAttachmentIndex = 1;
-    private const int AttachmentCount = 2;
-
     private readonly Renderer _renderer;
     private bool _disposed;
 
@@ -40,22 +40,16 @@ public sealed class OffscreenRenderTarget : IDisposable
     // `_allocator.FreeAllocation(...)` — on default(ImageEx) that allocator is null, so an
     // unguarded Dispose() NREs on every single build. `null` is the "no allocation" state.
     private ImageEx?    _colorAllocation;
-    private ImageEx?    _depthAllocation;
-    private VkImageView _depthImageView;
 
     public string       Name           { get; }
     public VkExtent2D   Extent         { get; private set; }
     public VkFormat     ColorFormat    { get; }
-    public VkFormat     DepthFormat    { get; }
-    public VkRenderPass RenderPass     { get; private set; }
-    public VkFramebuffer Framebuffer   { get; private set; }
     public VkSampler    Sampler        { get; private set; }
 
     public VkImage     ColorImage     { get; private set; }
     public VkImageView ColorImageView { get; private set; }
 
-    public OffscreenRenderTarget(Renderer renderer, string name, int width, int height,
-                                 VkFormat colorFormat, VkFormat depthFormat)
+    public OffscreenRenderTarget(Renderer renderer, string name, int width, int height, VkFormat colorFormat)
     {
         ArgumentNullException.ThrowIfNull(renderer);
         if (string.IsNullOrEmpty(name)) throw new ArgumentException("Name cannot be null or empty.", nameof(name));
@@ -63,7 +57,6 @@ public sealed class OffscreenRenderTarget : IDisposable
         _renderer   = renderer;
         Name        = name;
         ColorFormat = colorFormat;
-        DepthFormat = depthFormat;
 
         Resize(width, height);
     }
@@ -84,15 +77,11 @@ public sealed class OffscreenRenderTarget : IDisposable
 
         Extent = new VkExtent2D { Width = width, Height = height };
 
-        // Usage flags reproduce the deleted KSA RenderTarget.BuildAttachments: the colour slot is
-        // transferable + storage + colour attachment, the depth slot transfer-dst + depth attachment,
-        // and (since neither is transient) both additionally get Sampled | InputAttachment.
+        // Usage flags reproduce the colour slot of the deleted KSA RenderTarget.BuildAttachments:
+        // transferable + storage + colour attachment, plus (non-transient) Sampled | InputAttachment.
         const VkImageUsageFlags colorUsage =
             VkImageUsageFlags.TransferSrcBit | VkImageUsageFlags.TransferDstBit
             | VkImageUsageFlags.StorageBit | VkImageUsageFlags.ColorAttachmentBit
-            | VkImageUsageFlags.SampledBit | VkImageUsageFlags.InputAttachmentBit;
-        const VkImageUsageFlags depthUsage =
-            VkImageUsageFlags.TransferDstBit | VkImageUsageFlags.DepthStencilAttachmentBit
             | VkImageUsageFlags.SampledBit | VkImageUsageFlags.InputAttachmentBit;
 
         (var colorAllocation, ColorImageView) =
@@ -100,22 +89,9 @@ public sealed class OffscreenRenderTarget : IDisposable
         _colorAllocation = colorAllocation;
         ColorImage = colorAllocation.VkImage;
 
-        (var depthAllocation, _depthImageView) =
-            CreateAttachment($"{Name} - Depth Attachment", DepthFormat, depthUsage, DepthAspect(DepthFormat));
-        _depthAllocation = depthAllocation;
-
-        RenderPass  = CreateRenderPass();
-        Framebuffer = CreateFramebuffer(RenderPass);
-
         var samplerCi = Presets.Sampler.SamplerLinearClamped;
         Sampler = _renderer.Device.CreateSampler(in samplerCi, null);
     }
-
-    /// <summary>Depth-only formats carry no stencil aspect; every other depth format does.</summary>
-    private static VkImageAspectFlags DepthAspect(VkFormat format)
-        => format is VkFormat.D32SFloat or VkFormat.D16UNorm
-            ? VkImageAspectFlags.DepthBit
-            : VkImageAspectFlags.DepthBit | VkImageAspectFlags.StencilBit;
 
     private (ImageEx Allocation, VkImageView View) CreateAttachment(
         string name, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect)
@@ -153,99 +129,6 @@ public sealed class OffscreenRenderTarget : IDisposable
         return (allocation, view);
     }
 
-    /// <summary>
-    ///     One graphics subpass writing colour + depth. The colour attachment finalizes to
-    ///     <c>ShaderReadOnlyOptimal</c> so the in-world quad can sample it directly; the external
-    ///     subpass dependency orders this pass after the previous frame's attachment writes.
-    /// </summary>
-    private unsafe VkRenderPass CreateRenderPass()
-    {
-        var attachments = stackalloc VkAttachmentDescription[AttachmentCount];
-        attachments[ColorAttachmentIndex] = new VkAttachmentDescription
-        {
-            Format         = ColorFormat,
-            Samples        = VkSampleCountFlags._1Bit,
-            LoadOp         = VkAttachmentLoadOp.Clear,
-            StoreOp        = VkAttachmentStoreOp.Store,
-            StencilLoadOp  = VkAttachmentLoadOp.DontCare,
-            StencilStoreOp = VkAttachmentStoreOp.DontCare,
-            InitialLayout  = VkImageLayout.Undefined,
-            FinalLayout    = VkImageLayout.ShaderReadOnlyOptimal,
-        };
-        attachments[DepthAttachmentIndex] = new VkAttachmentDescription
-        {
-            Format         = DepthFormat,
-            Samples        = VkSampleCountFlags._1Bit,
-            LoadOp         = VkAttachmentLoadOp.Clear,
-            StoreOp        = VkAttachmentStoreOp.Store,
-            StencilLoadOp  = VkAttachmentLoadOp.DontCare,
-            StencilStoreOp = VkAttachmentStoreOp.DontCare,
-            InitialLayout  = VkImageLayout.Undefined,
-            FinalLayout    = VkImageLayout.DepthStencilReadOnlyOptimal,
-        };
-
-        var refs = stackalloc VkAttachmentReference[AttachmentCount];
-        refs[ColorAttachmentIndex] = new VkAttachmentReference
-        {
-            Attachment = ColorAttachmentIndex,
-            Layout     = VkImageLayout.ColorAttachmentOptimal,
-        };
-        refs[DepthAttachmentIndex] = new VkAttachmentReference
-        {
-            Attachment = DepthAttachmentIndex,
-            Layout     = VkImageLayout.DepthStencilAttachmentOptimal,
-        };
-
-        var subpass = new VkSubpassDescription
-        {
-            PipelineBindPoint       = VkPipelineBindPoint.Graphics,
-            ColorAttachmentCount    = 1,
-            ColorAttachments        = refs + ColorAttachmentIndex,
-            DepthStencilAttachment  = refs + DepthAttachmentIndex,
-        };
-
-        var dependency = new VkSubpassDependency
-        {
-            SrcSubpass      = -1, // VK_SUBPASS_EXTERNAL
-            DstSubpass      = 0,
-            SrcStageMask    = VkPipelineStageFlags.LateFragmentTestsBit | VkPipelineStageFlags.ColorAttachmentOutputBit,
-            DstStageMask    = VkPipelineStageFlags.EarlyFragmentTestsBit | VkPipelineStageFlags.ColorAttachmentOutputBit,
-            SrcAccessMask   = VkAccessFlags.DepthStencilAttachmentWriteBit,
-            DstAccessMask   = VkAccessFlags.ColorAttachmentWriteBit | VkAccessFlags.DepthStencilAttachmentWriteBit,
-            DependencyFlags = VkDependencyFlags.None,
-        };
-
-        var createInfo = new VkRenderPassCreateInfo
-        {
-            AttachmentCount = AttachmentCount,
-            Attachments     = attachments,
-            SubpassCount    = 1,
-            Subpasses       = &subpass,
-            DependencyCount = 1,
-            Dependencies    = &dependency,
-        };
-        return _renderer.Device.CreateRenderPass(in createInfo, null);
-    }
-
-    private unsafe VkFramebuffer CreateFramebuffer(VkRenderPass renderPass)
-    {
-        var views = stackalloc VkImageView[AttachmentCount];
-        views[ColorAttachmentIndex] = ColorImageView;
-        views[DepthAttachmentIndex] = _depthImageView;
-
-        var createInfo = new VkFramebufferCreateInfo
-        {
-            RenderPass      = renderPass,
-            Width           = Extent.Width,
-            Height          = Extent.Height,
-            Layers          = 1,
-            Flags           = VkFramebufferCreateFlags.None,
-            Attachments     = views,
-            AttachmentCount = AttachmentCount,
-        };
-        return _renderer.Device.CreateFramebuffer(in createInfo, null);
-    }
-
     private void DisposeGpu()
     {
         var device = _renderer.Device;
@@ -256,35 +139,15 @@ public sealed class OffscreenRenderTarget : IDisposable
             Sampler = default;
         }
 
-        if (Framebuffer.VkHandle != 0)
-        {
-            device.DestroyFramebuffer(Framebuffer, null);
-            Framebuffer = default;
-        }
-
         if (ColorImageView.VkHandle != 0)
         {
             device.DestroyImageView(ColorImageView, null);
             ColorImageView = default;
         }
 
-        if (_depthImageView.VkHandle != 0)
-        {
-            device.DestroyImageView(_depthImageView, null);
-            _depthImageView = default;
-        }
-
         _colorAllocation?.Dispose();
         _colorAllocation = null;
-        _depthAllocation?.Dispose();
-        _depthAllocation = null;
         ColorImage = default;
-
-        if (RenderPass.VkHandle != 0)
-        {
-            device.DestroyRenderPass(RenderPass, null);
-            RenderPass = default;
-        }
     }
 
     public void Dispose()

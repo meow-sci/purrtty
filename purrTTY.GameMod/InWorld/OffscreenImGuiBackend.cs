@@ -7,8 +7,17 @@ namespace purrTTY.GameMod.InWorld;
 
 /// <summary>
 ///     Thin wrapper around <see cref="ImGuiBackendVulkanImpl"/> bound to our
-///     off-screen <see cref="VkRenderPass"/>. Owns the GPU-side ImGui renderer for
+///     off-screen target's colour format. Owns the GPU-side ImGui renderer for
 ///     the secondary context.
+///     <para>
+///         <b>KSA 2026.11.16.5901 (rev 5816):</b> the backend moved to Vulkan dynamic
+///         rendering. <c>CreateInfo.RenderPass</c>/<c>SubPass</c> are gone; the required
+///         <c>CreateInfo.ColorFormat</c> is baked into its pipeline (via
+///         <c>VkPipelineRenderingCreateInfo</c>: one colour attachment, <b>no</b> depth
+///         format) when this is constructed. <see cref="Render"/> must therefore run inside a
+///         <c>BeginRendering</c> scope with exactly one colour attachment of that format and
+///         no depth attachment — <see cref="PerFrameRenderer"/> opens that scope.
+///     </para>
 ///     <para>
 ///         Construction installs renderer state into the <b>currently-bound</b>
 ///         ImGui context (<c>ImGui.GetIO().BackendRendererUserData</c> and
@@ -37,7 +46,7 @@ public sealed class OffscreenImGuiBackend : IDisposable
     ///     this constructor runs — the caller is responsible (use
     ///     <see cref="OffscreenImGuiContext.With(System.Action)"/>).
     /// </summary>
-    public OffscreenImGuiBackend(Renderer renderer, VkRenderPass renderPass,
+    public OffscreenImGuiBackend(Renderer renderer, VkFormat colorFormat,
                                  int minImageCount, int imageCount,
                                  int descriptorPoolSize = 256)
     {
@@ -51,8 +60,7 @@ public sealed class OffscreenImGuiBackend : IDisposable
         {
             Device             = renderer.Device,
             GraphicsQueue      = renderer.Graphics,
-            RenderPass         = renderPass,
-            SubPass            = 0,
+            ColorFormat        = colorFormat,
             MinImageCount      = minImageCount,
             ImageCount         = imageCount,
             SampleCount        = VkSampleCountFlags._1Bit,
@@ -64,7 +72,7 @@ public sealed class OffscreenImGuiBackend : IDisposable
     /// <summary>
     ///     Record draw commands for <paramref name="drawData"/> into
     ///     <paramref name="cmd"/>. Must be called with the secondary context current
-    ///     and inside a begun render pass on the off-screen target (Phase 3).
+    ///     and inside a begun colour-only dynamic-rendering scope on the off-screen target.
     /// </summary>
     public void Render(ImDrawDataPtr drawData, CommandBuffer cmd)
     {

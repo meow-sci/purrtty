@@ -18,25 +18,25 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 
 ## KSA compatibility baseline
 
-Reviewed on **2026-11-08** with the `upgrade-ksa` skill:
+Reviewed on **2026-11-20** with the `upgrade-ksa` skill:
 
-- Last validated baseline: **2026.10.10.5554**, assemblies commit `935a32b`.
-- Target: **2026.11.10.5801**, snapshot commit `4de698e` (checkout `d07b870`).
-  The supplied build's snapshot date is 2026-11-07; the build identifier is recorded as supplied.
-- Compared the complete source/asset diff, including 5638 and 5707; the supplied previous
-  snapshot was 5707, not the last validated build.
-- **Verdict: mechanical fixes only, implemented.** References use the new Brutal assembly
-  names; test runtime copies follow them. Kitty graphics uses `SimpleVkTexture.VkImageView`,
-  and shared quad teardown calls `VertexInput.Dispose()` to release all owned native data.
+- Last validated baseline: **2026.11.10.5801**, assemblies commit `4de698e`.
+- Target: **2026.11.16.5901**, snapshot commit `8d2ad13` (snapshot date 2026-11-17).
+  The supplied previous snapshot was the validated 5801 build, and the changelogs chain (5801 → 5901).
+- **Verdict: compile-visible fix with a render redesign, implemented.** KSA rev 5816 moved
+  `ImGuiBackendVulkanImpl` to dynamic rendering (`CreateInfo.ColorFormat` replaces
+  `RenderPass`/`SubPass`), so the in-world off-screen pass now records a colour-only
+  `BeginRendering` scope with explicit layout transitions (gotcha 39). Menus adopt
+  `ImGuiHelper.BeginMenu` (rev 5808).
 - Debug and Release solution builds: **0 warnings, 0 errors**. Full NUnit suite in each
   configuration on macOS arm64: **382 passed, 2 platform skips, 0 failed**. All **six
   Harmony patches** applied offline. Release-policy checks: **10 passed**.
 - Builds were directed to the workspace's `dist/` with `PURRTTY_DIST_DIR`; no live game
   installation was deployed to. No live GPU session or StarMap load/unload was exercised.
 
-See [the full per-touchpoint review](ksa-5801-compatibility.md) for source references,
-HDR/input/identity checks, patch-probe methodology and remaining in-game smoke checks.
-The previous 5554 validation compared against 5482 and required no compatibility code changes.
+See [the full per-touchpoint review](ksa-5901-compatibility.md) for source references,
+render-order/input/identity checks and remaining in-game smoke checks; the
+[5801 review](ksa-5801-compatibility.md) documents the patch-probe methodology.
 
 To revalidate using supplied assembly snapshots without deploying to the default game directory:
 

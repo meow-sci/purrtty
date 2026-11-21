@@ -108,7 +108,7 @@ static class Patch02
       return;
     }
 
-    if (ImGui.BeginMenu("purrTTY"))
+    if (ImGuiHelper.BeginMenu("purrTTY"))
     {
       // Keep the (possibly auto-hidden) menu bar shown while our menu is open.
       // KSA 5402 made IGameViewport.MenuBarInUse read-only; the setter lives on the
