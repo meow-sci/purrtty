@@ -144,6 +144,23 @@ internal static class UnixPtyNative
             ? ioctl_appleArm64(fd, request, 0, 0, 0, 0, 0, 0, ref winSize)
             : ioctl(fd, request, ref winSize);
 
+    internal const int F_SETFD = 2;    // same value on Linux and macOS
+    internal const int FD_CLOEXEC = 1; // same value on Linux and macOS
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int fcntl(int fd, int cmd, int arg);
+
+    // fcntl(2) is variadic too: same Apple arm64 stack-slot workaround as ioctl above.
+    [DllImport(Libc, EntryPoint = "fcntl", SetLastError = true)]
+    private static extern int fcntl_appleArm64(
+        int fd, int cmd, nint x2, nint x3, nint x4, nint x5, nint x6, nint x7, nint arg);
+
+    /// <summary>fcntl(fd, F_SETFD, FD_CLOEXEC) with the correct ABI per platform.</summary>
+    internal static int SetCloseOnExec(int fd)
+        => OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            ? fcntl_appleArm64(fd, F_SETFD, 0, 0, 0, 0, 0, 0, FD_CLOEXEC)
+            : fcntl(fd, F_SETFD, FD_CLOEXEC);
+
     [DllImport(Libc, SetLastError = true)]
     internal static extern int open(byte[] path, int flags);
 

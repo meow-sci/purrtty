@@ -42,6 +42,19 @@ internal static class UnixPtySpawner
 
         try
         {
+            // The master must be close-on-exec. Otherwise every later child inherits a copy:
+            // this shell, sibling shells, and the relaunched game when KSA restarts itself
+            // (Process.Start + Environment.Exit, KSA 5949). A stray copy keeps the pty open
+            // after the game dies without StarMapUnload, so the shell never gets its hangup
+            // and is orphaned. posix_openpt only portably accepts O_RDWR | O_NOCTTY.
+            if (UnixPtyNative.SetCloseOnExec(masterFd) != 0)
+            {
+                // Not fatal (the terminal works), but abnormal game exits may orphan the shell.
+                logger?.LogWarning(
+                    "Setting FD_CLOEXEC on the pty master failed: {Error}",
+                    Marshal.GetLastPInvokeErrorMessage());
+            }
+
             if (UnixPtyNative.grantpt(masterFd) != 0)
             {
                 throw new ProcessStartException(

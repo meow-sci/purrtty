@@ -95,6 +95,7 @@ only when the user loads them** (no auto-apply).
 
 ## KSA compatibility
 
+- [KSA 5949 review](ksa-5949-compatibility.md): full 5901 → 5949 coupling audit, the self-restart / close-on-exec pty master fix and offline validation.
 - [KSA 5901 review](ksa-5901-compatibility.md): full 5801 → 5901 coupling audit, the off-screen dynamic-rendering migration and offline validation.
 - [KSA 5801 review](ksa-5801-compatibility.md): full 5554 → 5801 coupling audit and offline validation.
 - `purrTTY.Display/Ghostty/ImageTextureCache.cs`: Kitty textures register `SimpleVkTexture.VkImageView` with ImGui.

@@ -1,6 +1,7 @@
 using System.Text;
 using NUnit.Framework;
 using purrTTY.Core.Terminal;
+using purrTTY.Core.Terminal.Process;
 
 namespace PurrTTY.Terminal.Tests;
 
@@ -161,6 +162,51 @@ public sealed class UnixProcessManagerTests
         harness.Manager.Write("exit 0\n");
         int exitCode = await harness.Exited.Task.WaitAsync(TimeSpan.FromSeconds(15));
         Assert.That(exitCode, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task ClosingMaster_WithoutStop_HangsUpShell()
+    {
+        // Simulates the game process dying without StarMapUnload (KSA 5949 relaunches itself
+        // via Process.Start + Environment.Exit when a system switch would run out of VRAM):
+        // the kernel closes our pty master and the shell must get a hangup. That only happens
+        // if no child holds its own copy of the master, i.e. the master is close-on-exec.
+        const int WNOHANG = 1; // same value on Linux and macOS
+        var spawn = UnixPtySpawner.Spawn("/bin/sh", ["-c", "cat"], null, null, 80, 24);
+        bool masterClosed = false;
+        try
+        {
+            UnixPtyNative.close(spawn.MasterFd);
+            masterClosed = true;
+
+            bool exited = false;
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!exited && DateTime.UtcNow < deadline)
+            {
+                exited = UnixPtyNative.waitpid(spawn.Pid, out _, WNOHANG) == spawn.Pid;
+                if (!exited)
+                {
+                    await Task.Delay(25);
+                }
+            }
+
+            Assert.That(exited, Is.True,
+                "shell kept running after its pty master closed (a child inherited a copy of the master)");
+        }
+        finally
+        {
+            if (!masterClosed)
+            {
+                UnixPtyNative.close(spawn.MasterFd);
+            }
+
+            // On failure the shell is still alive: kill its session and reap it.
+            if (UnixPtyNative.waitpid(spawn.Pid, out _, WNOHANG) == 0)
+            {
+                UnixPtyNative.kill(-spawn.Pid, UnixPtyNative.SIGKILL);
+                UnixPtyNative.waitpid(spawn.Pid, out _, 0);
+            }
+        }
     }
 
     [Test]
