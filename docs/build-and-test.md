@@ -18,23 +18,25 @@ A missing/misresolved KSA assemblies dir fails fast with one actionable MSBuild 
 
 ## KSA compatibility baseline
 
-Reviewed on **2026-11-20** with the `upgrade-ksa` skill:
+Reviewed on **2026-11-25** with the `upgrade-ksa` skill:
 
-- Last validated baseline: **2026.11.10.5801**, assemblies commit `4de698e`.
-- Target: **2026.11.16.5901**, snapshot commit `8d2ad13` (snapshot date 2026-11-17).
-  The supplied previous snapshot was the validated 5801 build, and the changelogs chain (5801 → 5901).
-- **Verdict: compile-visible fix with a render redesign, implemented.** KSA rev 5816 moved
-  `ImGuiBackendVulkanImpl` to dynamic rendering (`CreateInfo.ColorFormat` replaces
-  `RenderPass`/`SubPass`), so the in-world off-screen pass now records a colour-only
-  `BeginRendering` scope with explicit layout transitions (gotcha 39). Menus adopt
-  `ImGuiHelper.BeginMenu` (rev 5808).
+- Last validated baseline: **2026.11.16.5901**, assemblies commit `8d2ad13`.
+- Target: **2026.11.25.5949**, snapshot commit `618c2a1` (snapshot date 2026-11-25).
+  The supplied previous snapshot was the validated 5901 build, and the changelogs chain (5901 → 5949).
+- **Verdict: one mechanical fix, now implemented; no KSA API change required one.** The build
+  compiled cleanly before any change.
+  - KSA rev 5916 can restart the game (`Process.Start` + `Environment.Exit`) when a star-system
+    switch would not fit in VRAM. That exit skips `StarMapUnload`.
+  - The Unix pty master is now close-on-exec, so shells still get their hangup instead of being
+    orphaned (gotcha 16).
 - Debug and Release solution builds: **0 warnings, 0 errors**. Full NUnit suite in each
-  configuration on macOS arm64: **382 passed, 2 platform skips, 0 failed**. All **six
+  configuration on macOS arm64: **383 passed, 2 platform skips, 0 failed**. All **six
   Harmony patches** applied offline. Release-policy checks: **10 passed**.
 - Builds were directed to the workspace's `dist/` with `PURRTTY_DIST_DIR`; no live game
-  installation was deployed to. No live GPU session or StarMap load/unload was exercised.
+  installation was deployed to. No live GPU session, system switch or StarMap load/unload was
+  exercised.
 
-See [the full per-touchpoint review](ksa-5901-compatibility.md) for source references,
+See [the full per-touchpoint review](ksa-5949-compatibility.md) for source references,
 render-order/input/identity checks and remaining in-game smoke checks; the
 [5801 review](ksa-5801-compatibility.md) documents the patch-probe methodology.
 

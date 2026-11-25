@@ -92,14 +92,14 @@ See gotcha 28 before touching the compositing.
 
 ## Build and Test Commands
 
-Last offline KSA compatibility validation: **2026.11.16.5901** (assemblies snapshot
-`8d2ad13`), compared with the last validated **2026.11.10.5801** (`4de698e`). KSA moved its
-ImGui Vulkan backend to dynamic rendering, so the in-world off-screen pass now records a
-colour-only `BeginRendering` scope with explicit layout transitions (no render pass,
-framebuffer or depth attachment — gotcha 39); purrTTY menus open through
-`ImGuiHelper.BeginMenu` like KSA's own. Build, 382 tests (two platform skips), source/asset
+Last offline KSA compatibility validation: **2026.11.25.5949** (assemblies snapshot
+`618c2a1`), compared with the last validated **2026.11.16.5901** (`8d2ad13`). No KSA API
+change required code changes. KSA can now restart itself (`Process.Start` +
+`Environment.Exit`) when a star-system switch would not fit in VRAM, which skips
+`StarMapUnload`. The Unix pty master is therefore close-on-exec, so shells still hang up
+when the game exits (gotcha 16). Build, 383 tests (two platform skips), source/asset
 review and all six offline Harmony patch applications passed. See
-[docs/ksa-5901-compatibility.md](docs/ksa-5901-compatibility.md) for the review and its
+[docs/ksa-5949-compatibility.md](docs/ksa-5949-compatibility.md) for the review and its
 runtime limits.
 
 ```bash

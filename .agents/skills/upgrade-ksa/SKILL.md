@@ -79,6 +79,9 @@ there.
    byte-identical is a decompiler/host artifact, not a game change (5901: `ConsoleWindow.cs` showed
    `LogLevel` cast noise because the snapshot host's .NET moved to 11.0, while
    `Brutal.ImGui.Abstractions.dll` was unchanged). This also confirms no referenced DLL was added or removed (§8).
+   Naming-only hunks can also flood a diff. In 5949, rev 5904 changed Brutal's `SetDebugName` from
+   `[Conditional("DEBUG")]` to a runtime call guarded by `HasDebugNames()`, so dozens of renderers
+   gained `SetDebugName` calls. Skim past those hunks and diff the members you depend on.
 2. **Build purrTTY against `<current-ksa>/dll`** to sweep up all compile-visible breaks
    first (see [Build against the new KSA](#build-against-the-new-ksa)). Fix/triage those.
 3. **Walk the coupling catalog below.** For each touchpoint, open the named KSA type in
@@ -178,6 +181,16 @@ semantic changes to formats, sample counts, layouts, or draw order.
 - **`InWorldQuad.cs`** (`InWorld/Display/`): `Program.GetMainCamera()`, `Camera.MVP.{projection,viewProjection}`, `Camera.VPInv.view`, `Program.SetViewport(cmd)`. Camera matrix conventions (row-vector `mvp = model * viewProjection`) are load-bearing — a handedness/convention change silently mislocates/mirrors the quad.
 - **`PerFrameRenderer.cs`** / **`InWorldTerminalInstance.cs`**: `Program.GetRenderer()` (null before renderer live), device queue submit, `Device.WaitIdle()`.
 - **`InWorldTerminalManager.cs`**: `Program.GetRenderer()?.Device.WaitIdle()`; `GameSettings.GetSampleCount()`.
+- **Sun dimming and MRT (KSA 5949):**
+  - Rev 5948 lets KSA's transparencies dim the sun through a 64×64 sun-transmittance buffer in
+    the global set (`Shaders/Common/SunTransmittance.glsl`). Sun bloom reads it after the
+    translucency pass. purrTTY's quad uses its own layout and does not write it, so a terminal
+    in front of the sun does not dim it. That has been true since 5801 dropped scene alpha.
+  - Revs 5923/5937 gave only the **pre-pass** two colour attachments. The translucency scope is
+    still one colour attachment plus depth.
+  - Rev 5915 added `KSA.Rendering.MultiRenderTarget` "for forthcoming MRT use by pre-passes".
+    If the main offscreen target or `RenderTranslucencyPass` ever becomes MRT, the quad
+    pipeline's single colour format will no longer match the scope.
 
 Whole-feature check: diff `SuperMeshRenderSystem`, `OffscreenTarget`, `RenderTarget`,
 `Renderer`, `Camera`, `RenderingPresets`, `Presets`, `ShaderModuleUtils`, and the
@@ -202,6 +215,14 @@ compile-caught, but **semantic** changes (what "ego space" means, identity vs re
 decouple) are not.
 
 - **`InWorld/VehicleLookup.cs`**: `Universe.CurrentSystem?.All.UnsafeAsList().OfType<Vehicle>()`; `Program.ControlledVehicle`; `Vehicle.Id`; `Vehicle.Parts.Parts`; `Part.SubParts`. Relies on KSA **moving the same `Part` instance** into a new vehicle on decouple/dock (identity follow — gotcha 31). If KSA starts rebuilding parts on reparent, follow-tracking breaks.
+  - **Batched detach (KSA 5949, rev 5939):** `Part.Disconnect` opens a transfer-out batch and closes
+    it in try/finally within the same call. Until it closes, a transferred part can remain in the
+    old tree's `_parts`. `FindContaining` returns the first identity match, so it is safe only
+    because purrTTY never reads in the middle of that call. If KSA ever holds a batch open across
+    frames, it can return the old vehicle.
+  - **System switching (KSA 5949, rev 5916):** `Program.SwapSystem`, run from `OnFrame`, destroys
+    every vehicle, waits for the device to go idle, rebuilds the system renderers and recreates
+    `Universe.CurrentSystem`. Anchors re-resolve the same way as after a same-system save load.
 - **`InWorld/Display/InWorldQuad.cs`**: `Vehicle.GetMatrixAsmb2Ego(camera)`, `Vehicle.Asmb2Ego`, `Part.PositionEgo(in double4x4)`, `Part.Asmb2Ego(doubleQuat)`, `Part.Id`, `Part.SubParts`. **Ego-space** transform conventions and the choice to exclude the part's own scale (not baking `MatrixAsmb2Ego`) are semantic assumptions — diff these methods in `Part`/`Vehicle`.
 - **Ray picking**: `Cursor.GetEgoRay(IViewport)` (a `Ray`; purrTTY passes `Program.MainViewport` because quads are placed with the main camera — KSA 5402 deleted the once-per-frame `Cursor.InputRay`, the ray is now `viewport.GetCamera().ScreenToEgoRay(desktopPos - viewport.Position)` on demand), `Ray.RaycastMollerTrumbore(v0,v1,v2,out t)`. Used for click-to-focus and app-mouse mapping in `InWorldTerminalManager.cs` and `InWorldQuad.TryRaycast`. Ego-space assumption must match the transform above. KSA 5801 camera unprojection uses logical `Camera.ScreenSize` instead of framebuffer pixels (scaled-window input); keep delegating to `Cursor.GetEgoRay` rather than applying a second DPI correction.
 - **Numerics** (`Brutal.Numerics`): `double3`, `float3`, `float2`, `float4x4`, `double4x4`, `doubleQuat`, `floatQuat` and their ops (`float3.Transform`, `float4x4.CreateFromQuaternion/CreateTranslation/CreateScale/CreateRotation*`, `floatQuat.Pack`, `double3.Dot`). Row-vector multiply order is assumed throughout.
@@ -249,6 +270,14 @@ adds a real mod-menu API, prefer migrating to it.
   the lifecycle contract, or the ALC import/export resolution, revisit `TerminalMod` +
   `mod.toml`. (StarMap is the loader, not KSA game code, but a StarMap bump ships
   alongside KSA builds often enough to check here.)
+- **Exits that skip `[StarMapUnload]`** (KSA 5949, rev 5916):
+  - When a system switch will not fit in VRAM, `SaveSystemRestart.RestartInto` runs
+    `Process.Start(<game>)` and then `Environment.Exit(0)`.
+  - purrTTY's explicit shell teardown lives in `Unload`. On such exits a shell ends only when
+    the pty hangs up (Unix) or the ConPTY closes (Windows).
+  - That requires the Unix pty master to be close-on-exec (gotcha 16) and the ConPTY pipes to be
+    non-inheritable. Otherwise the relaunched game inherits them and the shells are orphaned.
+  - On each bump, grep KSA for new `Process.Start` and `Environment.Exit` sites.
 
 ### 8. Build references & native libs
 
@@ -290,9 +319,15 @@ compile-visible breaks (§1 signatures on directly-called members, §8 refs):
 
 ```bash
 # from the purrtty repo root; adjust the env var to the supplied snapshot
-KSA_DLL_DIR="<current-ksa>/dll" dotnet build purrtty.slnx
-KSA_DLL_DIR="<current-ksa>/dll" dotnet test purrtty.slnx --nologo -v quiet
+KSA_DLL_DIR="<current-ksa>/dll" PURRTTY_DIST_DIR="$PWD/dist/" dotnet build purrtty.slnx
+KSA_DLL_DIR="<current-ksa>/dll" PURRTTY_DIST_DIR="$PWD/dist/" dotnet test purrtty.slnx --nologo -v quiet
 ```
+
+Always set `PURRTTY_DIST_DIR`. Without it, GameMod's build deploys the mod into the per-OS
+default mods directory, which on macOS/Linux is `$(HOME)/repos/meow-sci/mods/mods/`.
+`KSA_DLL_DIR` is optional when the companion `ksa-game-assemblies` checkout sits next to the
+repo. `Directory.Build.props` then resolves it automatically. To confirm the build used the
+new DLLs, check the `/reference:…KSA.dll` path in a `-v diag` build log.
 
 (On Windows PowerShell: `$env:KSA_DLL_DIR="<current-ksa>\dll"; dotnet build purrtty.slnx`.)
 

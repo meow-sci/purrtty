@@ -142,6 +142,16 @@
       pads with 8 named args so the pointer lands at sp on macOS/arm64; Linux uses the plain form.
     - **`DllImport("libc")` does not reliably resolve on glibc** (libc.so is a linker script); a
       ModuleInitializer DllImportResolver maps it to `libc.so.6` / `libSystem.B.dylib`.
+    - **The pty master must be close-on-exec** (`UnixPtyNative.SetCloseOnExec`, the same Apple
+      arm64 variadic padding as `ioctl`, applied right after `posix_openpt`).
+      - Without it, a copy of the master leaks into every later child: the shell itself, sibling
+        shells, and .NET `Process.Start` children such as the relaunched game when KSA 5949
+        restarts itself (`Process.Start` + `Environment.Exit`).
+      - Any exit that skips `StarMapUnload`, such as that restart, a crash or a kill, then never
+        hangs up the pty, and the shells are orphaned.
+      - `UnixProcessManagerTests.ClosingMaster_WithoutStop_HangsUpShell` guards this.
+      - `posix_openpt` portably accepts only `O_RDWR | O_NOCTTY`, so `O_CLOEXEC` cannot be
+        passed there.
     - The output pump (`UnixPtyOutputPump`) mirrors gotcha 14 — no sleeping — but blocks in
       `poll(100ms)` instead of `read` so teardown can cancel without closing the fd under a blocked
       read (`POLLNVAL` also exits the loop); exit is detected by EOF (macOS) / EIO (Linux) after
