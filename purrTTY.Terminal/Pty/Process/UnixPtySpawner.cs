@@ -31,7 +31,8 @@ internal static class UnixPtySpawner
         IDictionary<string, string>? environmentOverrides,
         int width,
         int height,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IReadOnlyCollection<string>? removedEnvironment = null)
     {
         int masterFd = UnixPtyNative.posix_openpt(UnixPtyNative.O_RDWR | UnixPtyNative.O_NOCTTY);
         if (masterFd < 0)
@@ -98,7 +99,7 @@ internal static class UnixPtySpawner
                         slavePath, Marshal.GetLastPInvokeErrorMessage());
                 }
 
-                int pid = SpawnChild(shellPath, arguments, workingDirectory, environmentOverrides, slavePath);
+                int pid = SpawnChild(shellPath, arguments, workingDirectory, environmentOverrides, removedEnvironment, slavePath);
                 return new SpawnResult(masterFd, pid, slavePath);
             }
             finally
@@ -121,6 +122,7 @@ internal static class UnixPtySpawner
         string[] arguments,
         string? workingDirectory,
         IDictionary<string, string>? environmentOverrides,
+        IReadOnlyCollection<string>? removedEnvironment,
         string slavePath)
     {
         var fileActionsBuffer = new byte[UnixPtyNative.FileActionsBufferSize];
@@ -187,7 +189,7 @@ internal static class UnixPtySpawner
             IntPtr argv = BuildNativeStringArray(
                 [shellPath, .. arguments], nativeStrings, out argvHandle);
             IntPtr envp = BuildNativeStringArray(
-                BuildEnvironment(environmentOverrides, shellPath), nativeStrings, out envpHandle);
+                BuildEnvironment(environmentOverrides, removedEnvironment, shellPath), nativeStrings, out envpHandle);
 
             int rc = UnixPtyNative.posix_spawnp(out int pid, NullTerminated(shellPath), fileActions, attr, argv, envp);
             if (rc != 0)
@@ -279,11 +281,12 @@ internal static class UnixPtySpawner
     };
 
     /// <summary>
-    ///     Parent environment merged with the launch overrides, in "NAME=VALUE" form.
-    ///     SHELL is pointed at the launched program when it is a recognized shell (and
-    ///     not explicitly overridden), matching what desktop terminal emulators do.
+    ///     Parent environment merged with the launch overrides, minus the removed names,
+    ///     in "NAME=VALUE" form. SHELL is pointed at the launched program when it is a
+    ///     recognized shell (and not explicitly overridden or removed), matching what
+    ///     desktop terminal emulators do.
     /// </summary>
-    private static List<string> BuildEnvironment(IDictionary<string, string>? overrides, string shellPath)
+    internal static List<string> BuildEnvironment(IDictionary<string, string>? overrides, IReadOnlyCollection<string>? removed, string shellPath)
     {
         var env = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
@@ -305,7 +308,22 @@ internal static class UnixPtySpawner
             }
         }
 
-        if (overrides?.ContainsKey("SHELL") != true && KnownShellNames.Contains(Path.GetFileName(shellPath)))
+        bool shellRemoved = false;
+        if (removed != null)
+        {
+            foreach (string name in removed)
+            {
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                env.Remove(name);
+                shellRemoved |= name == "SHELL";
+            }
+        }
+
+        if (!shellRemoved && overrides?.ContainsKey("SHELL") != true && KnownShellNames.Contains(Path.GetFileName(shellPath)))
         {
             env["SHELL"] = shellPath;
         }

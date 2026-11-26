@@ -626,3 +626,302 @@
     own previous writes. The post-scope transition goes to `SampledReadF` (`ShaderReadOnlyOptimal`), the
     layout `InWorldQuad`'s descriptor set declares. Skipped (non-dirty) frames leave the image in that
     layout.
+
+40. **A PTY resize is a no-op once the process is gone; the guard lives in each back end, under its
+    state lock.** Before this rule `IProcessManager.Resize` threw "no process is running", and the
+    frontends call it between `ImGui.Begin` and `End` — resizing a window whose shell had exited
+    threw out of the middle of an ImGui frame (and retired an in-world terminal through
+    `MarkFailed`). Now `Resize` does nothing before the first start, after the process exited and
+    after a stop; a failure of the OS call on a live PTY is reported through `ProcessError`; only
+    `ObjectDisposedException` after `Dispose` remains. The decision **must stay inside the lock that
+    teardown takes** — a caller-side `if (IsRunning) Resize()` races an exit seen on the pump
+    thread: `UnixProcessManager.Resize` checks `_pid` / `_exited` / `_masterFd` under `_stateLock`
+    (teardown invalidates the fd under the same lock); `ProcessManager.Resize` (ConPTY) checks the
+    **pseudoconsole handle** under `_processLock` and not `Process.HasExited` — a client that has
+    exited but whose cleanup has not run still has a valid pseudoconsole, and the old `HasExited`
+    check threw in exactly that window; `CustomShellPtyBridge.Resize` checks `_isRunning`. Frontends
+    resize only through `TerminalSession.Resize(cols, rows, cellW, cellH)`, which always resizes the
+    surface first (a dead tab's last screen still reflows with its window) and then the PTY. The
+    same race on the input side is closed in `TerminalSession.WriteIfRunning`: `Write` still throws
+    "no process is running" synchronously (gotcha 20), so input for a process that died after the
+    `IsRunning` check is dropped there. Pinned by `Resize_After_Exit_Is_Ignored`,
+    `Resize_Racing_Exit_Never_Throws` and their neighbours in `UnixProcessManagerTests` /
+    `ConPtyProcessManagerTests` (the ConPTY ones have run on CI only).
+
+41. **"The program has finished" is `TerminalSession.HasProcessExited`, never `IsRunning`.**
+    `ProcessManager.IsRunning` goes false when the child is reaped — **before** the output pump has
+    drained what the dying process last wrote. Both real back ends raise `ProcessExited` only after
+    that drain, and `TerminalSession.OnProcessExited` sets the latch there (`_exitCode` first, then
+    the volatile `_processExited`, so a reader that sees the flag also sees the code). Anything that
+    reacts to an exit by closing or reading the final screen must use the latch: acting on
+    `IsRunning` cuts off the tail — the last line of output, a title change, the OSC 52 clipboard
+    write an editor sends for a yank just before it quits. `SessionManager.RestartSessionAsync` calls
+    `ResetProcessExited()` **before** it starts the new process, so a restart that exits at once
+    re-arms the latch. On Windows `ProcessLifecycleManager` subscribes `Exited` before it sets
+    `EnableRaisingEvents`: enabling the events registers a wait that fires immediately for a child
+    that already exited, and with the handler attached afterwards that exit was lost.
+
+42. **Sessions that end are closed on the main thread, before `ImGui.Begin`, after one last
+    frame.** The exit is noticed on a pump thread but acted on only by
+    `SessionManager.CloseExitedSessions()`, which the frontends poll on the tick thread — no
+    cross-thread marshalling, and closing disposes the native surface synchronously (gotcha 19), so
+    it may never run while a surface is being iterated or between `Begin` and `End`. Before each
+    close it calls `Surface.BuildFrame()` once, which applies the output the latch guarantees is
+    already in the inbox (gotcha 41). The callers: `TerminalWindow.Render` (before `Begin`; when the
+    last tab closed, the window is not submitted at all), `TerminalWindow.DrainSessions` (the
+    controller's four-times-a-second drain while the terminal is hidden) and
+    `InWorldTerminalRenderer.TickAndCheckDirty`. Whether the host goes too is
+    `SessionExitPolicy.ShouldRetireHost(closedThisTick, remaining)`: only when this tick closed
+    something **and** nothing remains — an empty window whose session is still starting, or failed
+    to start and shows its error, is left alone. A window retires through the same `Close()` as its
+    "x" (the controller prunes it next frame, saving its geometry if it was the last one, and the
+    game-key gate follows); because a window can close while hidden, `GhosttyTerminalController`
+    also prunes on the **show** path (`PruneClosedWindows`), otherwise the next toggle would show a
+    dead window or restore stale geometry. An in-world terminal sets `SessionEnded`, keeps its last
+    texture, and `InWorldTerminalManager.PruneRetired` removes it through the ordinary two-frame
+    GPU teardown (gotcha 25). A session whose process failed to *start* is never published, so none
+    of this applies to it.
+
+43. **`CloseOnExit` closes on any exit; `CloseOnSuccessfulExit` only on exit code 0.** Both are
+    `ProcessLaunchOptions` flags (default false, copied by `Clone()`, stored in layouts as
+    `close_on_exit` / `close_on_successful_exit`, written only when true);
+    `TerminalSession.ShouldCloseAfterExit` decides, and `CloseOnExit` wins when both are set. The
+    kFS Neovim launcher uses `CloseOnSuccessfulExit` on purpose: with `CloseOnExit`, a Neovim that
+    cannot start (a wrapper script whose target is missing, a crash while reading the
+    configuration) flashes a window that closes before the player can read why. Use `CloseOnExit`
+    only for a program whose failure output nobody needs. Without either flag nothing changes: the
+    session stays with its last screen and " (exit N)" in its tab. The flags follow the session's
+    **original** launch options across a restart.
+
+44. **kFS service calls arrive on vehicle-solver threads; nothing there may throw, block or touch a
+    part.** The game dispatches a vehicle's kFS computer inside its physics job
+    (`PhysicsBubble.RunFlightComputer` → `KfsDispatch.TryComputeControl`), so the two host hooks —
+    `IssueResultPatch` (inside the VM's `SYSCALL`, mid-tick) and `ApplyRequestPatch` (after the
+    tick) — and everything under `ServiceRouter` run on a job thread; write that code as if
+    several vehicles were dispatched at the same time. An exception that escapes there is caught
+    by the game, which **halts that vehicle's kFS computer** and hands the vehicle to the stock
+    flight computer (`KfsVehicleHost.Fault`: "kFS host fault … its computer is halted"). So both
+    postfixes catch everything (a getter answers 0, a
+    request is rejected with "internal error"), and so does the router. The rules for code reached
+    from `ServiceRouter.Answer` / `Accept`: read only (single field reads and bounds-checked span
+    reads — `KsaVehicleParts` documents which members qualify); no locks other than the binding's
+    queue lock; no allocation per call after warm-up (at time warp a frame runs many ticks; a
+    rejection's text is not even formatted when the host's event limiter would drop it —
+    `RejectedSilently`); and **never a write to a game object** — a setter only validates its slot
+    and enqueues a `PartCommand` on the vehicle's `VehicleBinding`. The queue is a ring that grows
+    to `QueueLimit` and then overwrites the oldest command, so a program that floods it loses old
+    commands, never blocks the solver and never grows memory. Whether a small patched method is
+    inlined by the JIT (and its patch therefore bypassed) cannot be shown offline; `purr status`
+    counters after running an example are the in-game evidence.
+
+45. **Part writes happen only in the main-thread pump, in the one window where no solver job
+    runs.** `BeforeInputEventsPatch` is a postfix on `KfsIntegration.BeforeInputEvents()`, which
+    `Program.PrepareFrame` calls after `JobSystems.VehicleSolver.Wait()` and
+    `Universe.ApplyVehicleSolvers()` and before `InputEvents.ApplyInputEvents()` and
+    `Universe.ExecuteNextVehicleSolvers(...)` — the same place stock kFS drains its own main-thread
+    work. The postfix runs `MainThreadPump.Run()`: discover the live hosts, drain each binding's
+    queue through `BindingPump.DrainAndApply` in `Vehicle.Id` order (stock kFS's order), prune the
+    bindings whose host is gone. Three things to keep: (a) the stock body does nothing while the
+    game's kFS flag is off, and its `ReleaseDead` sweep runs only while it is on, so the pump runs
+    regardless and filters hosts by `KfsVehicleHost.IsAlive` itself — otherwise a dead host's
+    binding would never be pruned; (b) the postfix must never throw — nothing in kFS catches there,
+    the exception would surface in the game's frame preparation — so it catches, logs once and
+    counts; a failing host costs only that host that frame; (c) with no hosts a frame must cost
+    almost nothing (one lock and an empty copy), because it runs every frame for every player.
+    Anything else that must touch a vehicle on the main thread belongs in this pump, not in a new
+    hook. The host list itself, `KfsVehicleHost.AllHosts`, is internal: `HostDirectory` reaches it
+    by reflection once and reads it only under the list's own lock, as the game does.
+
+46. **A program sees a command take effect one frame later, and committed part state one frame
+    after that.** Per frame the game commits the physics job that just finished
+    (`ApplyVehicleSolvers`), runs the pump, then starts the next job, which dispatches the kFS
+    computer *before* it updates the part modules. So for a command issued in the dispatch of
+    frame N: the pump of frame N+1 applies it; the dispatch of frame N+1 already reads the **live**
+    fields the pump wrote (a light's switch `X_LIGHT_ON`, a light's appearance, an animation's
+    target, and `MOVING`, which compares the committed position with the live target); the
+    **committed** values — `POSITION`, `X_DEPLOY_STATE` — are what the physics step
+    of frame N+1 produces and are read from frame N+2. `X_LIGHT_LIT` is mixed (live switch **and**
+    committed power state): switching on reads lit from frame N+2, switching off reads dark
+    already in frame N+1, and a light without a switch always reads lit. At time warp one frame runs several ticks
+    and all of them read the same values. `SimVehicle.Frame` reproduces exactly this (step → pump →
+    dispatch) and `FrameOrderTests` pins it; an earlier simulator order (pump → step → dispatch)
+    showed committed values a frame early and hid the delay from every test. When adding a
+    property, decide which group it is in and implement the read accordingly in **both** back ends
+    (`KsaVehicleParts` reads the committed state list, `SimVehicleParts` its `CommittedState`). The
+    game side of this is read from the decompiled sources, not observed in the game.
+
+47. **The game's `SystemHeaders` must never be changed while a compile is running.**
+    `SystemHeaders.Files` and `SystemHeaders.Builtins` are a plain `Dictionary` and `HashSet` that
+    the kC compiler reads without a lock — on the stock editor's background build thread and on the
+    language server's compile threads. Registering or removing `<purrtty.h>` under a reader can
+    corrupt them. Therefore: the header is registered once at install (main thread, at mod load,
+    before the language server exists); at uninstall `SystemHeaderRegistration.Release(inUse)`
+    **leaves it registered** when `SystemHeaderReaders.InUse(...)` reports one of our compiles
+    still running (a compile abandoned by the watchdog counts until it returns) or the game
+    services report the
+    stock editor building (`StockEditorProbe`, which reads the private `KfsIntegration._workbench`
+    because the public `Workbench` getter would create the workbench at unload). One log line says
+    so and `KfsExtension.HeaderLeftRegistered` keeps the reason. The next registration of the same
+    header **adopts** the leftover — it restores what the leftover would have restored — so the
+    state never becomes permanent. This is also why the unload order in `TerminalMod.Unload` is
+    fixed: the language server stops first (its compiles end or are counted), then
+    `Patcher.unload()` runs `KfsExtension.Uninstall()`. Do not reorder them, and do not add another
+    writer of `SystemHeaders`. Pinned by `Installer/HeaderInUseTests.cs`.
+
+48. **The game's statics outlive every load of the mod, and purrTTY's own may too.** StarMap can
+    unload and load the mod again without restarting the game, and the code also allows for a
+    load that follows an unload which never ran. What the kFS code left in *game* statics is then
+    still there, and each piece has its rule: **(a) the tables** — `KfsIntegration._tables`
+    is assigned once per process and never taken back (`Uninstall` leaves it; with no hooks the
+    extra rows only reject). A later install reuses published tables only when their `Origin`
+    equals `TableAugmenter.OriginFor(catalog)`, a hash of the emitted rows; tables of another
+    catalogue, or tables another mod built first, disable the extension (`tables already built`)
+    instead of running the new header against old rows. **(b) the console command** — see
+    gotcha 49. **(c) `KfsIntegration.Output`** — gotcha 52. **(d) the header** — gotcha 47.
+    **(e) light templates** — `KsaGameServices.Detach` restores every private template still alive
+    (`LightOverrides.RestoreAll`). And when the assembly itself is *not* unloaded, purrTTY's own
+    statics survive (gotcha 21 has the terminal's cases): `KfsLspService.Start` first disposes the
+    service an earlier load left in `KfsLspService.Current`; `KfsExtension.Install` returns the
+    current status when it is already installed; `PurrConsole` remembers a console that could not
+    remove the command ("lingering") and does not register it a second time. Any new static cache
+    or registration in the kFS code needs an answer for both cases. None of the reload paths has
+    been exercised in the game.
+
+49. **One console command name, one owner: the game's `help` throws on a duplicate.**
+    `TerminalInterface.RegisterCommand(delegate, owner)` files a command under an owner object;
+    the same name under the same owner **replaces** the entry, and `UnregisterObject(owner)` removes
+    all of that owner's commands. But the console's `help` collects every command of every owner
+    into one dictionary with `Add`, so the same name under **two** owners makes `help` throw for the
+    rest of the session. `purr` is therefore filed under exactly one owner object per process,
+    kept in `AppDomain` data (`KsaConsoleHost.SharedOwner`, key `purrTTY.Kfs.PurrCommandOwner`) so
+    that even a second copy of the assembly in a fresh load context finds the same object and its
+    registration replaces the old one. Never register `purr`, or any other purrTTY command, with
+    `new object()` or `this` as owner. The command method must carry `[TerminalAction]` (the
+    console reads name, description and parsing mode from the attribute, and refuses a delegate
+    without one); `purr` uses `ArgParseMode.Unparsed` and parses its own line. The mod registers
+    the command itself at load (`PurrConsole.Register`, state `Standing`) so it exists with the
+    extension disabled; the installer then uses that registration and its uninstall leaves it.
+
+50. **The game's `kfs load` splits its arguments at spaces; `kfs build` does not.**
+    `KfsConsoleCommands.Execute` splits off the verb at the first space and hands the rest to the
+    verb. `Workbench.Build` takes the whole rest as the file name, so a workspace path with spaces
+    builds (and quotes would become part of the name — none are added). `Workbench.Load` splits the
+    rest at **every** space to find `--part <name>` and `--vehicle`, so a path containing a space
+    cannot be loaded at all: `KfsCommandLine.Resolve` refuses `kfs.load` for such a path with a
+    message that says to rename it, instead of loading the wrong file. The same function adds
+    `--vehicle` when the build target is a vehicle — without it a load would silently retarget the
+    bench — and strips nothing else: the verb word of every fixed command is a constant, so an
+    editor cannot inject another verb through a file name. Re-read these parsers on a game update
+    (`upgrade-ksa` skill, section 9).
+
+51. **`KfsIntegration.Workbench` is the player's real workspace — know which calls touch the
+    disk, and never reach it from a test.** The getter creates the process's one workbench on first
+    use, over `<Documents>/My Games/Kitten Space Agency/kfs`. Creating it touches no file
+    (`new Workspace(folder)` only stores the path), but it is not free of effects: it registers the
+    kC front end, and **every** read assigns `Out = Output`, so it is main-thread only. The folder
+    is created by `Workspace.Ensure()`, `Set()`, `Write()` — and by `Workspace.List()`, which calls
+    `Ensure()` first. Hence: the kFS menu lists sources only after `Directory.Exists`
+    (`KfsNeovimLauncher.ListSources`), so opening a menu never creates a folder; starting the
+    language server reads the folder's path and creates nothing; only an explicit action creates
+    it (`purr examples`, a Neovim launch). A test must not call the getter at all: any `kfs` verb
+    run through it would read and write the developer's own Documents folder. Tests go through the
+    seams instead — `IKfsConsoleHost` (`SimConsoleHost`, an in-memory workspace) and `IKfsGameSide`
+    (a fake) — and build with `ProjectResolver` over a `TempWorkspace`. At unload, use
+    `StockEditorProbe` (the private field) rather than the getter, which would create a workbench
+    as the mod leaves.
+
+52. **The output tee wraps whatever is in `KfsIntegration.Output` and is taken out only if it is
+    still there.** The language server captures what `kfs` commands print by installing an
+    `OutputTee` in the public static `KfsIntegration.Output` (`OutputTeeInstallation.Install`),
+    which forwards every call to the writer it replaced. Rules: **install** wraps the current
+    writer, except that a *detached* tee of ours found in the slot — recognised by its full type name and
+    its `IsDetached`/`Original` members, so one left by another load of the assembly counts too —
+    is unwrapped first, so reloads do not stack tees; right after installing, read `KfsIntegration.Workbench` once, because the
+    workbench copies `Output` only when that getter runs; **restore** puts the original back only
+    when the slot still holds our tee — if another mod installed its writer on top, removing ours
+    would cut that writer off, so the tee is left in place and merely *detached* (a pure
+    pass-through) and a warning is logged. Two per-thread scopes change where text goes:
+    *clients only* (`EnterClientsOnly`, set around `KfsIntegration.Error` by `KfsErrorEchoPatch`)
+    sends a line to the editors but not to the console, because `Error` already logs the line —
+    which the console shows — and additionally writes it to `Output` whenever `Output` is not the
+    game's own console writer; without the scope every `kfs` error would appear twice once the tee
+    is installed. The suppression applies **only** when the writer the tee replaced is the game's
+    `KfsIntegration+ConsoleWindowWriter` (found by name with reflection); for any other original
+    writer the tee forwards as usual. *Console only* (`EnterConsoleOnly`) is the opposite and exists
+    for the token (gotcha 54). If the JIT inlined `Error` into its callers the patch has no effect
+    and errors simply show twice — an in-game check.
+
+53. **No exception may leave a language-server thread or timer, and no client may cost the game.**
+    The server runs inside the game process: an unhandled exception on any thread ends the
+    process — the game. Every thread the library starts therefore goes through
+    `LspThreads.Start`, whose body catches everything and logs it; a thread that cannot be started
+    (the process is at its limit) costs that one connection, not the server; timer callbacks
+    (debounce, watchdog, the live feed) are guarded the same way (`BuildScheduler.Guard`,
+    `LiveFeed.OnTimer`). New code must not start a thread with `new Thread`, and a new timer
+    callback or `Task.Run` body must catch everything itself. A reviewer's reproduction before this
+    was in place: a tokenless connection reset at the wrong moment aborted the process on macOS.
+    The limits that keep a local peer from exhausting the process (names are the option
+    properties): 8 connections and 2 not yet authenticated
+    (`KfsLspListenerLimits.MaxConnections`, `MaxUnauthenticated`; excess is closed at accept), 5 s
+    to complete `initialize` (`InitializeTimeout`), a 10 s send timeout (`SendTimeout`), accept
+    back-off from 100 ms to 1 s; a message of at most 64 KiB before authentication and 16 MiB
+    after (`KfsLanguageServerOptions.MaxPreAuthMessageBytes`, `MaxMessageBytes`), 16 MiB of queued
+    output before the connection is cut (`MaxQueuedBytes`), headers of at most 2 KiB / 4 lines /
+    1 KiB per line and only `Content-Length` / `Content-Type` (`JsonRpcOptions`); before
+    authentication any request but `initialize` is refused and the connection closed, and nothing
+    is compiled. On the game's main thread: at most 8 commands wait
+    (`InGameHostOptions.MaxPendingVerbs`; more are refused with "the game is busy"), a frame starts
+    one command and further ones only within 4 ms (`VerbBudgetPerFrame`), a command not started
+    within 10 s fails and never runs later (`VerbTimeout`), and stopping the server waits at most
+    500 ms for its threads (`LspServiceOptions.StopTimeout`). A compile that runs past 10 s is
+    abandoned and its thread *retired* (it cannot be interrupted); at most 2 retired threads may
+    exist in the process (`BuildSchedulerOptions.MaxRetiredThreads`), after which compiles are
+    refused rather than threads leaked. Two bounds are missing and known: the number of open
+    documents of an authenticated connection, and the size of what one command prints into a
+    capture. All of this is pinned by `HardeningTests` / `HardeningUnitTests`; none of it has met a
+    real game frame.
+
+54. **The language server's token is a secret: never log it, echo it, or let it into a feed.** The
+    in-game server listens on the loopback interface, and the token (`LspToken.New`: 32 random
+    bytes, new at every start) is the only thing between another local process and the `kfs`
+    commands. It exists in exactly these places: the server info file
+    `<config>/.purrTTY/kfs-lsp.json` (written atomically, mode 0600 on Unix from creation, never
+    inside the workspace, deleted at stop only when it parses and carries this start's token and
+    process id), the `PURRTTY_KFS_TOKEN` environment variable of a Neovim the mod starts (the
+    runtime files move it into Lua state and remove it from Neovim's environment so `:terminal` and
+    `:!` do not inherit it), and the output of `purr lsp token`. Every status text is written
+    without it (`LspServiceCore.Status`, `LspServiceText`, the log line at start), and
+    `purr lsp token` prints inside `OutputTee.EnterConsoleOnly()` — otherwise the output tee would
+    forward the token to every editor subscribed to command output. When adding a log line, a
+    status line, a menu entry, an error message or an LSP notification near this code, check that
+    neither the token nor the info file's contents can reach it. Honest limit: any process of the
+    same user can read the info file; the token keeps other users and other machines out, not the
+    player's own programs. `purr-kfs lsp --listen` follows the same rule (it never runs without a
+    token; prefer `--token-file` or `PURR_KFS_LSP_TOKEN`, since `--token` shows in the process
+    list).
+
+55. **kFS editor terminals are never saved into a layout.** A layout stores a shell, its arguments
+    and a startup command — not the environment. A Neovim terminal opened by `KfsNeovimLauncher`
+    depends on session-specific environment variables (workspace root, runtime folder, the
+    server's address and token), so a saved copy would come back as a Neovim without a language
+    server and with a stale token at best. `LayoutManager.CaptureCurrentAs` therefore skips every
+    terminal whose launch options carry `PURRTTY_KFS_ROOT`
+    (`NeovimLaunchPlan.IsKfsEditorEnvironment`), 2D and in-world alike. For the check to work while
+    a window's first session is still starting, the window remembers what it was opened with
+    (`TerminalWindow.StartLaunchOptions`, used by `WindowLayoutRecord.LaunchOf`) — without it a
+    window captured in that moment was saved as a default-shell window under the editor's name. A
+    new kind of special-purpose terminal with per-launch state needs the same exclusion, or its
+    state must become part of `ShellSpec`.
+
+56. **Every ImGui `Begin…` is closed in a `finally`.** The menus and dialogs run inside the game's
+    frame — the menu content inside a Harmony postfix of the game's own menu bar. A throw between
+    `BeginMenu` and `EndMenu` (or `Begin` and `End`) leaves ImGui's stack unbalanced for the rest
+    of the frame, which breaks the *game's* UI, not only ours. So: `TerminalMenus.DrawMenuContent`
+    catches everything and logs once; every submenu it opens ends in a `finally` (the `Submenu`
+    helper and the New Tab / New Window / Window / WSL2 blocks); `KfsMenu` does the same for its
+    "Edit in Neovim..." submenu; the windows of `ThemeDialog`, `LayoutManagerUI` and
+    `InWorldManagerUI` end in a `finally`. The kFS menu matters most here because its entries call
+    into code that reads the disk and the game (`kfs.toml`, the `PATH`, the workspace) — which is
+    also why those reads run once when the menu **opens** (detected by frame number) and are
+    cached, never per frame. Not yet converted: the `Begin`/`End` pair of `TerminalWindow.Render`
+    and the one in `InWorldTerminalRenderer`; treat them the same way when you next change them.

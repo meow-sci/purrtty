@@ -3,6 +3,7 @@ using purrTTY.Display.Layouts;
 using purrTTY.Display.Theming;
 using purrTTY.GameMod.InWorld;
 using purrTTY.GameMod.InWorld.Settings;
+using purrTTY.Kfs.Runtime;
 using purrTTY.Logging;
 using float2 = Brutal.Numerics.float2;
 
@@ -183,6 +184,13 @@ public sealed class LayoutManager
     /// layout and saves it. Appearance is captured by <b>theme name</b>; custom colours/
     /// opacities persist only if first saved as a named theme (consistent with the rest of
     /// the app). Overwrites any existing layout of the same name.
+    /// <para>
+    /// A kFS Neovim terminal (<c>Kfs/KfsNeovimLauncher</c>) is left out: its launch carries
+    /// session-specific environment variables (workspace root, runtime folder, language-server
+    /// address and token) that a layout does not store, so it would relaunch without them. It is
+    /// recognised by <see cref="NeovimLaunchPlan.IsKfsEditorEnvironment"/> on the active tab's
+    /// launch options; reopen it through the kFS menu or <c>purr nvim</c> instead.
+    /// </para>
     /// </summary>
     public void CaptureCurrentAs(string name, string? description = null)
     {
@@ -199,17 +207,30 @@ public sealed class LayoutManager
         {
             foreach (var instance in _inWorld.Instances)
             {
+                if (IsKfsEditor(instance.Record.Launch))
+                {
+                    continue;
+                }
+
                 layout.Terminals.Add(FromInWorld(instance.Record));
             }
         }
 
         foreach (var window in _controller.CaptureWindows())
         {
+            if (IsKfsEditor(window.Launch))
+            {
+                continue;
+            }
+
             layout.Terminals.Add(FromWindow(window));
         }
 
         _catalog.Save(layout);
     }
+
+    private static bool IsKfsEditor(Core.Terminal.ProcessLaunchOptions? launch) =>
+        NeovimLaunchPlan.IsKfsEditorEnvironment(launch?.EnvironmentVariables);
 
     private static TerminalEntry FromInWorld(InWorldTerminalRecord r) => new()
     {

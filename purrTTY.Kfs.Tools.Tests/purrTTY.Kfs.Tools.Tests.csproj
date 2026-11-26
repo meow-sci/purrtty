@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <AssemblyName>purrTTY.Kfs.Tools.Tests</AssemblyName>
+        <RootNamespace>purrTTY.Kfs.Tools.Tests</RootNamespace>
+        <Description>Offline tests of purrTTY's kFS tools: the project resolver and the purr-kfs command line and the kC/kASM language server</Description>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
+        <!-- TreatNoTestsAsError: if a game type leaks into a type shape, NUnit cannot load this
+             assembly at all and would otherwise report zero tests with exit code 0. -->
+        <RunSettingsFilePath>$(MSBuildThisFileDirectory)purrTTY.Kfs.Tools.Tests.runsettings</RunSettingsFilePath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\purrTTY.Kfs\purrTTY.Kfs.csproj"/>
+        <ProjectReference Include="..\purrTTY.Kfs.Testing\purrTTY.Kfs.Testing.csproj"/>
+        <ProjectReference Include="..\purrTTY.Kfs.Cli\purrTTY.Kfs.Cli.csproj"/>
+        <ProjectReference Include="..\purrTTY.Kfs.Lsp\purrTTY.Kfs.Lsp.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1"/>
+        <PackageReference Include="NUnit" Version="3.14.0"/>
+        <PackageReference Include="NUnit3TestAdapter" Version="4.6.0"/>
+        <PackageReference Include="NUnit.Analyzers" Version="3.10.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="coverlet.collector" Version="6.0.2">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <!-- A normal (copied) reference here: the runtime applies the extension's Harmony patches in
+             process, where no StarMap loader supplies 0Harmony.dll. -->
+        <PackageReference Include="Lib.Harmony" Version="2.4.2"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- KSA game DLLs: compile-only. KSA.dll must never be copied here; the tests load it
+             at run time through KsaAssemblyResolver (see ModuleInit.cs). -->
+        <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+            <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Where the game DLLs were when this assembly was built; KsaAssemblyResolver.FindDirectory
+             falls back to it when KSA_DLL_DIR is not set at test time. -->
+        <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+            <_Parameter1>KSAFolder</_Parameter1>
+            <_Parameter2>$(KSAFolder)</_Parameter2>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The Neovim runtime files the mod ships (purrTTY.GameMod/nvim/**) and the Lua drivers of
+             the Neovim tests (Nvim/lua/), copied to the output: Runtime/Nvim/ runs them in a real
+             headless Neovim, and KasmSyntaxTests compares nvim/syntax/kasm.vim with the game. -->
+        <None Include="..\purrTTY.GameMod\nvim\**\*" Exclude="..\purrTTY.GameMod\nvim\doc\tags" Link="nvim\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/>
+        <None Update="Nvim\lua\**\*" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+</Project>

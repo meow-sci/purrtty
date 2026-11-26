@@ -26,7 +26,7 @@ sources:
   - id: builtin-includes
     resource: ksa-decomp:KSA.Kfs.KAsm/BuiltinIncludes.cs
     title: BuiltinIncludes (decompiled) — TRAP_* constants
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:46:43Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -137,6 +137,10 @@ Effects, in order:[^trap-info][^kvm-machine]
    command stream hash does not advance (`:2181-2193`).
 5. All service requests queued in this tick, by any task, are discarded (`_requests.Clear()`, `:2199-2202`).
    Issue-time rejections and the dropped count stay queued and are still delivered by `DrainRequests`.
+   That includes the `log` service: a `kfs_logf` line is a queued request (id 1) that the host formats
+   and appends to the program log only when the tick's requests are drained, so **whatever the
+   trapping tick itself logged before the fault never appears**. The log shows the lines of earlier
+   ticks and then the host's trap line (`trap <Code> at 0x<Pc> in task <n> (…): commands held`).[^host-computer-log]
 6. One-shot command fields are still zeroed in the live block (`:2194-2198`).
 7. The phase becomes `Halted` (`:2203-2207`) and the `TickResult` carries `Trap`.
 8. Every later `RunTick` returns immediately with the same `Trap`, `Ran = false`, `Latched = false`
@@ -177,3 +181,4 @@ stock `halt` service stops a program.
 [^game-tables]: GameTables.cs:853-862 (`CheckTraps`).
 [^host-computer]: HostComputer.cs:445-460 (trap → `Halted`, console line), 818-826 (`TrapLocation`, `Locate`).
 [^builtin-includes]: BuiltinIncludes.cs:52-55.
+[^host-computer-log]: HostComputer.cs:439 (`machine.DrainRequests(this)` after the tick), :670-676 (`ISyscallSink.Request`), :747-770 (`ApplyHostRequest` case 1: `LogFormatter.Format` and `Console.Log`), :445-455 (the trap line, written with `Console.Host`, once).

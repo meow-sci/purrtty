@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <AssemblyName>purr-kfs</AssemblyName>
+        <RootNamespace>purrTTY.Kfs.Cli</RootNamespace>
+        <Description>purr-kfs: check and run kFS programs and serve the kC/kASM language server outside the game with the game's own toolchain and purrTTY's extension (not shipped with the mod)</Description>
+        <!-- A framework-dependent .NET tool (plan §5.6, D12): a release asset, never part of the mod dist. -->
+        <PackAsTool>true</PackAsTool>
+        <ToolCommandName>purr-kfs</ToolCommandName>
+        <PackageId>purrTTY.Kfs.Cli</PackageId>
+        <Version>0.1.0</Version>
+        <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\purrTTY.Kfs\purrTTY.Kfs.csproj"/>
+        <ProjectReference Include="..\purrTTY.Kfs.Testing\purrTTY.Kfs.Testing.csproj"/>
+        <ProjectReference Include="..\purrTTY.Kfs.Lsp\purrTTY.Kfs.Lsp.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- A normal (copied) reference: the tool applies the extension's Harmony patches in its own
+             process, where no StarMap loader supplies 0Harmony.dll. -->
+        <PackageReference Include="Lib.Harmony" Version="2.4.2"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- KSA game DLLs: compile-only, never copied (KSA.dll is not redistributable). The tool
+             resolves them at run time from its "ksa" option or KSA_DLL_DIR through KsaAssemblyResolver. -->
+        <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+            <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>

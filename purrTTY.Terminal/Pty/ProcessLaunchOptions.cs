@@ -80,6 +80,15 @@ public class ProcessLaunchOptions
     public Dictionary<string, string> EnvironmentVariables { get; set; } = new();
 
     /// <summary>
+    ///     Names removed from the child's environment after the current process's environment
+    ///     and <see cref="EnvironmentVariables"/> are merged: an inherited variable and a
+    ///     default of <see cref="CreateDefault"/> alike (e.g. <c>FORCE_COLOR</c> for an editor
+    ///     whose own child processes write to pipes). Names compare as the OS does (Windows:
+    ///     case-insensitively). Empty by default: nothing is removed.
+    /// </summary>
+    public List<string> RemovedEnvironmentVariables { get; set; } = new();
+
+    /// <summary>
     ///     Gets or sets the initial terminal width in columns.
     /// </summary>
     public int InitialWidth { get; set; } = 80;
@@ -98,6 +107,27 @@ public class ProcessLaunchOptions
     public string? StartupCommand { get; set; }
 
     /// <summary>
+    ///     When true, the session is closed and removed once its process has exited:
+    ///     the tab disappears, a window whose last tab it was closes, an in-world
+    ///     instance is retired. Intended for a terminal launched to run one program
+    ///     (e.g. an editor) rather than an interactive shell. Default false: the
+    ///     session stays, showing the program's last screen and " (exit N)" in its tab.
+    ///     A session whose process failed to <i>start</i> is never published, so this
+    ///     does not apply to it. Applied on the tick thread by
+    ///     <c>SessionManager.CloseExitedSessions</c>.
+    /// </summary>
+    public bool CloseOnExit { get; set; }
+
+    /// <summary>
+    ///     Like <see cref="CloseOnExit"/>, but only when the process exited with code 0: a
+    ///     program that failed (a crash at start, a wrapper script or shim that cannot run its
+    ///     target) leaves the session open with its final screen and " (exit N)", exactly as a
+    ///     terminal without either option, so its error can be read. <see cref="CloseOnExit"/>
+    ///     closes on any exit and wins when both are set. Default false.
+    /// </summary>
+    public bool CloseOnSuccessfulExit { get; set; }
+
+    /// <summary>
     ///     Creates a copy with independent argument/environment collections.
     ///     Session managers clone before stamping per-session dimensions so a
     ///     shared default (or caller-cached) instance is never mutated.
@@ -110,9 +140,12 @@ public class ProcessLaunchOptions
         Arguments = new List<string>(Arguments),
         WorkingDirectory = WorkingDirectory,
         EnvironmentVariables = new Dictionary<string, string>(EnvironmentVariables),
+        RemovedEnvironmentVariables = new List<string>(RemovedEnvironmentVariables),
         InitialWidth = InitialWidth,
         InitialHeight = InitialHeight,
         StartupCommand = StartupCommand,
+        CloseOnExit = CloseOnExit,
+        CloseOnSuccessfulExit = CloseOnSuccessfulExit,
     };
 
     /// <summary>

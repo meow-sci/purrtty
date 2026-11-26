@@ -74,9 +74,13 @@ public sealed class FaultyVehicleParts(IVehicleParts inner) : IVehicleParts
     /// <inheritdoc/>
     public float ActuatorGetF(int index, ActuatorProp prop) => ThrowOnRead ? throw new InjectedFault("read") : Inner.ActuatorGetF(index, prop);
 
+    /// <summary>Called with every command <see cref="Apply"/> receives, before the fault check (a journal across several back ends).</summary>
+    public Action<PartCommand>? OnApply { get; set; }
+
     /// <inheritdoc/>
     public void Apply(in PartCommand command)
     {
+        OnApply?.Invoke(command);
         if (ThrowOnApply) throw new InjectedFault(nameof(Apply));
         Inner.Apply(command);
     }

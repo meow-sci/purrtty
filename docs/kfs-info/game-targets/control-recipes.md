@@ -86,7 +86,7 @@ sources:
   - id: gatos-animation-links
     resource: gatos:gatOS.GameMod/Game/Ksa/Readers/AnimationLinks.cs
     title: gatOS AnimationLinks
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:36:15Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: draft
 ksa_build: "2026.11.25.5949"
 ---
@@ -333,7 +333,8 @@ static void SetColorAtomic(LightModule.TemplateData mine, float r, float g, floa
 
 - **Provenance:** *constructed from the decompiled API — untested*.
 - **Side effects (both):** none beyond the light's colour. The lens emissive does **not** change
-  colour. Units: linear RGB, nominal 0–1 per component; sanitise NaN/∞ and decide whether to clamp
+  colour. Units: RGB floats, nominal 0–1 per component (`Unverified:` whether the renderer treats
+  them as linear or sRGB values — see [light module](/game-targets/light-module.md)); sanitise NaN/∞ and decide whether to clamp
   (gatOS clamps to 0–1 and zippo's Disco recipe validates 0–1; zippo's ordinary `WriteColor` path
   passes the value through unclamped).
 
@@ -640,7 +641,7 @@ State-buffer values are one physics step old.
 | light type | `LightModule.TemplateData.LightType` | `Spot = 0`, `Point = 1` | `u32` |
 | intensity | `float` (`FloatReference.Value`) | unitless, ≥ 0, no upper bound; stock 0.05–50 | `f32` |
 | range | `float` | metres, > 0 (≈ 0 disables the emitter) | `f32` |
-| colour R, G, B | `float` × 3 | linear, nominal 0–1 | 3 × `f32` (or one packed `u32` if 8-bit is enough) |
+| colour R, G, B | `float` × 3 | nominal 0–1; colour space `Unverified:` (linear or sRGB) | 3 × `f32` (or one packed `u32` if 8-bit is enough) |
 | inner half-angle | `float` | radians, `0 … outer` | `f32` |
 | outer half-angle | `float` | radians, `1e-5 … 1.5697963` | `f32` |
 | animation kind | `bool ShowDeployRetract` | 1 = deploy/retract, 0 = actuator | `u32` |

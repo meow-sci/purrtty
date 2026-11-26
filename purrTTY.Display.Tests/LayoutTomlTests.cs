@@ -143,6 +143,76 @@ public sealed class LayoutTomlTests
     }
 
     [Test]
+    public void ShellSpec_CloseOnExit_RoundTripsThroughLaunchOptions()
+    {
+        var original = ProcessLaunchOptions.CreateCustom("nvim", "main.kc");
+        original.CloseOnExit = true;
+
+        Assert.That(ShellSpec.From(original).ToLaunchOptions().CloseOnExit, Is.True);
+        Assert.That(ShellSpec.From(ProcessLaunchOptions.CreateDefault()).ToLaunchOptions().CloseOnExit, Is.False);
+        Assert.That(ShellSpec.From(null).CloseOnExit, Is.False, "the default shell does not close on exit");
+    }
+
+    [Test]
+    public void A_Window_Still_Starting_Is_Captured_With_The_Shell_It_Was_Opened_With()
+    {
+        // A kFS editor window whose session has not started yet: its launch (with the marker the
+        // layout manager leaves out) must be captured, not a default shell under "kFS: x".
+        var editor = ProcessLaunchOptions.CreateCustom("/usr/bin/nvim", "--", "t.c");
+        editor.EnvironmentVariables["PURRTTY_KFS_ROOT"] = "/ws";
+        ProcessLaunchOptions? starting = purrTTY.Display.Ghostty.WindowLayoutRecord.LaunchOf(activeSession: null, openedWith: editor);
+        Assert.That(starting, Is.Not.Null.And.Not.SameAs(editor), "a copy");
+        Assert.That(starting!.EnvironmentVariables["PURRTTY_KFS_ROOT"], Is.EqualTo("/ws"));
+
+        var shell = ProcessLaunchOptions.CreateCustom("/bin/zsh");
+        Assert.That(purrTTY.Display.Ghostty.WindowLayoutRecord.LaunchOf(shell, editor)!.CustomShellPath, Is.EqualTo("/bin/zsh"), "the active session wins");
+        Assert.That(purrTTY.Display.Ghostty.WindowLayoutRecord.LaunchOf(null, null), Is.Null, "the default shell");
+    }
+
+    [Test]
+    public void CloseOnSuccessfulExit_RoundTripsThroughLaunchOptionsAndToml_AndIsOnlyWrittenWhenSet()
+    {
+        var original = ProcessLaunchOptions.CreateCustom("nvim", "main.kc");
+        original.CloseOnSuccessfulExit = true;
+        Assert.That(ShellSpec.From(original).ToLaunchOptions().CloseOnSuccessfulExit, Is.True);
+        Assert.That(ShellSpec.From(original).ToLaunchOptions().CloseOnExit, Is.False, "the two options are independent");
+        Assert.That(ShellSpec.From(null).CloseOnSuccessfulExit, Is.False);
+
+        var layout = SampleLayout();
+        layout.Terminals[1].Shell.CloseOnSuccessfulExit = true;
+        var catalog = new LayoutCatalog();
+        catalog.Save(layout);
+
+        var loaded = catalog.Load("Flight Ops");
+        Assert.That(loaded!.Terminals[0].Shell.CloseOnSuccessfulExit, Is.False, "absent key loads as false (older files)");
+        Assert.That(loaded.Terminals[1].Shell.CloseOnSuccessfulExit, Is.True);
+        Assert.That(loaded.Terminals[1].Shell.CloseOnExit, Is.False);
+        string text = File.ReadAllText(Directory.GetFiles(LayoutCatalog.GetLayoutsDirectory(), "*.toml").Single());
+        Assert.That(text.Split("close_on_successful_exit = true").Length - 1, Is.EqualTo(1), text);
+        Assert.That(text, Does.Not.Contain("close_on_exit"), text);
+    }
+
+    [Test]
+    public void CloseOnExit_RoundTripsThroughToml_AndIsOnlyWrittenWhenSet()
+    {
+        var layout = SampleLayout();
+        layout.Terminals[1].Shell.CloseOnExit = true; // the window entry
+
+        var catalog = new LayoutCatalog();
+        catalog.Save(layout);
+
+        var loaded = catalog.Load("Flight Ops");
+        Assert.That(loaded, Is.Not.Null);
+        Assert.That(loaded!.Terminals[0].Shell.CloseOnExit, Is.False, "absent key loads as false (older files)");
+        Assert.That(loaded.Terminals[1].Shell.CloseOnExit, Is.True);
+
+        // Emitted only when true, so layouts that never use it keep their exact text.
+        string text = File.ReadAllText(Directory.GetFiles(LayoutCatalog.GetLayoutsDirectory(), "*.toml").Single());
+        Assert.That(text.Split("close_on_exit").Length - 1, Is.EqualTo(1), text);
+        Assert.That(text, Does.Contain("close_on_exit = true"), text);
+    }
+
+    [Test]
     public void Delete_RemovesLayout()
     {
         var catalog = new LayoutCatalog();

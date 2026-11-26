@@ -141,14 +141,35 @@ public sealed class RunLifecycleTests : RuntimeFixture
         Assert.That(v.Parts.Sets.Generation, Is.EqualTo(generation + 2), "the next drain rebuilds again");
     }
 
+    [Test]
+    public void Generation_Never_Goes_Back_When_A_Computer_Is_Bound_Again()
+    {
+        // The pump prunes a binding whose host it no longer sees (another star system) and makes a
+        // new one, with a new parts back end, when the host is back; the program keeps running.
+        using SimVehicle v = Vehicle(lights: 1);
+        v.LoadKc(Kc.Ticked("g = x_parts_info(X_PARTS_GENERATION); if (k == 2u) { x_parts_rescan(); }", "uint32_t g;\n"));
+        v.RunTicks(5);
+        uint before = v.ReadGlobal<uint>("g");
+        Assert.That(before, Is.GreaterThan(1u), "a run's lists and a rescan");
+
+        Assert.That(PartsRegistry.Unbind(v.Computer), Is.True);
+        var again = new SimVehicleParts(lights: 1);
+        PartsRegistry.Bind(v.Computer, again);
+        v.RunTicks(1);   // the router finds the new binding, which starts the run's lists afresh
+
+        Assert.That(v.ReadGlobal<uint>("g"), Is.GreaterThan(before), "a program comparing generations never sees an old one again");
+        Assert.That(again.Sets.Generation, Is.EqualTo((int)before + 1));
+    }
+
     // ------------------------------------------------------------------ x_deploy_toggle
 
     [Test]
     public void Deploy_Toggle_From_Rest_And_Mid_Travel()
     {
-        // 2 s deployable; a command of tick k is applied by the pump of frame k + 1, which then steps
-        // 0.1 s. Tick 1: toggle (retracted → deploying). Tick 23 (deployed since tick 21): toggle
-        // back. Tick 33, halfway through the retraction: toggle again (→ deploying from 1 s).
+        // 2 s deployable; a command of tick k is applied by the pump of frame k + 1 and moves the part
+        // from the step of frame k + 2, 0.1 s a frame. Tick 1: toggle (retracted → deploying). Tick
+        // 23 (deployed since tick 22): toggle back. Tick 33, during the retraction: toggle again
+        // (→ deploying from 1 s, where the step of frame 34 left it).
         using SimVehicle v = Vehicle(deployables: 1);
         v.LoadKc(Kc.Ticked("""
                 if (k == 1u || k == 23u || k == 33u) { x_deploy_toggle(0u); }
@@ -163,11 +184,11 @@ public sealed class RunLifecycleTests : RuntimeFixture
         Assert.That(v.LogText.Where(t => t.StartsWith("toggle k=", StringComparison.Ordinal)), Is.EqualTo(new[]
         {
             "toggle k=0 state=2 pos=0.00 target=0.00",    // X_STATE_RETRACTED
-            "toggle k=2 state=3 pos=0.05 target=1.00",    // X_STATE_DEPLOYING
-            "toggle k=21 state=1 pos=1.00 target=1.00",   // X_STATE_DEPLOYED
-            "toggle k=24 state=4 pos=0.95 target=0.00",   // X_STATE_RETRACTING, from deployed
-            "toggle k=34 state=3 pos=0.55 target=1.00",   // X_STATE_DEPLOYING again, from mid-travel
-            "toggle k=43 state=1 pos=1.00 target=1.00",
+            "toggle k=3 state=3 pos=0.05 target=1.00",    // X_STATE_DEPLOYING
+            "toggle k=22 state=1 pos=1.00 target=1.00",   // X_STATE_DEPLOYED
+            "toggle k=25 state=4 pos=0.95 target=0.00",   // X_STATE_RETRACTING, from deployed
+            "toggle k=35 state=3 pos=0.55 target=1.00",   // X_STATE_DEPLOYING again, from mid-travel
+            "toggle k=44 state=1 pos=1.00 target=1.00",
         }), v.Dump);
         Assert.That(v.Parts.Applied.Select(a => a.Command.Service), Is.EqualTo(new[] { Svc.DeployToggle, Svc.DeployToggle, Svc.DeployToggle }));
         Assert.That(v.Parts.Deployable(0).GoalS, Is.EqualTo(2.0));

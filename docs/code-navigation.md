@@ -3,7 +3,8 @@
 Start here:
 - Solution: `purrtty.slnx`
 - Shared build config + KSA DLL paths (per-OS): `Directory.Build.props`
-- Migration plan + status: `LIBGHOSTTY_ANALYSIS.md`; provenance/licensing: `vendor/Ghostty.Vt/README.md`, `THIRD-PARTY-NOTICES.md`
+- Migration plan + status: `plans/LIBGHOSTTY_ANALYSIS.md`; provenance/licensing: `vendor/Ghostty.Vt/README.md`, `THIRD-PARTY-NOTICES.md`
+- kFS (the game's flight computer) extension, tools and editor support: the last section of this file; plan `plans/KFS_EXTENSION_FOR_PARTS_PLAN.md`
 
 ## Vendored binding (`vendor/Ghostty.Vt/`)
 
@@ -20,11 +21,13 @@ Start here:
 - OSC 52 clipboard / OSC 1 icon: `Ghostty/OscSidecar.cs` (managed tee of the output stream; decides interest in raw bytes before allocating, **discards** payloads that hit the 64 KiB cap — a truncated OSC 52 cut on a base64 boundary would otherwise paste a silent prefix — and treats CAN/SUB as abort-current-sequence, which the inbox-drop heal sequence relies on)
 - Neutral input types: `Input/` (`TerminalKey`, `TerminalKeyEvent`, `TerminalMouseEvent`, `GridPoint`, `KeyModifiers`)
 - Sessions: `Sessions/` (`TerminalSession`, `SessionManager`, `TerminalSessionFactory` — the construction seam). `SessionManager.SessionConfigurator` runs against each new session *before* it is initialized/published — the safe place for theme push + surface event wiring (`TerminalWindow.WireSession` uses it); a `SessionCreated` subscriber runs post-publication, possibly on a pool thread, and must not touch the surface. Session close (`TerminalSession.CloseAsync`) completes synchronously on the calling thread — see gotcha 19.
+- Process exit handling (in `Sessions/`): `TerminalSession.HasProcessExited` / `ExitCode` are a latch set on the PTY pump thread by `OnProcessExited` — only after the back end drained the dying process's last output — and cleared by `ResetProcessExited` before a restart (gotcha 41). `TerminalSession.ShouldCloseAfterExit` combines the latch with the launch options (`CloseOnExit`, or `CloseOnSuccessfulExit` with exit code 0). `SessionManager.CloseExitedSessions()` is the one place sessions are closed because their process ended: called by the frontends on the tick thread, it ticks the surface once (`BuildFrame`, so the final output, title and an OSC 52 clipboard write apply), closes the session and returns the closed ids (gotcha 42). `TerminalSession.Resize(cols, rows, cellW, cellH)` is the only resize entry the frontends use: surface first (a dead session's last frame still reflows), then the recorded dimensions, then the PTY, which is a no-op once the process is gone (gotcha 40). `SendInput` and the engine-reply path (`WriteIfRunning`) drop input for a process that died between the `IsRunning` check and the write.
 
 ## Frontend (`purrTTY.Display/`)
 
 - Multi-window controller: `Ghostty/GhosttyTerminalController.cs` (implements `Controllers/ITerminalController.cs` — deliberately minimal: IsVisible/Update/Render/Dispose; manages a list of `TerminalWindow`s, routes game-menu actions to the focused window, persists display defaults + first-window geometry through a single shared `ThemeConfiguration` instance — including when the **last** window is closed via its "x")
 - Per-window terminal: `Ghostty/TerminalWindow.cs` — a partial class: core (lifecycle/render/chrome/tabs/geometry) in `TerminalWindow.cs`, input encoding in `TerminalWindow.Input.cs`, font/metric resolution in `TerminalWindow.Fonts.cs`, the perf HUD in `TerminalWindow.PerfHud.cs`, the lock-mode hot zone in `TerminalWindow.HotZone.cs` (owns a `SessionManager` whose sessions are tabs — tab bar hidden with one tab; per-window theme/font/opacity **plus cursor style/blink, the focus/hover border, and lock mode + focus hot zone (gotcha 22)** via `TerminalWindowSettings` (own file; its `ApplyThemeOverrides` is the single clamp-and-apply implementation behind both theme application and new-window defaults); AltGr text (Ctrl+Alt + queued chars on Windows international layouts) is delivered as text, not a spurious Ctrl+Alt chord; chrome hiding: transparent WindowBg/MenuBarBg + zero border + `Alpha=0` menu/tab strips when the mouse is not over the window, even while focused; menu-bar strip is the drag handle (no title bar) and an `InvisibleButton` over the grid keeps drag-selection from moving the window; Ctrl+Shift+C/V copy/paste; Ctrl/Alt modified keys (letters, digits, Ctrl punctuation) encode via the engine key encoder while plain text flows through the ImGui character queue with surrogate pairing; a failed session start is shown in the window (`NotifySessionStartFailed`); saved/cascaded geometry is clamped to the viewport work area; grid snap: when an interactive resize ends, `TrackResizeSnap` shrinks the window by the fractional-cell remainder so the grid exactly fills the content region — chrome is *measured* as `windowSize - avail`, not computed from style metrics, and a resize is recognized only as size-change-while-LMB-held with the snap firing on release, so the snap's own `SetNextWindowSize` can never re-trigger detection (no timers needed))
+- Close-on-exit, frontend side: `Ghostty/SessionExitPolicy.cs` (`ShouldRetireHost(closedThisTick, remainingSessions)` — a host retires only when this tick closed at least one exited session and none remain; free of ImGui, so `purrTTY.Display.Tests` covers it). `TerminalWindow.CloseExitedSessions` calls the backend before `ImGui.Begin` in `Render` and from the hidden drain (`DrainSessions`, which the controller's `Update` runs four times a second while the terminal is hidden), drops the closed tabs' labels and, when the policy says so, closes the window through the same `Close()` as its "x". `GhosttyTerminalController.PruneClosedWindows` disposes closed windows at the start of `Render` **and** on the show path (a window can close while the terminal is hidden), persisting the geometry of the last one. `InWorldTerminalRenderer.TickAndCheckDirty` does the same for an in-world terminal and sets `SessionEnded`, which the in-world manager turns into a normal removal. `TerminalWindow.StartLaunchOptions` records what a window was opened with, and `WindowLayoutRecord.LaunchOf(activeSession, openedWith)` uses it while the first session is still starting, so layout capture always knows what a window runs.
 - Theming: `Theming/` (`ThemeDefinition`/`ThemeColors` + `ToEngineTheme()`, `ThemeTomlFormat` (Tomlyn DOM read/write), `ThemeCatalog` — code-built "Default" + bundled `TerminalThemes/*.toml` beside the assemblies + user themes in `<config>/.purrTTY/themes/`). Theme TOML = alacritty-style `[colors.*]` sections; user-saved themes also carry `[font]` (family/size), `[window]` (3 opacities), `[cursor]` (style `block|bar|underline` + blink), `[focus]` (border_on_focus / border_on_hover / border_opacity), `[lock]` (enabled + hot_zone / hot_zone_placement `top-left`..`bottom-right` / hot_zone_width/height/color/opacity/hover_opacity), and `[meta] name` (the display name — filenames are sanitized on save, so the name cannot be derived from the filename) — those fields are optional and "keep current"/fall back when absent (bundled themes are colors-only). Config and theme writes go through `Configuration/AtomicFile` (temp + rename) so an interrupted write never leaves a truncated file.
 - Grid drawing: `Ghostty/FrameGridRenderer.cs` (bold/italic/bold-italic variant via `Ghostty/FrameFonts.cs`; takes foreground/cell-background opacity multipliers). Submission is **run-batched**: consecutive same-color backgrounds merge into one `AddRectFilled`; consecutive same-font/same-color glyphs merge into one `AddText` from a reusable UTF-8 scratch (blank cells inside a run are bridged with spaces). Batching is metric-gated: `TerminalWindow` measures each variant's printable-ASCII advance against the cell width once per (family, size) — see `IsAsciiMonospace` — and non-ASCII glyphs batch only after their individual advance is validated by `GlyphBatchCache` (per-codepoint, cached). Anything unvalidated falls back to per-cell `AddText`, which guarantees grid alignment. **Block Elements (U+2580–U+259F) never go through the font at all**: they are drawn as exact rects (half/eighth blocks, quadrants; ░▒▓ as fg-alpha fills), merged into horizontal strips — pixel-perfect coverage with no glyph-hinting seams, and half-block "pixel" apps (doom, chafa) collapse into color-run strips. **Braille Patterns (U+2800–U+28FF) also bypass the font** (`DrawBrailleCell`): the bundled Nerd Font `.iamttf` files ship **no** braille glyphs, so the font path would render U+FFFD tofu — instead the low 8 bits of `ch − 0x2800` drive a uniform 2×4 dot grid drawn with `AddCircleFilled` (counted as `GridRenderStats.BrailleDots`), which is what makes ratatui/notcurses braille plots (e.g. the gatOS flight-computer TUI) render. The decoration pass is skipped for rows whose `FrameRow.HasDecorations` is false (computed by the backend). `Render` returns `GridRenderStats` (draw-call counts) for the perf HUD.
 - Kitty graphics rendering: `Ghostty/ImageTextureCache.cs` (one `SimpleVkTexture` + `ImTextureRef` per image id, uploaded from the frame's decoded RGBA on the **render thread** via a staging pool + one-shot command buffer, registered with `ImGuiBackend.Vulkan.AddTexture` and freed with `RemoveTexture`; LRU-evicts under the shared 1000-slot descriptor pool — gotcha 23) and `Ghostty/KittyImageRenderer.cs` (draws placements in two z-bands — z<0 under the glyphs, z>=0 over them — sized to the cell span in fractional metrics so images stay grid-aligned, clipped to the grid rect). `TerminalWindow.Render` owns the per-window cache and draws around `FrameGridRenderer.Render`; the perf HUD shows `img:<placements>/<textures>`.
@@ -34,25 +37,25 @@ Start here:
 
 ## PTY/process (`purrTTY.Terminal/Pty/`, namespace `purrTTY.Core.Terminal`)
 
-- Two real-PTY backends behind `IProcessManager.cs`, selected per-OS by `TerminalSessionFactory`: ConPTY on Windows (`ProcessManager.cs` + `Process/ConPty*` etc.) and POSIX pty on Linux/macOS (`UnixProcessManager.cs` + `Process/UnixPtyNative.cs` / `UnixPtySpawner.cs` / `UnixPtyOutputPump.cs`) — see gotcha 16. Both share one start semantic: start failure = resolve/spawn/attach failure; a shell that spawns and dies promptly reports **once**, via `ProcessExited` with its real exit code. The shared teardown disciplines (cancel-outside-lock CTS handling, bounded never-throwing pump waits, join-before-dispose writer shutdown) live in `Process/PtyTeardown.cs`; the resource-close policies stay per-OS.
+- Two real-PTY backends behind `IProcessManager.cs`, selected per-OS by `TerminalSessionFactory`: ConPTY on Windows (`ProcessManager.cs` + `Process/ConPty*` etc.) and POSIX pty on Linux/macOS (`UnixProcessManager.cs` + `Process/UnixPtyNative.cs` / `UnixPtySpawner.cs` / `UnixPtyOutputPump.cs`) — see gotcha 16. Both share one start semantic: start failure = resolve/spawn/attach failure; a shell that spawns and dies promptly reports **once**, via `ProcessExited` with its real exit code. The shared teardown disciplines (cancel-outside-lock CTS handling, bounded never-throwing pump waits, join-before-dispose writer shutdown) live in `Process/PtyTeardown.cs`; the resource-close policies stay per-OS. `IProcessManager.Resize` is a **no-op when no process is running** (before the first start, after exit, after stop) and reports an OS-level failure on a live PTY through `ProcessError` instead of throwing; only `ObjectDisposedException` after `Dispose` remains. Each back end decides under its own state lock, atomically with teardown: `UnixProcessManager.Resize` on `_pid` / `_exited` / `_masterFd`, `ProcessManager.Resize` (ConPTY) on the pseudoconsole handle — not on `Process.HasExited` — and `CustomShellPtyBridge.Resize` on `_isRunning` (gotcha 40). `Process/ProcessLifecycleManager` subscribes `Exited` **before** it sets `EnableRaisingEvents`, so a child that has already exited is still reported.
 - Shell resolution: `Process/ShellCommandResolver.cs` — `ResolveShellCommandLine` (quoted CreateProcess command line, ConPTY) vs `ResolveShellCommandArgv` (discrete argv, Unix exec); never join-then-split — Windows args are quoted per CommandLineToArgvW rules (`AppendQuotedArgument`), Unix args stay discrete. `Custom` takes a path or a bare executable name — a bare name (no directory component) resolves via PATH like every other shell type. `Auto` on Unix = `$SHELL`, then zsh/bash/sh from PATH; `Auto` on Windows offers WSL only when `WslDistributionDetector` finds ≥1 distro, then PowerShell, then cmd. `Auto` is also the config **default and unparsable-value fallback** (`ThemeConfiguration`) — the only shell type valid on every platform.
 - Input queue: `Process/PtyInputQueue.cs` — bounded queue + dedicated writer thread used by both managers (gotcha 20).
 - Auto-run on start: `ProcessLaunchOptions.StartupCommand` is written to the shell as stdin (newline-terminated) right after `ProcessManager.StartAsync` in `Sessions/TerminalSession.InitializeAsync` — works for every shell type incl. the gatOS SSH custom shell (no exec channel, no sleep; PTY line discipline buffers it). Carried on the shared launch spec, so both 2D windows and in-world terminals use it.
 - Shell detection for menus: `ShellAvailabilityChecker.cs` (`IsShellAvailable` cached per shell type; availability is defined as **resolvability** — it delegates to `ShellCommandResolver`, so the menus can never offer a shell the launch would reject), `WslDistributionDetector.cs` (Windows; `wsl --list --quiet` with a bounded 15s wait + kill, output read bounded too), `UnixShellDetector.cs` (`/etc/shells` + `$SHELL`, deduped by executable name, default marked) — all cached for the **process lifetime** (no expiry; shell installs do not change mid-game) and deliberately free of game-logging dependencies so they work from the test host; caching contract pinned by `ShellDetectionCachingTests`
-- Custom-shell adapter: `CustomShellPtyBridge.cs` (its `StartAsync` triggers the shell's `SendInitialOutput` — banner/prompt parity with a real shell's spawn output — and swaps in a fresh per-run exit-code source, since `GameConsoleShell` raises `Terminated` from its stop hook and a reused completed source made a stop→restart cycle look already-terminated); launch options: `ProcessLaunchOptions.cs`
+- Custom-shell adapter: `CustomShellPtyBridge.cs` (its `StartAsync` triggers the shell's `SendInitialOutput` — banner/prompt parity with a real shell's spawn output — and swaps in a fresh per-run exit-code source, since `GameConsoleShell` raises `Terminated` from its stop hook and a reused completed source made a stop→restart cycle look already-terminated); launch options: `ProcessLaunchOptions.cs` — besides the shell, arguments, working directory, environment and `StartupCommand` it carries `CloseOnExit` (close the session when its process ends, whatever the exit code), `CloseOnSuccessfulExit` (close only on exit code 0; `CloseOnExit` wins when both are set — gotcha 43) and `RemovedEnvironmentVariables` (names removed from the child's environment after the parent's environment and `EnvironmentVariables` are merged; honoured by `UnixPtySpawner.BuildEnvironment`, by `ProcessLifecycleManager.CreateEnvironmentBlock` on Windows and by `CustomShellPtyBridge`). All three are copied by `Clone()`.
 - Session/process event args + `SessionState`: `SessionEventArgs.cs`, `ProcessEventArgs.cs`
 
 ## Game/integration (`purrTTY.GameMod/`)
 
-- Lifecycle + toggle + hotkey/theme modals: `TerminalMod.cs`. The full menu content lives in `TerminalMenus.cs` (`TerminalMenus.DrawMenuContent()` plus the static hook fields — `Toggle`/`MenuController`/`Open*Dialog` — that the mod instance wires at init and clears on dispose) and is registered two ways with identical content: via the `[ModMenuEntry("purrTTY")]` attribute on `TerminalMod.DrawMenu` when the ModMenu companion mod is present, and via a `Patcher.cs` postfix on KSA's empty public `Program.DrawProgramMenusHook()` menu-bar extension point otherwise (replaced the former fragile `DrawMenuBar` IL transpiler — gotcha 21). Menus: Toggle Terminal / Toggle Hotkey, New Tab / New Window (items read from `ShellMenuCache` — an immutable snapshot of shell entries + WSL distros + Unix shells built **once on a background thread at init**; the menu draw path must never run detection itself, because a slow probe — wsl.exe service spin-up, a dead network share in PATH — hangs the render thread; a detection *failure* falls back to Default Shell (`Auto`, valid everywhere, needs no detection) + Game Console, never Game Console alone. The menu draw path is also allocation-free per frame — cached hotkey-shortcut string, static launch delegates reading `MenuController`, static accessor lambdas for the sliders, indexed loops — except the custom-shell enumeration below, a small LINQ read that runs only while a New Tab/New Window menu is open. WSL2 is offered only when ≥1 distribution was detected: wsl.exe ships with stock Windows even when WSL was never set up, so executable presence is not evidence of a working WSL, and bare `wsl` with no distro yields a dead session. Per-shell items via `UnixShellDetector` on Linux/macOS replace the generic "Default Shell" entry; Game Console always offered. Custom shells registered by **other mods** over the exported contract (e.g. gatOS) are appended by `DrawRegisteredCustomShellItems`: it enumerates `CustomShellRegistry.GetAvailableShells()` **live on every draw** (skipping the built-in `GameConsoleShell` id) and launches via `ProcessLaunchOptions.CreateCustomGame(id)`. Live reading instead of a `ShellMenuCache` snapshot solves cross-mod registration timing — load order is undefined, so another mod may register after this mod's init — without a refresh hook, and it honors the never-detect-on-the-draw-path rule: the read is a plain ConcurrentDictionary enumeration, and registry discovery already ran synchronously in `InitializeTerminal` before `MenuController` (the gate on drawing these menus) was published), **Theme…** (opens the `ThemeDialog`, `OpenThemeDialog` delegate), **In-World Terminals…** (opens the `InWorldManagerUI`, `OpenInWorldManager` delegate — shown only when the coordinator is live), and a slimmed **Window** submenu (`DrawWindowMenu`: hide-chrome + performance-HUD + kitty-diagnostics checkboxes + kitty-cache limit only). The former scattered **Theme/Font/Focus** submenus and the three opacity sliders were **consolidated into `ThemeDialog`** (per-target appearance bundle); New-Tab/New-Window launch actions still target `controller.FocusTarget`.
+- Lifecycle + toggle + hotkey/theme modals: `TerminalMod.cs`. It also owns the kFS pieces that need the mod's lifecycle (`_lsp`, `_neovim`; details in the kFS section): `OnFullyLoaded` runs `Patcher.patch()`, then `TryStartLanguageServer()`, sets `TerminalMenus.DrawKfsMenu`, initializes the terminal, the in-world subsystem and the layouts, and last `TryInitializeNeovim()`; `OnAfterUi` calls `_lsp?.Frame()` first — before the "terminal initialized" check, so the language server keeps working when the terminal failed to come up — and `_neovim?.Pump()` with the other dialogs; `Unload` stops the language server before `Patcher.unload()`. The full menu content lives in `TerminalMenus.cs` (`TerminalMenus.DrawMenuContent()` plus the static hook fields — `Toggle`/`MenuController`/`Open*Dialog`/`DrawKfsMenu` — that the mod instance wires at init and clears on dispose; `DrawMenuContent` never throws — it catches, logs once, and every submenu it begins is ended in a `finally`, gotcha 56) and is registered two ways with identical content: via the `[ModMenuEntry("purrTTY")]` attribute on `TerminalMod.DrawMenu` when the ModMenu companion mod is present, and via a `Patcher.cs` postfix on KSA's empty public `Program.DrawProgramMenusHook()` menu-bar extension point otherwise (replaced the former fragile `DrawMenuBar` IL transpiler — gotcha 21). Menus: Toggle Terminal / Toggle Hotkey, New Tab / New Window (items read from `ShellMenuCache` — an immutable snapshot of shell entries + WSL distros + Unix shells built **once on a background thread at init**; the menu draw path must never run detection itself, because a slow probe — wsl.exe service spin-up, a dead network share in PATH — hangs the render thread; a detection *failure* falls back to Default Shell (`Auto`, valid everywhere, needs no detection) + Game Console, never Game Console alone. The menu draw path is also allocation-free per frame — cached hotkey-shortcut string, static launch delegates reading `MenuController`, static accessor lambdas for the sliders, indexed loops — except the custom-shell enumeration below, a small LINQ read that runs only while a New Tab/New Window menu is open. WSL2 is offered only when ≥1 distribution was detected: wsl.exe ships with stock Windows even when WSL was never set up, so executable presence is not evidence of a working WSL, and bare `wsl` with no distro yields a dead session. Per-shell items via `UnixShellDetector` on Linux/macOS replace the generic "Default Shell" entry; Game Console always offered. Custom shells registered by **other mods** over the exported contract (e.g. gatOS) are appended by `DrawRegisteredCustomShellItems`: it enumerates `CustomShellRegistry.GetAvailableShells()` **live on every draw** (skipping the built-in `GameConsoleShell` id) and launches via `ProcessLaunchOptions.CreateCustomGame(id)`. Live reading instead of a `ShellMenuCache` snapshot solves cross-mod registration timing — load order is undefined, so another mod may register after this mod's init — without a refresh hook, and it honors the never-detect-on-the-draw-path rule: the read is a plain ConcurrentDictionary enumeration, and registry discovery already ran synchronously in `InitializeTerminal` before `MenuController` (the gate on drawing these menus) was published), **Theme…** (opens the `ThemeDialog`, `OpenThemeDialog` delegate), **In-World Terminals…** (opens the `InWorldManagerUI`, `OpenInWorldManager` delegate — shown only when the coordinator is live), **Layouts…**, the **kFS** submenu (drawn by `Kfs/KfsMenu.Draw` through the `DrawKfsMenu` hook, directly after "Layouts…" — see the kFS section), and a slimmed **Window** submenu (`DrawWindowMenu`: hide-chrome + performance-HUD + kitty-diagnostics checkboxes + kitty-cache limit only). The former scattered **Theme/Font/Focus** submenus and the three opacity sliders were **consolidated into `ThemeDialog`** (per-target appearance bundle); New-Tab/New-Window launch actions still target `controller.FocusTarget`.
 - Bundled assets: `TerminalThemes/*.toml` (18 color schemes; parse-tested by `purrTTY.Display.Tests`) + `TerminalFonts/*` (Nerd Fonts, `.iamttf` + one `.otf`), both copied to the build output and the deployed mod dir by the csproj.
-- Harmony patches: `Patcher.cs` applies each patch **independently** via `CreateClassProcessor(type).Patch()` with a per-class try/catch (gotcha 21) — required (`Patch01` input gate, `Patch03_HotkeyGuard`, `Patch04_MouseBindingGate`) vs optional (`Patch02` menu fallback, `ConsoleWindowPrintPatch`, `RenderTranslucencyPassPatch`); the harmony instance is recreated lazily (`??=`) so a reload after `unload()` nulled it still patches. `Patch01` gates `KSA.Program.OnKey` while a terminal owns the keyboard (`GhosttyTerminalController.IsAnyTerminalActive` or `InWorldTerminalManager.IsInputFocused`) and forwards a key *release* only for a key whose press it forwarded (`s_gameHeldKeys` — no stuck controls, no leaked release-arm toggles). `Patch04_MouseBindingGate` prefixes the private `Program.DispatchKeyEvent` (KSA 5482+: `OnMouseButton` dispatches mouse-bound game actions through it, bypassing `OnKey`) and applies the same rule to mouse buttons via a swallowed-press model (gotcha 21). `Patch03_HotkeyGuard` blocks `GameSettings.OnKeyAll` while `ImGui.GetIO().WantTextInput` is set (null-guards the `Program.ConsoleWindow` static) so typing in mod text fields never fires game hotkeys. The toggle hotkey (`ToggleHotkeyBinding.MatchesPress`) uses `IsKeyPressed(repeat:false)` and is suppressed while a text field has focus. `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
+- Harmony patches: `Patcher.cs` applies each patch **independently** via `CreateClassProcessor(type).Patch()` with a per-class try/catch (gotcha 21) — required (`Patch01` input gate, `Patch03_HotkeyGuard`, `Patch04_MouseBindingGate`) vs optional (`Patch02` menu fallback, `ConsoleWindowPrintPatch`, `RenderTranslucencyPassPatch`, `KfsErrorEchoPatch` — see the kFS section); after its own patches `patch()` installs the kFS extension (`InstallKfs`) and registers the `purr` console command (`RegisterPurrCommand`), each in its own try/catch so neither can affect the terminal, and `unload()` runs `KfsExtension.Uninstall()` then `PurrConsole.Unregister()` **before** `UnpatchAll` (the extension's hooks share the `purrTTY` Harmony id, so `UnpatchAll` is only their backstop); the harmony instance is recreated lazily (`??=`) so a reload after `unload()` nulled it still patches. `Patch01` gates `KSA.Program.OnKey` while a terminal owns the keyboard (`GhosttyTerminalController.IsAnyTerminalActive` or `InWorldTerminalManager.IsInputFocused`) and forwards a key *release* only for a key whose press it forwarded (`s_gameHeldKeys` — no stuck controls, no leaked release-arm toggles). `Patch04_MouseBindingGate` prefixes the private `Program.DispatchKeyEvent` (KSA 5482+: `OnMouseButton` dispatches mouse-bound game actions through it, bypassing `OnKey`) and applies the same rule to mouse buttons via a swallowed-press model (gotcha 21). `Patch03_HotkeyGuard` blocks `GameSettings.OnKeyAll` while `ImGui.GetIO().WantTextInput` is set (null-guards the `Program.ConsoleWindow` static) so typing in mod text fields never fires game hotkeys. The toggle hotkey (`ToggleHotkeyBinding.MatchesPress`) uses `IsKeyPressed(repeat:false)` and is suppressed while a text field has focus. `Patches/ConsoleWindowPrintPatch.cs` (captures game-console output; targets the Brutal sink `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` → `GameConsoleShell.OnConsolePrint` — **Brutal-version-sensitive**: an older API used `Print(string, uint, int, ConsoleLineType)`)
 
 ## In-world terminals (`purrTTY.GameMod/InWorld/`)
 
 Render-to-texture terminals drawn on world-space quads (a part anchor that depth-tests against the scene, or a camera billboard). **Session-only** — created via the manager dialog, never persisted.
 
-- Coordinator: `InWorldTerminalManager.cs` — a thin singleton over `List<InWorldTerminalInstance>`. Owns focus arbitration (mutually exclusive with 2D focus), per-frame driving (`OnAfterGui`), click-to-focus picking (nearest pickable quad under `Cursor.GetEgoRay(Program.MainViewport)` — KSA 5402 dropped the per-frame `Cursor.InputRay`; part-mode always, plus billboards whose `BillboardClickToFocus` toggle is on; see `IsClickPickable`), the **deferred-teardown queue**, and the render-postfix statics: `Active` (≥1 live instance), `Instance`, `IsInputFocused` (read by the key gate). `Create`/`Remove`/`Recreate` manage instances; the `PURRTTY_INWORLD` env gate auto-creates one default instance on the first frame. (Kept the `…Manager` name — not renamed to `…Coordinator` — to reduce churn; it is the coordinator role.)
+- Coordinator: `InWorldTerminalManager.cs` — a thin singleton over `List<InWorldTerminalInstance>`. Owns focus arbitration (mutually exclusive with 2D focus), per-frame driving (`OnAfterGui`), click-to-focus picking (nearest pickable quad under `Cursor.GetEgoRay(Program.MainViewport)` — KSA 5402 dropped the per-frame `Cursor.InputRay`; part-mode always, plus billboards whose `BillboardClickToFocus` toggle is on; see `IsClickPickable`), the **deferred-teardown queue**, and the render-postfix statics: `Active` (≥1 live instance), `Instance`, `IsInputFocused` (read by the key gate). `Create`/`Remove`/`Recreate` manage instances; `PruneRetired` (per frame) removes failed instances and those whose close-on-exit shell has ended (`InWorldTerminalRenderer.SessionEnded`), both through `Remove` and therefore through the normal deferred GPU teardown; the `PURRTTY_INWORLD` env gate auto-creates one default instance on the first frame. (Kept the `…Manager` name — not renamed to `…Coordinator` — to reduce churn; it is the coordinator role.)
 - Per-instance: `InWorldTerminalInstance.cs` (implements `INamedTerminal`) — one off-screen GPU graph + dedicated shell + quad: `OffscreenRenderTarget` (`OffscreenRenderTarget.cs`, R8G8B8A8**Unorm** not SRGB — the quad's frag shader gamma-decodes the texel), `OffscreenImGuiContext` (`OffscreenImGuiContext.cs`, shares the main font atlas), `OffscreenImGuiBackend` (`OffscreenImGuiBackend.cs`, second Vulkan backend whose dynamic-rendering pipeline targets the off-screen colour format), `PerFrameRenderer` (`PerFrameRenderer.cs`, its own command pool/buffers/fences + one extra queue submit per frame; records a colour-only `BeginRendering` scope between explicit layout transitions — gotcha 39), `Display/InWorldQuad.cs` (world-space quad; owns only its descriptor set + MVP push-constant), and the dedicated `InWorldTerminalRenderer` (in `purrTTY.Display`, its own `SessionManager`/shell/fonts). The ctor allocates GPU on the live renderer (needs an active ImGui frame to measure the cell); on failure it tears down the partial alloc and rethrows. `TrySetGridSize` is a **live in-place resize**: quad recording stops at once, the teardown-window drain elapses, then under a device `WaitIdle` the target is rebuilt + the quad descriptor rewritten — the shell survives and reflows via the PTY resize (gotcha 25). `Dispose(bool freeGpu)` — `freeGpu:false` at shutdown closes only the shell (the device is already gone).
 - Shared GPU state: `Display/SharedQuadResource.cs` — the two premultiplied-alpha pipelines (reverse-Z depth-test-no-write / no-depth) + pipeline layout + descriptor-set layout + vertex input + unit-quad VB/IB, identical across instances, built once by the coordinator and shared by every `InWorldQuad`. Owns purrtty's **only custom shader**: `QuadFragGlsl`, a fragment shader runtime-compiled via `RenderCore.ShaderModuleUtils.FromString`, which preserves the off-screen texture's premultiplied alpha (the stock `UnlitMesh.frag` would discard it) so the quad is faithfully transparent per the theme's opacities. The vertex stage stays KSA's stock `UnlitMeshVert` (ModLibrary-owned); the frag module is purrtty-owned and destroyed in `Dispose`. See gotcha 28.
 - Settings: `Settings/InWorldTerminalRecord.cs` — session-only POCO: name, fixed `Cols`/`Rows` (drive the texture extent), `Launch` (shell), `ThemeName`, `Mode` (`part`/`billboard`), part anchor (`TargetVehicleId`/`TargetPartId`/`TargetSubPartId` + offset/rotation/meters), billboard placement (incl. `BillboardClickToFocus` — opt a HUD billboard into ego-space ray click-to-focus). `Clone()` for the recreate path (font/shell changes; a grid resize is live, no recreate).
@@ -70,11 +73,16 @@ only when the user loads them** (no auto-apply).
   `AtomicFile`): `Layouts/LayoutDefinition.cs` (`TerminalLayout` → `LayoutHeader` + `TerminalEntry[]`;
   kind-specific placement fields are nullable so a window entry never carries in-world fields and
   vice-versa — 2D persists pos+size px only, in-world persists cols/rows + anchor + transform),
-  `Layouts/ShellSpec.cs` (serialisable shell + `StartupCommand`, with `ToLaunchOptions`/`From`),
+  `Layouts/ShellSpec.cs` (serialisable shell + `StartupCommand` + `CloseOnExit` /
+  `CloseOnSuccessfulExit`, with `ToLaunchOptions`/`From`),
   `Layouts/LayoutCatalog.cs` (All/Load/Save/Delete/Rename), `Layouts/LayoutTomlFormat.cs` (DOM parse +
-  **hand-emitted** save — gotcha 30). Round-trip tests in `purrTTY.Display.Tests/LayoutTomlTests.cs`.
+  **hand-emitted** save — gotcha 30; `close_on_exit` and `close_on_successful_exit` in
+  `[terminal.shell]` are written only when true, so older files stay byte-identical and load as
+  false). Round-trip tests in `purrTTY.Display.Tests/LayoutTomlTests.cs`.
 - Orchestrator + UI (in `purrTTY.GameMod`, the only layer that sees both worlds):
-  `Layouts/LayoutManager.cs` (`Apply` with name-collision skip + per-set tracking, `CaptureCurrentAs`,
+  `Layouts/LayoutManager.cs` (`Apply` with name-collision skip + per-set tracking, `CaptureCurrentAs`
+  — which leaves kFS Neovim terminals out, recognised by `NeovimLaunchPlan.IsKfsEditorEnvironment`
+  on their launch options; gotcha 55 —,
   `TeardownSet`/`TeardownAllLoaded`, and the `TerminalEntry`↔record mappers) and
   `Layouts/UI/LayoutManagerUI.cs` (the **"Layouts…"** dialog: list/load/teardown/delete, save-current,
   and the per-layout editor). Wired in `TerminalMod` (built after both coordinators; pumped in
@@ -93,61 +101,284 @@ only when the user loads them** (no auto-apply).
 - The contract is a **published inter-mod ABI**: `mod.toml` exports `purrTTY.CustomShellContract` + `purrTTY.Logging` over the StarMap ALC (`[StarMap] ExportedAssemblies`), so a mod that lists them in its purrTTY `[[StarMap.ModDependencies]]` `ImportedAssemblies` resolves purrTTY's loaded copies — one type identity, one shared `CustomShellRegistry.Instance` (the consumer is gatOS). `purrTTY.Logging` is exported because the contract assembly references it; an importer needs both from the same ALC. Treat both assemblies' public surfaces as versioned API.
 - Built-in game shell: `purrTTY.CustomShells/GameConsoleShell.cs` (emits VT bytes → `Surface.Write`; prompt from `WellKnownShellEnvironment.GameShellPrompt`, stamped by `ThemeConfiguration.CreateGameShellLaunchOptions` / the menu launch path)
 
-## kFS extension (`purrTTY.Kfs*`)
+## kFS extension, tools and editor support (`purrTTY.Kfs*`, `purrTTY.GameMod/Kfs/`, `purrTTY.GameMod/nvim/`)
 
-Extends kFS, KSA's programmable flight computer, with `x_` services for lights and part animations,
-per [`plans/KFS_EXTENSION_FOR_PARTS_PLAN.md`](../plans/KFS_EXTENSION_FOR_PARTS_PLAN.md); background
-on kFS itself is the [`docs/kfs-info/`](kfs-info/index.md) bundle. **Status: milestone M1 —
-implemented and tested offline only. Not wired into `purrTTY.GameMod`, no game back end; nothing
-runs in the game yet** (tasks A4/A5 of the plan).
+Extends **kFS**, KSA's built-in programmable flight computer (programs in *kC*, a C subset, or
+*kASM*, its assembly language, run by a virtual machine on a vehicle's computer), with `x_`
+services for lights and part animations, and adds the tools to write such programs: a `purr`
+console command, the `purr-kfs` command-line tool, a language server and Neovim support. Design
+and task breakdown: [`plans/KFS_EXTENSION_FOR_PARTS_PLAN.md`](../plans/KFS_EXTENSION_FOR_PARTS_PLAN.md);
+background on kFS itself: the [`docs/kfs-info/`](kfs-info/index.md) bundle.
 
-`purrTTY.Kfs/` — the extension (no terminal/display/GameMod reference; KSA.dll compile-only):
+**Status: wired into the mod and shipped with it, but never run in the game.** Everything below is
+tested offline against the game's real kFS toolchain and was audited against the decompiled
+2026.11.25.5949 sources. The classes that touch live game objects — marked *(game only)* below —
+are compiled against the game but executed by no test. The in-game checks still to be done are
+the plan's [§10](../plans/KFS_EXTENSION_FOR_PARTS_PLAN.md#10-in-game-validation-checklist).
 
-- Entry: `KfsExtension.cs` (`Install(Harmony, options)` all-or-nothing / `Uninstall()` / `Status`,
-  the patch registry `Patches`), `KfsExtensionStatus.cs` (state, disabled reason, table
-  publication, live counters, `Describe()`), `KfsExtensionOptions.cs`, `KfsLog.cs` (log once per
-  failure kind, then count), `KfsBuildInfo.cs` (service id block `0x5000`–`0x50FF`, `Owns(id)`).
-- `Catalog/` — `XCatalog.cs` (**the** list of services and enumerations; `Svc` holds the ids),
-  `ServiceDef`/`ParamDef`/`EnumDef`/`ServiceCatalog`, `Selectors.cs` (selector and state enums
+How the pieces connect at run time:
+
+```
+kFS program ── SYSCALL x_… ──► game VM ──► Harmony hooks (purrTTY.Kfs/Patches) ──► ServiceRouter
+   (solver thread)                                                │ getters: answered at once from IVehicleParts
+                                                                  │ setters: queued on the vehicle's VehicleBinding
+main thread, once per frame: BeforeInputEvents postfix ──► MainThreadPump ──► BindingPump ──► KsaVehicleParts (writes)
+
+editor (Neovim) ◄── LSP over loopback TCP ──► KfsLspListener ──► KfsLanguageServer (one per connection)
+                                                  │ builds on its own compile thread (game compiler)
+                                                  └ kfs.* commands ──► MainThreadQueue ──► TerminalMod.OnAfterUi (main thread)
+```
+
+### `purrTTY.Kfs/` — the extension (shipped; no terminal/display/GameMod reference; game DLLs compile-only)
+
+- Entry: `KfsExtension.cs` (`Install(Harmony, options, gameServices)` all-or-nothing / `Uninstall()` /
+  `Status` / `StatusSummary` / `HeaderLeftRegistered`, the patch registry `Patches`; the install
+  sequence is numbered in `TryInstall` / `InstallFrom`: option → catalogue self-check → required
+  targets and game services resolved → table dry run → publish → required patches → header →
+  optional patches → `purr` command → game services attached → registry opened),
+  `IKfsGameServices.cs` (the seam between the installer and game-only code: `Name`, `Prepare`,
+  `Attach`, `Detach`, optional `Console`, `SystemHeadersInUse`; the offline runtime passes none),
+  `KfsExtensionStatus.cs` (state, disabled reason, table publication, game services, console
+  command, live counters, the one log line, `Summary`, `Describe()`), `KfsExtensionOptions.cs`,
+  `KfsLog.cs` (log once per failure kind, then count), `KfsBuildInfo.cs` (service id block
+  `0x5000`–`0x50FF`, `Owns(id)`).
+- `Catalog/` — `XCatalog.cs` (**the** list of the 22 services and their enumerations; `Svc` holds the
+  ids), `ServiceDef`/`ParamDef`/`EnumDef`/`ServiceCatalog`, `Selectors.cs` (selector and state enums
   shared with C#: `LightProp`, `DeployState` …), `CatalogEmitter.cs` (services rows, enums entries,
-  `<purrtty.h>`, `purrtty.kinc`, builtin names, markdown — byte-stable), `CatalogSelfCheck.cs`.
-- `Tables/` — `TableAugmenter.cs` (stock tables + catalogue through the game's own loader;
-  origin `embedded:KSA+purrtty`), `TablesPublisher.cs` (assigns `KfsIntegration._tables`; five
-  outcomes), `SystemHeaderRegistration.cs` (header + builtins in `SystemHeaders`, restored exactly).
-- `Patches/` — `ApplyRequestPatch` and `IssueResultPatch` (required host hooks),
+  `<purrtty.h>`, `purrtty.kinc`, builtin names, the `purr services` lines, markdown — byte-stable),
+  `CatalogSelfCheck.cs`.
+- `Tables/` — `TableAugmenter.cs` (stock tables + catalogue through the game's own loader; origin
+  `embedded:KSA+purrtty;catalog=<hash of the emitted rows>`), `TablesPublisher.cs` (assigns the
+  private `KfsIntegration._tables`; five outcomes), `SystemHeaderRegistration.cs` (header + builtins
+  in the game's `SystemHeaders`, restored exactly; `Release(inUse)` leaves the registration in place
+  while a compile may be reading the table and the next registration adopts it; in the same file
+  `SystemHeaderReaders` counts purrTTY's running compiles), `StockEditorProbe.cs` (reads the private
+  `KfsIntegration._workbench` — without creating the workbench — to tell whether the stock kFS
+  editor is building in the background). See gotcha 47.
+- `Patches/` — `ApplyRequestPatch` and `IssueResultPatch` (required host hooks, solver thread),
+  `BeforeInputEventsPatch` (required: a postfix on `KfsIntegration.BeforeInputEvents()` that runs
+  `MainThreadPump.Run()` once per frame on the main thread; `Calls` counts how often it ran),
   `BenchApplyRequestPatch` (optional: a readable workbench), `LoadEmbeddedFallbackPatch` (only when
   `_tables` is not found), `KfsPatch` (registry entry).
-- `Runtime/` — `IVehicleParts` + `VehiclePartsBase` (the parts abstraction and its shared logic),
-  `PartSets` (frozen lists of `LightSlot`/`AnimSlot`), `PartCommand`, `PartsRegistry` (computer →
-  `VehicleBinding`: queue, rate limiter, counters), `ServiceRouter` (`Answer` at issue, `Accept`
-  after the tick), `BindingPump` (drain-and-apply, shared by the game pump and the test frame),
-  `PartMath` (clamps), `PartsText` (every program-log text).
+- `Runtime/` — `IVehicleParts` + `VehiclePartsBase` (the parts abstraction and its shared logic;
+  `ContinueAfter` keeps `X_PARTS_GENERATION` rising when a computer is bound again), `PartSets`
+  (frozen lists of `LightSlot`/`AnimSlot`), `PartCommand`, `PartsRegistry` (computer →
+  `VehicleBinding`; `TryBind`/`TryGet`, the dispatch-thread `Fallback`), `VehicleBinding` (the
+  command queue — a ring that grows to `QueueLimit` and then overwrites the oldest —, rate limiter,
+  counters), `ServiceRouter` (`Answer` at issue, `Accept` after the tick), `BindingPump`
+  (drain-and-apply, shared by the game pump and the test frame), `PartMath` (clamps), `PartsText`
+  (every program-log text). Three game-free helpers also live here because the tools share them:
+  `ProjectResolver.cs` (which files make up a kFS project — the game workbench's rules — over a
+  workspace plus an overlay of unsaved buffers: `IWorkspaceFiles`, `DiskWorkspaceFiles`,
+  `MemoryWorkspaceFiles`, `KfsProject`, `ProjectResolution`, and `BoundedFile`, a size-limited read
+  that never blocks on a FIFO or device), `ProjectCompiler.cs` (builds a resolved project the way
+  the game's `Workbench.BuildText` does, with the game's types in its outcome; writes nothing), and
+  `NeovimLaunchPlan.cs` (the launch of the player's `nvim` as plain strings: `NeovimLaunchRequest`,
+  `NeovimLaunchPlan.For` / `Problem` / `IsKfsEditorEnvironment`, the `PURRTTY_KFS_*` variable
+  names, the login-shell script, `KfsLspEndpoint`, `NeovimOpenIn`).
+- `Game/` — the game back end. `KsaGameServices.cs` (the `IKfsGameServices` the mod installs with;
+  `Create()` adds the console, `new KsaGameServices()` has none; `Prepare` resolves the host
+  directory, `Attach` activates the pump and the dispatch fallback, `Detach` clears both and
+  restores light templates), `HostDirectory.cs` (the game's internal `KfsVehicleHost.AllHosts`
+  list, found once by reflection and always read under the list's own lock), `GameHostSource.cs`
+  *(game only)* (`IPumpHostSource` over the directory, filtered by `KfsVehicleHost.IsAlive`),
+  `MainThreadPump.cs` (`IPumpHostSource`, `PumpHost`; `RunFrame`: discover hosts, drain each in
+  `Vehicle.Id` order, prune bindings whose host is gone; `BindFromDispatch`, the fallback for a host
+  the pump has not seen yet), `KsaVehicleParts.cs` *(game only)* (`IVehicleParts` over a live
+  `Vehicle`: collection of `LightModule`s and `KeyframeAnimationModule`s ordered by module instance
+  id, raw reads on the solver thread, raw writes on the main thread), `KsaPartRules.cs` (the
+  decisions of the back end as pure functions over plain values, unit-tested: effective switch,
+  link flags, deployment state, dirty rule), `LightOverrides.cs` (the private copy of a light's
+  shared template made at its first appearance write; `EnsurePrivate`, `Reset`, `RestoreAll`,
+  `IsOverridden`), `KsaConsoleHost.cs` *(game only, except its owner helper)* (`IKfsConsoleHost`
+  over the game console, the controlled vehicle and the workspace; the command's owner object is
+  kept in `AppDomain` data — gotcha 49).
+- `Console/` (namespace `purrTTY.Kfs.Commands`, because a `…Console` namespace would shadow
+  `System.Console`) — the `purr` command. `PurrConsole.cs` (`Execute`, the `[TerminalAction]`
+  method the console and the menu both call; `Run`, the dispatcher; `Verbs`; `Attach`/`Detach` for
+  the installer and `Register`/`Unregister` for the mod's standing registration;
+  `PurrCommandState`; `AsciiOutput`), `PurrVerbRegistry.cs` (`Add(name, help, handler,
+  needsExtension)` → `IDisposable`, `PurrVerb`, `PurrContext` with `Args` / `Words` / `Print` /
+  `Host` / `ExtensionActive`), `PurrBuiltinVerbs.cs` (`help`, `status`, `parts`, `lights`,
+  `examples`, `header`, `kinc`, `services`), `PartsListing.cs` (the index tables of `purr parts`,
+  a pure formatter over `IVehicleParts`), `IKfsConsoleHost.cs` (what the command needs from the
+  game; `ControlledParts`, `PartsListingSource`), `ConsoleText.cs` (`ToAscii`: the game console's
+  font may lack `—`, `→`, `…`, so every line `purr` prints is made ASCII by default).
+- `Examples/` (namespace `purrTTY.Kfs.ExamplePrograms`) — `ExampleCatalog.cs` (`All`, `Files`,
+  `WriteTo(host, overwrite)`) and the example programs it embeds, one workspace folder each (a
+  folder is one project): `x_blink/blink.c`, `x_light_show/light_show.c`,
+  `x_deploy/deploy_when_safe.c`, `x_actuator/actuator_sweep.c`, `x_parts/parts_list.c`,
+  `x_blink_kasm/blink.kasm`. `x_blink_kasm/purrtty.kinc` is not a file in the repository: it is
+  generated from the catalogue when the examples are written. Line ends are `\r\n`, as the game's
+  own examples.
 
-`purrTTY.Kfs.Testing/` — the offline runtime (not shipped):
+### `purrTTY.Kfs.Lsp/` — the language server (shipped; also hosted by `purr-kfs lsp`)
+
+A language server for kC (`.c`, `.h`) and kASM (`.kasm`, `.kinc`) over the game's own compiler and
+assembler. JSON-RPC is hand-written over `System.Text.Json`; the project has no NuGet dependency.
+
+- Host seam: `IKfsLanguageHost.cs` (`IKfsLanguageHost`: tables, workspace root, `CurrentTarget`,
+  `TargetChanged`, `RunVerb`, `Live`, `Token`; `BuildTarget`; `CommandResult`; `ILiveProgram`),
+  `KfsLanguageHost.cs` (a plain host with a replaceable target; the standalone host derives from it).
+- Server: `KfsLanguageServer.cs` (one connection: lifecycle, the token check at `initialize`,
+  document sync, publishing diagnostics; `KfsLanguageServerOptions`), `KfsLspListener.cs` (the
+  loopback TCP accept loop, one server per client; `KfsLspListenerLimits`), `LspFeatures.cs` (the
+  feature registry: `IHoverProvider`, `ICompletionProvider`, `IExecuteCommandHandler`,
+  `AddRequest`, `AddNotification`; also `IDocumentSymbolProvider`, `ICodeLensProvider` and
+  `IInlayHintProvider`, which no provider implements yet), `LspThreads.cs` (every thread the
+  library starts goes through `LspThreads.Start`, which catches everything — gotcha 53),
+  `LspLog.cs` (`LspLogSink`; the game log, a writer, or nothing).
+- `Protocol/` — `JsonRpcConnection.cs` (JSON-RPC 2.0 with `Content-Length` framing over any pair
+  of streams, its own writer thread, `JsonRpcOptions` limits, error codes), `LspTypes.cs`
+  (positions, ranges, diagnostics, `PositionEncoding`, the `LspJson` readers).
+- `Documents/` — `DocumentStore.cs` (open documents by workspace path; immutable `LspDocument`
+  snapshots), `PositionMapper.cs` (kFS line/column ↔ LSP position in UTF-16, UTF-8 or UTF-32;
+  `LineIndex`), `WorkspaceUris.cs` (`file:` URI ↔ workspace path, including Windows drive
+  spellings and symbolic links).
+- `Build/` — `BuildScheduler.cs` (all compiling of one connection: debounce, one compile at a time
+  on its own 16 MiB-stack thread, latest-wins, a watchdog that abandons a compile that runs too
+  long; `BuildSchedulerOptions`), `DiagnosticMapper.cs` (kFS diagnostics → LSP diagnostics),
+  `ProjectBuildResult.cs`.
+- `Index/` — what hover and completion look names up in: `KfsIndex.cs` (the merged index of one
+  tables/target/system-headers triple; `KfsIndexCache` keeps the last few), `HeaderIndex.cs` (names
+  declared by the system headers, found by a line scanner), `TableIndex.cs` (services, kASM
+  mnemonics, `sys.*`, directives, the diagnostic manual), `TargetIndex.cs` (the names of
+  `<vehicle.h>` and the members of `commands`, `sensors` and the message structs for the current
+  build target), `MemberShape.cs`, `IndexEntry.cs`, `StaticTables.cs` (the fixed vocabularies no
+  game table holds).
+- `Features/` — `StandardFeatures.cs` (`AddTo(server)`: hover and completion, every host),
+  `HoverProvider.cs`, `CompletionProvider.cs` (+ `CompletionList.cs`, `PositionRequest.cs`,
+  `ProjectSymbols.cs`, `SourceScan.cs`, `Words.cs`), `HostFeatures.cs` (`AddTo(server, options)`:
+  what a host that can act on the game adds — the commands, `purrtty/subscribe`, `purrtty/status`
+  and the `experimental.purrtty` capability), `CommandProvider.cs` (`KfsCommands`: `kfs.build`,
+  `kfs.load`, `kfs.start`, `kfs.stop`, `kfs.reset`, `kfs.target`, `kfs.manual`, `kfs.parts`,
+  `kfs.verb`; `KfsCommandLine.Resolve` turns each into the exact console line; `KfsCommandProvider`),
+  `LiveFeed.cs` (the `purrtty/kfsLog`, `purrtty/kfsOutput` and `purrtty/kfsState` notifications
+  and the `KFS-TRAP` diagnostic, polled only while a client subscribes), `FeatureTestSeams.cs`.
+- `Live/` — `LiveSource.cs` (`ILiveSource`, `LiveState`, `LiveTrap`, `LoadedProgram`: game-free
+  shapes the feeds and the tests' fakes use), `HostComputerLive.cs` (the live program of one kFS
+  computer, through the computer's thread-safe members only).
+- `InGame/` — the in-game server without the game, so it is tested offline:
+  `InGameLanguageHost.cs` (`IKfsLanguageHost` inside the game; `IKfsGameSide` is its only access to
+  the game; `Frame()` once per frame refreshes workspace root, target and live program, pumps the
+  queue and flushes output; `InGameHostOptions`), `MainThreadQueue.cs` (calls marshalled to the
+  main thread: a per-frame time budget, a bounded number waiting, a timeout, coalescing),
+  `TargetSnapshot.cs` (the build target as an immutable snapshot), `OutputTee.cs` (the writer
+  installed in place of `KfsIntegration.Output`; `OutputTeeInstallation` — gotcha 52),
+  `LspServiceCore.cs` (listener + per-start token + server info file + status line;
+  `LspServiceOptions`, `LspToken`), `LspServerInfoFile.cs` (`<config>/.purrTTY/kfs-lsp.json`),
+  `LspServiceText.cs` (the text of `purr lsp` and the menu line — never the token).
+
+### `purrTTY.Kfs.Cli/` — `purr-kfs` (assembly `purr-kfs`; never shipped with the mod)
+
+- `Program.cs` (entry; for `lsp` it reserves stdout for the protocol and wires Ctrl+C / SIGTERM),
+  `CliApp.cs` (parsing, dispatch, exit codes 0 / 1 / 2), `CliOptions.cs` (`ParsedArgs`,
+  `CliEnvironment`, `LspOptions`, `VehicleOptions`, `WorkspaceFile`), `HelpText.cs` (every help
+  text — the reference for the commands and flags). These four files contain no game type by rule
+  (the comment at the top of `Program.cs` explains why).
+- `Commands/` (game types allowed) — `CheckCommand.cs` (`check`; `RuntimeLease`), `RunCommand.cs`
+  (`run`, on a `SimVehicle`), `BuildOutput.cs` (diagnostic lines, the summary, the `--json`
+  document), `CatalogCommands.cs` (`header`, `kinc`, `services`), `LspCommand.cs` (`lsp --stdio` /
+  `--listen`), `StandaloneLanguageHost.cs` (the host of `purr-kfs lsp`: no vehicle, no live
+  program; the build target from the layout flags, else from the workspace's `vehicle.h` through
+  `VehicleHeaderLayout`, else the default).
+
+### `purrTTY.GameMod/Kfs/` — the mod side (all *game only*: no test executes these files)
+
+- `KfsConfig.cs` — `<config>/.purrTTY/kfs.toml`, separate from `purrtty.toml`. Keys: `enabled`,
+  `nvim_path`, `nvim_open_in`, `lsp_enabled`, `lsp_port`, `lsp_allow_vehicle_commands`; the file is
+  written with the defaults and a comment per key when it does not exist. `ConfigRoot()` is the
+  folder that contains `.purrTTY/`.
+- `KfsMenu.cs` — the **kFS** submenu: the extension's status line, "List parts in console",
+  "Reset light overrides", "Write example programs", "Extension status in console"; the language
+  server's status line, "Copy server address", "Language server in console"; "Edit in Neovim..."
+  (a submenu of the workspace's source files), "Open workspace in Neovim", and under them the
+  reason Neovim cannot be opened or why the last launch failed. Every entry runs
+  `PurrConsole.Execute` directly, so it works even when registering the console command failed.
+- `KfsLspService.cs` — the language server inside the game: reads `kfs.toml`, adds `purr lsp`,
+  installs the output tee, builds the `InGameLanguageHost` over `KsaKfsGameSide`, the `LiveFeed`
+  and the `LspServiceCore`; `Frame()` per frame; `Dispose()` at unload. `Current` is a static that
+  a later load uses to stop a service an earlier load left behind.
+- `KsaKfsGameSide.cs` — `IKfsGameSide`: the only code of the language server that touches the
+  game (`KfsIntegration.Workbench`, its target, `KfsConsoleCommands.Execute`, `PurrConsole.Execute`).
+- `KfsErrorEchoPatch.cs` — an optional Harmony prefix/finalizer pair on `KfsIntegration.Error`
+  that keeps `kfs` errors from appearing twice in the game console while the tee is installed.
+- `KfsNeovimLauncher.cs` — `purr nvim [file]` and the menu's Neovim entries: validates the file
+  against the workspace, plans the launch (`NeovimLaunchPlan`), opens a 2D window
+  (`controller.OpenWindow`, renamed `kFS: <file>`) or queues an in-world terminal that `Pump()`
+  creates inside the ImGui frame (a 120×40 camera billboard); `LaunchProblem()` and `LastFailure`
+  feed the menu.
+
+### `purrTTY.GameMod/nvim/` — Neovim runtime files (plain Lua, copied to `<mod folder>/nvim/`)
+
+- `purrtty_kfs.lua` — the entry script the launcher loads by path with `--cmd`; it makes `lua/`
+  requirable relative to itself (no `runtimepath` change) and calls `setup()`.
+  `plugin/purrtty_kfs.lua` does the same when the folder is installed as an ordinary plugin.
+- `lua/purrtty_kfs/init.lua` — filetypes (`kc` for `*.c`/`*.h` below a kFS workspace root, `kasm`
+  for `*.kasm`/`*.kinc`), workspace roots, finding the language server (environment → server info
+  file → `purr-kfs lsp --stdio` → none), attaching, reconnecting; `buffer.lua` (buffer options and
+  syntax), `commands.lua` (the `:Kfs*` commands), `log.lua` (the `kfs://log` buffer, the
+  `purrtty/*` feeds, `status()`), `text.lua` (makes text from a server safe to show).
+- `syntax/kasm.vim` — generated from the game's opcode table and assembler by a test and checked
+  in (see "Snapshots" in [build-and-test.md](build-and-test.md)); `doc/purrtty-kfs.txt` — the
+  Neovim help file, the user-level reference for all of the above.
+
+### `purrTTY.Kfs.Testing/` — the offline runtime (not shipped)
 
 - `KsaAssemblyResolver.cs` — loads the game assemblies from `KSA_DLL_DIR` / the stamped
   `KSAFolder`, patching `KSA.dll`'s PE machine field in memory on arm64; no game types by rule.
 - `KfsRuntime.cs` (+ `KfsRuntimeOptions`) — one per process: installs the extension through
   `KfsExtension.Install`, `BuildKc`/`BuildKasm` (→ `BuildResult`), `Vehicle(...)`/`CreateVehicle`,
-  `CreateBench`, `StockTables`; `Dispose` uninstalls and resets `_tables`.
-- `SimVehicle.cs` — the game's `FakeVehicle` + simulated parts: `LoadKc`/`LoadKasm`, `Frame`/`Run`/
-  `RunTicks`/`RunUntil`, `Pause`/`Resume`, `Telemetry`/`TelemetryScript`, `ReadGlobal<T>`, machine
-  state (`State`, `TicksRun`, `Overruns`, `RejectedRequests`, `Trap`), `Requests` (decoded stock
-  requests), `EndBurn`. `SimVehicleSpec.cs`, `SimVehicleParts.cs` (in-memory `IVehicleParts` with
-  scripting helpers), `FaultyVehicleParts.cs` (fault injection).
+  `CreateBench`, `Tables`, `StockTables`, `Current` (the process's runtime, which `purr-kfs`
+  commands reuse when a test already owns one); `Dispose` uninstalls and resets `_tables`.
+- `SimVehicle.cs` — the game's `FakeVehicle` + simulated parts: `LoadKc`/`LoadKasm` (one file, or
+  a folder project as a dictionary), `Frame`/`Run`/`RunTicks`/`RunUntil` in the game's frame order
+  (step → pump → dispatch), `Pause`/`Resume`, `Telemetry`/`TelemetryScript`, `ReadGlobal<T>` /
+  `WriteGlobal<T>`, machine state (`State`, `TicksRun`, `Overruns`, `RejectedRequests`, `Trap`),
+  `Requests` (decoded stock requests), `EndBurn`. `SimVehicleSpec.cs`, `SimVehicleParts.cs`
+  (in-memory `IVehicleParts` with scripting helpers; `SimAnimation.CommittedState` is what a
+  program reads), `FaultyVehicleParts.cs` (fault injection).
 - `SimTelemetry.cs` (plain builders: `SimNav`, `SimFlight`, `SimProps`, `SimBurnStatus`, raw
   `Leaves`) → `TelemetrySampler.cs` (→ the game's `HostSample`); `StockRequest.cs` (decoded
   request + arguments); `SimMachineState.cs` (`SimComputerState`, `SimTrap`, `KfsBuildException`);
   `BuildResult.cs`; `KfsIntegrationTables.cs` (testing-only access to `KfsIntegration._tables`).
+- `ProjectBuilder.cs` — builds a `ProjectResolution` through `ProjectCompiler` and converts the
+  outcome to game-free types (`ProjectBuild`, `TaskCost`); used by `purr-kfs`.
+  `SimConsoleHost.cs` — an offline `IKfsConsoleHost` (fake console, recorded output, in-memory
+  workspace). `SimHostSource.cs` — simulated hosts for `MainThreadPump`.
 
-`purrTTY.Kfs.Tests/` — NUnit (rules and layout in [build-and-test.md](build-and-test.md)):
+### Test projects (rules and layout in [build-and-test.md](build-and-test.md))
+
+`purrTTY.Kfs.Tests/`:
 
 - Root: `ModuleInit.cs` (the resolver; the game-types rule), `GameFixture.cs`, catalogue / emitter /
-  self-check / snapshot / augmented-table / compiler tests, `ResolverTests`, `StockToolchainTests`.
+  self-check / snapshot / augmented-table / compiler tests, `ResolverTests`, `StockToolchainTests`,
+  and the game-free pieces: `KsaPartRulesTests`, `LightOverridesTests`, `PartsListingTests`,
+  `PurrConsoleTests`, `NeovimLaunchPlanTests`.
 - `Runtime/` (one shared `KfsRuntime`, `RuntimeSetUp.cs`): `ServiceTests` (every service),
   `ScenarioTests`, `PartListTests`, `RobustnessTests`, `StatusTests`, `HarnessTests` (telemetry,
-  globals, machine state, time control, misuse), `StockProgramTests` (the game's ascent example).
-- `Installer/InstallTests.cs` — install, publication cases, uninstall, the runtime's lifetime.
+  globals, machine state, time control, misuse), `StockProgramTests` (the game's ascent example),
+  `FrameOrderTests` (which values are live and which are committed), `MainThreadPumpTests`,
+  `PurrCommandTests`, `ExampleProgramTests` (every shipped example builds and runs),
+  `RunLifecycleTests`, `ConcurrencyTests`, `StaleSlotTests`, `NothingValueTests`.
+- `Installer/` — `InstallTests.cs` (install, publication cases, uninstall, game services, the
+  runtime's lifetime), `HeaderInUseTests.cs` (the header stays registered while a compile runs).
+
+`purrTTY.Kfs.Tools.Tests/`:
+
+- No game: `Usage/CliUsageTests.cs`, `Projects/ProjectResolverTests.cs`, `IncludeScanTests.cs`,
+  `Lsp/` (`JsonRpcFramingTests`, `DocumentStoreTests`, `PositionMapperTests`,
+  `MainThreadQueueTests`, `OutputTeeTests`, `HardeningUnitTests`; helpers `ServerHarness`,
+  `LspTestClient`, `MemoryPipe`).
+- `Runtime/` (one shared `KfsRuntime`, `ToolsRuntimeSetUp.cs`): `CliCheckTests`, `CliRunTests`,
+  `ProjectParityTests` (the resolver and builder against the game's own `ProjectOf` and
+  `BuildText`); `Runtime/Lsp/` (protocol, diagnostics, scheduler, hover, completion, the in-game
+  host, commands, live feed, the service core, the standalone host, hardening over real sockets);
+  `Runtime/Nvim/` (`NeovimTests`, `InGameNeovimTests`, `KasmSyntaxTests`).
+- `Nvim/` — helpers for the Neovim tests: `Neovim.cs` (finding `nvim`, `NvimSandbox`, `NvimRun`),
+  `FakeKfsServer.cs`, `InGameStack.cs`, `KasmSyntax.cs` (the generator of `syntax/kasm.vim`),
+  `lua/` (the Lua drivers). `PurrKfs.cs` runs the tool in process; `TempWorkspace.cs` is a
+  workspace in a temporary folder.
 
 ## KSA compatibility
 

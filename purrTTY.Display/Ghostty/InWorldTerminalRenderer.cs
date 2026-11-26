@@ -120,6 +120,13 @@ public sealed class InWorldTerminalRenderer : IDisposable
     public TerminalSession? ActiveSession => _sessions.ActiveSession;
 
     /// <summary>
+    /// True once the shell was launched with <c>CloseOnExit</c>, its process exited and
+    /// the session was closed. The in-world manager retires the instance (normal
+    /// deferred GPU teardown) when it sees this. Main thread.
+    /// </summary>
+    public bool SessionEnded { get; private set; }
+
+    /// <summary>
     ///     Whether the in-world terminal currently has input focus. Drives the
     ///     cursor style (solid block when focused, steady hollow box when not).
     ///     Set by the in-world manager each frame.
@@ -143,8 +150,20 @@ public sealed class InWorldTerminalRenderer : IDisposable
     /// <param name="pixelHeight">The off-screen target height.</param>
     public bool TickAndCheckDirty(float pixelWidth, float pixelHeight)
     {
-        if (_disposed)
+        if (_disposed || SessionEnded)
         {
+            return false;
+        }
+
+        // A CloseOnExit shell whose process exited is closed here (tick thread). The
+        // instance is then retired by the in-world manager through its normal
+        // deferred-teardown path; until then nothing re-renders, so the quad keeps
+        // the last texture instead of flashing the "Starting shell session…" text.
+        var closed = _sessions.CloseExitedSessions();
+        if (SessionExitPolicy.ShouldRetireHost(closed.Count, _sessions.SessionCount))
+        {
+            SessionEnded = true;
+            _tickedFrame = null;
             return false;
         }
 
@@ -160,9 +179,9 @@ public sealed class InWorldTerminalRenderer : IDisposable
         int rows = Math.Max(1, (int)(pixelHeight / _cellHeight));
         if (cols != session.Surface.Cols || rows != session.Surface.Rows)
         {
-            session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
-            session.UpdateTerminalDimensions(cols, rows);
-            session.ProcessManager.Resize(cols, rows);
+            // Never throws for an exited process (the PTY part is then a no-op), so
+            // a resize no longer retires a dead in-world terminal via MarkFailed.
+            session.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
             _sessions.UpdateLastKnownTerminalDimensions(cols, rows);
         }
 
@@ -256,6 +275,12 @@ public sealed class InWorldTerminalRenderer : IDisposable
         drawList.AddRectFilled(canvasPos, canvasPos + avail, FrameGridRenderer.ToU32(bg));
 
         var session = _sessions.ActiveSession;
+        if (session == null && SessionEnded)
+        {
+            // Closed on exit; the manager retires this instance next frame.
+            return;
+        }
+
         if (session == null)
         {
             // Still starting (CreateSessionAsync runs on a pool thread) or failed.

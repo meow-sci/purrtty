@@ -59,7 +59,7 @@ sources:
   - id: purrtty-print-patch
     resource: ../../../purrTTY.GameMod/Patches/ConsoleWindowPrintPatch.cs
     title: purrTTY ConsoleWindowPrintPatch
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:56:52Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -538,7 +538,7 @@ Prints the message's definition lines from the catalogue with offsets in the tar
 | channel | what goes there | how to read it |
 | --- | --- | --- |
 | `KfsIntegration.Output` (`public static TextWriter { get; set; }`) | every line a `kfs` verb or the workbench prints, via `KfsIntegration.Print` and `Workbench.Out` | default: a private `ConsoleWindowWriter` that calls `Program.ConsoleWindow.Print(line)` (or logs at Info level when there is no console window)[^kfs-integration] |
-| `KfsIntegration.Error(line)` | verb errors | always logged with `DefaultCategory.Log.Error` (which the console window displays as a log provider[^console-window][^program]); **also** written to `Output` when `Output` is not the default writer[^kfs-integration] |
+| `KfsIntegration.Error(line)` | verb errors. Its only callers are in `KfsConsoleCommands`: a verb's `IOException`, any other exception of a verb, an unknown verb, `kfs is off …`, and the argument errors of `kill` and `budget`[^console-commands-errors] | always logged with `DefaultCategory.Log.Error` (which the console window displays as a log provider[^console-window][^program]); **also** written to `Output` when `Output` is not the default writer[^kfs-integration] |
 | `HostComputer.Console` (`ConsoleLog`) | what the *program* and the host say: `kfs_logf` / `SVC_LOG` lines, load / start / stop / trap / overrun notices, rejected service requests, editor build status lines | `Snapshot()`, `CopyTail(count, into)`, `Version`; shown in the editor's Console tab (last 60 lines) and by `kfs state` (last 5)[^console-log][^host-computer] |
 | `HostComputer.Traces` (`TraceStore`) | `trace(channel, v)` / `SVC_TRACE` samples | `Channels`, `Samples(name)`, `CopyLast`; `kfs trace`, Scope tab[^trace-store] |
 | `HostComputer.Watches`, `HostComputer.Bus.Samples` | watched globals, plotted message fields | same API |
@@ -567,6 +567,14 @@ Upload.[^workbench]
   exception handling. `Program.TerminalInterface.Execute("kfs ...")` goes through the terminal
   parser (so `;` splits). Calling `KfsIntegration.Workbench.<Method>` directly skips both.
   [^console-commands][^kfs-integration]
+- **Composing a verb line from a file name.** `Execute` cuts the verb at the **first** space and
+  hands the rest, trimmed at the start, to the verb as one string; what happens to spaces after
+  that is the verb's business. `build` passes the whole rest to `Workbench.Build`, which only trims
+  it, so `kfs build my folder/main.c` builds that file — and quotes would become part of the name.
+  `load` passes it to `Workbench.Load`, which splits it at **every** space into `--part <name>`,
+  `--vehicle` and "the file" (the last other token wins), so a path that contains a space cannot be
+  loaded with `kfs load` at all. A tool that forwards file names should refuse such a path for
+  `load` rather than send a line that loads something else or nothing.[^console-commands-split][^workbench-args]
 - **purrtty's Game Console shell already runs `kfs`.** It executes the typed line with
   `Program.TerminalInterface.Execute(commandLine)` and captures
   `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)` through a Harmony postfix, but only while
@@ -594,6 +602,23 @@ Upload.[^workbench]
   advertise them), or a separate terminal command registered with
   `TerminalInterface.RegisterCommand(delegate, owner)` whose method carries `[TerminalAction]`.
   [^console-commands][^terminal-interface]
+- **Registering a separate command: the owner matters.** `RegisterCommand(delegate, owner)` files
+  the command in a dictionary of its own for each `owner` object (`CommandLibrary[owner][name]`);
+  with no owner it goes into one static dictionary. Three consequences, all read from
+  `TerminalInterface`:[^terminal-interface-registration]
+  - Registering the same name again under the **same owner** replaces the entry — safe to repeat.
+  - `UnregisterObject(owner)` removes **every** command of that owner and nothing else. There is
+    no call that removes one command by name.
+  - The same name under **two owners** is accepted by `RegisterCommand`, and a typed command runs
+    the first match (the static dictionary, then each owner's in enumeration order) — but the
+    terminal's own `help` copies every command into one new dictionary with `Add`, so it throws an
+    `ArgumentException` on the duplicate and lists nothing.
+
+  A mod that can be loaded twice in one process (a reload without an assembly unload, or a second
+  load context) should therefore file its command under one owner object that survives the reload
+  — for example one kept in `AppDomain` data — and unregister exactly that owner when it unloads.
+  purrTTY does this for its `purr` command (`purrTTY.Kfs/Game/KsaConsoleHost.cs` in this
+  repository; not yet run in the game).
 - **Terminal command signatures.** A terminal callback may only take primitives, `string` or
   `DateTime` parameters; with `ArgParseMode.Unparsed` it must take exactly one `string`. In default
   mode arguments are split by `System.CommandLine`'s `CommandLineParser.SplitCommandLine` and
@@ -621,3 +646,7 @@ Upload.[^workbench]
 [^diagnostic-manual]: DiagnosticManual.cs:11-50.
 [^purrtty-console-shell]: purrTTY.CustomShells/GameConsoleShell.cs — capture gate `IsCapturing` and `_isExecutingCommand`; `Program.TerminalInterface.Execute(commandLine)` inside the capture window; remarks on asynchronous output being lost.
 [^purrtty-print-patch]: purrTTY.GameMod/Patches/ConsoleWindowPrintPatch.cs — postfix on `ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)`.
+[^console-commands-errors]: KfsConsoleCommands.cs:221, :226, :231, :240, :276, :282, :305 — the seven call sites of `KfsIntegration.Error`; there is none outside this file.
+[^console-commands-split]: KfsConsoleCommands.cs:201-203 (`IndexOf(' ')`, `Substring(num + 1).TrimStart()`), :49-52 (`build` → `Workbench.Build(a)`), :80-83 (`load` → `Workbench.Load(a)`).
+[^workbench-args]: Workbench.cs:659-661 (`Build`: `file.Trim()`), :739-762 (`Load`: `args.Split(' ', StringSplitOptions.RemoveEmptyEntries)`, `--part`, `--vehicle`, else the file).
+[^terminal-interface-registration]: TerminalInterface.cs:97-103 (`UnregisterObject`), :105-124 (`RegisterCommand`: per-owner dictionary :114-118, static dictionary :122), :126-143 (`ProcessCommand` lookup order), :162-186 (`help`: `dictionary.Add` at :175 and :184).

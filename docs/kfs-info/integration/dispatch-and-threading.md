@@ -80,7 +80,25 @@ sources:
   - id: physics-step-limit
     resource: ksa-decomp:KSA/PhysicsStepLimitEx.cs
     title: PhysicsStepLimit and PhysicsStepLimitEx (decompiled)
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:37:08Z }
+  - id: part-tree
+    resource: ksa-decomp:KSA/PartTree.cs
+    title: PartTree (decompiled)
+  - id: keyframe-animation-module
+    resource: ksa-decomp:KSA/KeyframeAnimationModule.cs
+    title: KeyframeAnimationModule (decompiled)
+  - id: power-consumer
+    resource: ksa-decomp:KSA/PowerConsumer.cs
+    title: PowerConsumer (decompiled)
+  - id: part
+    resource: ksa-decomp:KSA/Part.cs
+    title: Part (decompiled)
+  - id: docking-event
+    resource: ksa-decomp:KSA/DockingEvent.cs
+    title: DockingEvent (decompiled)
+  - id: docking-port
+    resource: ksa-decomp:KSA/DockingPort.cs
+    title: DockingPort (decompiled)
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -196,7 +214,7 @@ dispatch use `nav.Time` (kFS passes `(long)nav.Time.Nanoseconds` to the computer
 | 2537 | `Universe.ApplyVehicleSolvers()` | Worker results (including the worker `FlightComputer` copy and module states) are copied into the live vehicles; docking, destruction and part-failure events are applied (`VehicleUpdateTask.cs:234-267`, `PhysicsBubble.cs:1113-1165`). Vehicles may be disposed here.[^vehicle-update-task][^physics-bubble] |
 | 2549 | `Glfw.PollEvents()` | Raw input callbacks fire. |
 | **2551** | **`KfsIntegration.BeforeInputEvents()`** | Frame counter, dead-host release, every host's `Services.MainThread()`. |
-| 2552 | `InputEvents.ApplyInputEvents()` | Applies the buffered game input events — including the `BurnUpdateBuffer` entries and `IActivate` staging events that `Services.MainThread()` just produced (`InputEvents.cs:1186-1215`).[^input-events] |
+| 2552 | `InputEvents.ApplyInputEvents()` | Applies the buffered game input events — including the `BurnUpdateBuffer` entries and `IActivate` staging events that `Services.MainThread()` just produced (`InputEvents.cs:1186-1215`).[^input-events] Requested docking, undocking and decoupling happen here too — see "Where a vehicle's structure changes". |
 | 2565 | `vehicle.FlightComputer.RaisePendingAlerts(vehicle)` | Stock auto-burn completion alerts. |
 | 2587 | `Universe.GetJobSimStep(dtPlayer)` | Chooses the next simulation step. |
 | 2592 | `Universe.ExecuteNextVehicleSolvers(dtPlayer, jobSimStep)` | Next job starts; from here on dispatches may be running again. |
@@ -230,6 +248,75 @@ flight-computer clicks into `InputEvents.FlightComputerInputBuffer` (`GaugeButto
 writing the flight computer directly. *Inferred:* `KfsServices.HandBackPilot`, which writes `vehicle.FlightComputer` directly and is reached
 from the `kfs off` console command during the UI phase (`KfsConsoleCommands.cs:244-258`), is subject to this overwrite for the fields
 `CopyFrom` covers; its `vehicle.SetEnum(VehicleEngine.MainShutdown)` writes a `Vehicle` field and is not affected.[^vehicle][^kfs-services]
+
+# What a dispatch reads: live fields and committed state
+
+The order above has a consequence for anything that reads part state inside a dispatch — stock
+kFS sampling, or a mod's service that answers a query.
+
+Inside the solver job the flight-computer pass comes **first** and the module update **second**.
+In a single-vehicle bubble `ApplySingleVehicleMotion` calls `RunFlightComputer` and only then
+`vehicleState.UpdateModules(window)`; in full physics a substep starts with the flight-computer
+loop (when one is due) and queues the `UpdateModulesJob`s later in the same substep.[^physics-bubble-order] The module
+update writes its results to worker-side buffers (`ModuleUpdateContext.Updaters`), not to the
+committed state lists of the part tree (`PartTree.States`); those are written once per frame, when the main thread's
+`Universe.ApplyVehicleSolvers()` runs `Vehicle.UpdateFromTaskResultsUnsynchronized` →
+`PartTree.UpdateFromTaskResults` → `Updaters.UpdateBulkStates()`.[^part-tree-commit]
+
+So within one frame:
+
+```text
+main     ApplyVehicleSolvers()        committed state := what the LAST job computed
+main     BeforeInputEvents()          main-thread hooks may write live fields (a switch, a goal, a template)
+main     ApplyInputEvents()
+main     ExecuteNextVehicleSolvers()  the next job starts
+worker     dispatch (program ticks)   reads: live fields as just written; committed state from the last job
+worker     UpdateModules              computes new state from the live fields — committed at the NEXT frame
+```
+
+This concerns code that reaches a module through the **live part tree** — which is all a patch on
+a `VehicleComputer` method has: the computer, and from it the vehicle. (Code that holds the
+worker-side `VehicleUpdateState` can read that job's own newer copies, see the table under "What
+`VehicleUpdateState` tells you about reading and writing".) Two kinds of value therefore come back
+at different times:
+
+| Kind | Examples | When a write made in the sync window is visible to a dispatch |
+| --- | --- | --- |
+| A field of a live object | `PowerConsumer.LightIsActive`, `KeyframeAnimationModule.TimeGoal`, the fields of a `LightModule.Template` | from the first dispatch of the job started in the same frame |
+| Committed module state | `KeyframeAnimationModule.State` (`TimeCurrent`, `DeploymentState`), `PowerConsumerState.Active` | one frame later: the job that first sees the new field computes the new state, and the following frame's `ApplyVehicleSolvers` commits it |
+
+- `KeyframeAnimationModule.UpdateModules` reads `module.TimeGoal` — the live field — and advances
+  `State.TimeCurrent` in the worker-side buffer.[^keyframe-animation-module-update]
+- A light's lit test is **asymmetric**. `LightModule.IsActive` is
+  `!Parent.FullPart.IsLightSwitchedOff()`, and `Part.IsLightSwitchedOff()` returns "off" straight
+  from the field when `LightIsActive` is false, but when it is true asks
+  `PowerConsumer.IsSwitchedOn()`, which reads the committed `PowerConsumerState.Active`. A light
+  switched **off** in the sync window reads not active at once; a light switched **on** reads
+  active only after the next job has run `PowerConsumer.UpdateModules` and its result was
+  committed.[^part-light-off][^power-consumer-state]
+- Several dispatches of one host in one frame (a tick rate above the frame rate, or time warp:
+  one per physics substep) all read the **same** committed state, because nothing commits between
+  them. A program polling an animation's position at time warp sees it move in steps of one frame.
+
+`Inferred:` the "one frame later" figures follow from the order of the calls read above; they were
+not observed in the running game. purrTTY's offline simulator steps its simulated parts in the
+same order (step, then main-thread hook, then dispatch), and its tests show these offsets for an
+animation; see `purrTTY.Kfs.Tests/Runtime/FrameOrderTests.cs` in this repository.
+
+# Where a vehicle's structure changes
+
+Parts leave and join a vehicle only on the main thread, in the window where no solver job runs —
+but at two different points of it, one before `BeforeInputEvents` and one after:
+
+| What | Where it is applied | Relative to `BeforeInputEvents` |
+| --- | --- | --- |
+| Docking detected by the physics step (contact), vehicle destruction, part failure, ground impact | `Universe.ApplyVehicleSolvers()` → `VehicleUpdateTask.ApplyResultsToMainThread()` → `PhysicsBubble.ApplyRenderEventsToVehicles()`; `DockingEvent.Apply` calls `DockingPort.Dock`[^physics-bubble-events][^docking-event] | **before** |
+| Docking and undocking requested from a docking port's context menu | queued in `InputEvents.VehicleDockingInputBuffer`; applied by `InputEvents.ApplyInputEvents()` (`VehicleDockingInputData.Apply` → `DockingPort.Dock` / `Undock`)[^docking-port][^input-events-structure] | **after** |
+| Decoupling (staging, including a program's `stage` request, which stock kFS turns into `IActivate` events in `Services.MainThread()`) | `InputEvents.ApplyInputEvents()` → `ApplyIActivateBatched()` → `Decoupler.Decouple(Vehicle)`[^input-events-structure] | **after** |
+
+A `BeforeInputEvents` hook therefore sees the result of a contact docking of this frame, and does
+not yet see a decoupling or a menu docking of this frame; in both cases the next dispatch sees the
+changed part tree, and no dispatch ever runs while it changes.
 
 # The UI phase runs concurrently with dispatches
 
@@ -407,3 +494,12 @@ Properties worth knowing:
 [^console-window]: ConsoleWindow.cs:546.
 [^kfs-console-commands]: KfsConsoleCommands.cs:244-258 (`SetFlag`), 271-290 (`Kill`), 292-327 (`Budget`).
 [^physics-step-limit]: PhysicsStepLimit.cs:3-19; PhysicsStepLimitEx.cs:10-27.
+[^physics-bubble-order]: PhysicsBubble.cs — single vehicle: `RunFlightComputer` :1505, then `vehicleState.UpdateModules(window)` :1548 (surface) / :1569 (freefall); full physics: the flight-computer loop :1639-1652 (`RunFlightComputer` :1646) at the head of a substep, `UpdateModulesJob`s queued :1881-1886 (job body :30-45); `FullPhysicsBeginFrame` → `FullPhysicsPreStep` :1610-1616, :2033-2048 (`RunFlightComputer` :2044).
+[^part-tree-commit]: PartTree.cs:1593-1600 (`UpdateFromTaskResults` → `updateData.Updaters.UpdateBulkStates()`), called from Vehicle.cs:2801.
+[^keyframe-animation-module-update]: KeyframeAnimationModule.cs:162-214 (`UpdateModules`: `module.TimeGoal` compared with and applied to `current.State.TimeCurrent`).
+[^part-light-off]: Part.cs:1551-1567 (`IsLightSwitchedOff`); LightModule.cs:60-70 (`IsActive`).
+[^power-consumer-state]: PowerConsumer.cs:138-146 (`IsSwitchedOn` reads `Parent.Tree.PowerConsumers.States[StatesIdx].Active`), :235-272 (`UpdateModules` sets `State.Active` from `LightIsActive` and the power available).
+[^physics-bubble-events]: PhysicsBubble.cs:1113-1165 (`ApplyRenderEventsToVehicles`: `DockingEvent`, `GroundImpactEvent`, `WaterSplashEvent`, `PartFailureEvent`, then destruction); VehicleUpdateTask.cs:234-267.
+[^docking-event]: DockingEvent.cs:11-25.
+[^docking-port]: DockingPort.cs:253-262 (Undock menu item), :377-386 (Dock menu item): both add to `InputEvents.VehicleDockingInputBuffer`.
+[^input-events-structure]: InputEvents.cs — `ActivateOp.Decouple` :453, `IActivateInputData.Apply` → `Decoupler.Decouple(Vehicle)` :483-492; `VehicleDockingInputData` :524-570 (`Undock` :538-543, `Dock` :565); `ApplyInputEvents` :1186-1215 (`VehicleDockingInputBuffer.ApplyAll()` :1189, `ApplyIActivateBatched()` :1190).

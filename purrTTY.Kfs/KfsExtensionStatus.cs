@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using purrTTY.Kfs.Commands;
 using purrTTY.Kfs.Patches;
 using purrTTY.Kfs.Runtime;
 
@@ -39,6 +40,10 @@ public enum KfsDisabledReason
     HeaderFailed,
     /// <summary>An unexpected exception escaped a step.</summary>
     Unexpected,
+    /// <summary>The game services could not resolve what they need (step 3; in the game: <c>KfsVehicleHost.AllHosts</c>).</summary>
+    GameServicesUnavailable,
+    /// <summary>Attaching the game services failed (step 10).</summary>
+    GameServicesFailed,
 }
 
 /// <summary>How the augmented tables reached <c>KfsIntegration.Tables</c>.</summary>
@@ -85,6 +90,8 @@ public sealed record KfsExtensionCounters
     public long BenchRejected { get; init; }
     /// <summary>Failures recorded through <see cref="KfsLog.Once"/> (process-wide, every kind).</summary>
     public long LoggedFailures { get; init; }
+    /// <summary>Times the <c>BeforeInputEvents</c> hook ran (process-wide; one per frame in the game, 0 offline).</summary>
+    public long PumpFrames { get; init; }
 
     /// <summary>The counters as they are now.</summary>
     public static KfsExtensionCounters Capture()
@@ -117,6 +124,7 @@ public sealed record KfsExtensionCounters
             BenchClaimed = BenchApplyRequestPatch.Claimed,
             BenchRejected = BenchApplyRequestPatch.Rejected,
             LoggedFailures = KfsLog.Total,
+            PumpFrames = BeforeInputEventsPatch.Calls,
         };
     }
 }
@@ -164,6 +172,22 @@ public sealed record KfsExtensionStatus
     /// <summary>The counters when this status was taken.</summary>
     public KfsExtensionCounters Counters { get; init; } = new();
 
+    /// <summary>The name of the game services attached (<c>game back end</c>), or null when installed without (the offline test runtime).</summary>
+    public string? GameServices { get; init; }
+
+    /// <summary>
+    /// Why the stock kFS editor's build state cannot be read (a game member the probe looks up by name
+    /// was not found), or null when it can be or no game services are installed. While set, every
+    /// uninstall leaves <c>&lt;purrtty.h&gt;</c> registered (the safe answer; the next install takes it over).
+    /// </summary>
+    public string? EditorProbe { get; init; }
+
+    /// <summary>The <c>purr</c> console command (install step 9); <see cref="PurrCommandState.None"/> without a console host.</summary>
+    public PurrCommandState ConsoleCommand { get; init; }
+
+    /// <summary>Why registering the <c>purr</c> command failed (<see cref="PurrCommandState.Failed"/>); empty otherwise.</summary>
+    public string ConsoleMessage { get; init; } = "";
+
     /// <summary>True when the extension is installed and working.</summary>
     public bool IsActive => State == KfsExtensionState.Active;
 
@@ -175,16 +199,45 @@ public sealed record KfsExtensionStatus
         new() { State = KfsExtensionState.Disabled, Reason = reason, Message = message };
 
     /// <summary>
-    /// The one log line: <c>purrTTY kFS extension: active — 22 services 0x5000–0x5033, 2 hooks (+1 optional), tables published</c>,
+    /// The one log line: <c>purrTTY kFS extension: active — 22 services 0x5000–0x5033, 3 hooks (+1 optional), tables published, game back end, purr command</c>
+    /// (the game services and the console command only when installed with them; a failed
+    /// registration reads <c>, no purr command (reason)</c>),
     /// <c>purrTTY kFS extension: disabled — target VehicleComputer.ApplyRequest not found</c>, or
     /// <c>purrTTY kFS extension: not installed</c>.
     /// </summary>
     public override string ToString() => State switch
     {
         KfsExtensionState.Active => string.Create(CultureInfo.InvariantCulture,
-            $"{LinePrefix}active — {ServiceCount} services 0x{FirstId:X4}–0x{LastId:X4}, {RequiredPatches.Count} hooks (+{OptionalPatches.Count} optional), tables {TablesWord(Tables)}"),
+            $"{LinePrefix}active — {ServiceCount} services 0x{FirstId:X4}–0x{LastId:X4}, {RequiredPatches.Count} hooks (+{OptionalPatches.Count} optional), tables {TablesWord(Tables)}{(GameServices is null ? "" : ", " + GameServices)}{ConsoleWords()}"),
         KfsExtensionState.Disabled => $"{LinePrefix}disabled — {Message}",
         _ => $"{LinePrefix}not installed",
+    };
+
+    /// <summary>
+    /// A short form for the purrTTY menu and the <c>purr</c> command:
+    /// <c>active — 22 services</c>, <c>disabled — switched off</c>, <c>not installed</c>.
+    /// </summary>
+    public string Summary => State switch
+    {
+        KfsExtensionState.Active => string.Create(CultureInfo.InvariantCulture, $"active — {ServiceCount} services"),
+        KfsExtensionState.Disabled => $"disabled — {Message}",
+        _ => "not installed",
+    };
+
+    private string ConsoleWords() => ConsoleCommand switch
+    {
+        PurrCommandState.Registered or PurrCommandState.Kept or PurrCommandState.Standing => ", purr command",
+        PurrCommandState.Failed => $", no purr command ({ConsoleMessage})",
+        _ => "",
+    };
+
+    private string ConsoleLine() => ConsoleCommand switch
+    {
+        PurrCommandState.Registered => "purr registered",
+        PurrCommandState.Kept => "purr kept from an earlier install (that console could not remove it)",
+        PurrCommandState.Standing => "purr registered by purrTTY for as long as the mod is loaded (it stays when the extension is off)",
+        PurrCommandState.Failed => $"purr not registered ({ConsoleMessage}); the purrTTY menu still runs it",
+        _ => "none (installed without a game console)",
     };
 
     /// <summary>A multi-line description (for <c>purr status</c>).</summary>
@@ -198,6 +251,10 @@ public sealed record KfsExtensionStatus
             text.Append("  optional: ").Append(Join(OptionalPatches)).Append('\n');
             if (OptionalPatchesSkipped.Count > 0) text.Append("  skipped:  ").Append(string.Join("; ", OptionalPatchesSkipped)).Append('\n');
             text.Append("  tables:   ").Append(TablesWord(Tables)).Append('\n');
+            text.Append("  back end: ").Append(GameServices ?? "none (vehicles are bound by the caller)").Append('\n');
+            text.Append("  console:  ").Append(ConsoleLine()).Append('\n');
+            if (EditorProbe is not null)
+                text.Append("  editor:   build state unreadable (").Append(EditorProbe).Append("); <purrtty.h> stays registered at uninstall\n");
         }
         KfsExtensionCounters c = Counters;
         text.Append(CultureInfo.InvariantCulture,
@@ -205,7 +262,7 @@ public sealed record KfsExtensionStatus
         text.Append(CultureInfo.InvariantCulture,
             $"  commands: {c.Applied} applied, {c.ApplyFailures} failed, {c.Discarded} discarded, {c.Dropped} dropped; {c.RouterFaults} router faults\n");
         text.Append(CultureInfo.InvariantCulture,
-            $"  bench:    {c.BenchClaimed} claimed, {c.BenchRejected} rejected; logged failures {c.LoggedFailures}");
+            $"  bench:    {c.BenchClaimed} claimed, {c.BenchRejected} rejected; pump frames {c.PumpFrames}; logged failures {c.LoggedFailures}");
         return text.ToString();
     }
 

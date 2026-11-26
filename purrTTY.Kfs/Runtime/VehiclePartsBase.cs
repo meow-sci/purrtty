@@ -33,6 +33,7 @@ public abstract class VehiclePartsBase : IVehicleParts
 {
     private readonly object _rebuildGate = new();
     private PartSets? _sets;
+    private int _generationFloor;
 
     /// <summary>The parts of the vehicle as they are now, from which <see cref="Rebuild"/> freezes new lists.</summary>
     /// <param name="Lights">Every light emitter, ranked (the game: by module instance id), with indices 0..n-1.</param>
@@ -46,6 +47,23 @@ public abstract class VehiclePartsBase : IVehicleParts
 
     /// <inheritdoc/>
     public abstract bool Dirty { get; }
+
+    /// <summary>The generation of the lists published so far; 0 before the first build (reading it builds nothing).</summary>
+    public int PublishedGeneration => Volatile.Read(ref _sets)?.Generation ?? 0;
+
+    /// <summary>
+    /// Makes every later build number its lists above <paramref name="generation"/>: the
+    /// generation an earlier back end of the same computer had reached, so a program comparing
+    /// <c>X_PARTS_GENERATION</c> values never sees an old one again when its computer is bound anew
+    /// (<see cref="PartsRegistry"/> calls it). Takes effect at the next build.
+    /// </summary>
+    public void ContinueAfter(int generation)
+    {
+        lock (_rebuildGate)
+        {
+            if (generation > _generationFloor) _generationFloor = generation;
+        }
+    }
 
     /// <inheritdoc/>
     public void Rebuild()
@@ -73,7 +91,7 @@ public abstract class VehiclePartsBase : IVehicleParts
     /// <summary>Commanded state of the light's switch; called only when <see cref="HasSwitch"/> is true.</summary>
     protected abstract bool ReadSwitchOn(LightSlot slot);
 
-    /// <summary>True while the light actually emits (switched on and powered; always for interior fill lights).</summary>
+    /// <summary>True while the light actually emits (switched on and powered; always for interior fill lights and lights without a switch).</summary>
     protected abstract bool ReadLit(LightSlot slot);
 
     /// <summary>The light's type.</summary>
@@ -323,7 +341,7 @@ public abstract class VehiclePartsBase : IVehicleParts
 
     private PartSets PublishLocked()
     {
-        int generation = (Volatile.Read(ref _sets)?.Generation ?? 0) + 1;
+        int generation = Math.Max(Volatile.Read(ref _sets)?.Generation ?? 0, _generationFloor) + 1;
         Collected parts = Collect();
         var sets = new PartSets(generation,
             ImmutableArray.Create(parts.Lights ?? []),

@@ -4,6 +4,7 @@ using HarmonyLib;
 using KSA.Kfs;
 using KSA.Kfs.Vm.Tables;
 using purrTTY.Kfs.Catalog;
+using purrTTY.Kfs.Commands;
 using purrTTY.Kfs.Patches;
 using purrTTY.Kfs.Runtime;
 using purrTTY.Kfs.Tables;
@@ -27,14 +28,21 @@ public static class KfsExtension
     /// <summary>
     /// The patch registry, in apply order. Required entries make the install all-or-nothing; optional
     /// ones are applied after the header and may fail without consequence. To add a hook, add one
-    /// entry here (task A4 adds <c>BeforeInputEvents</c> as required).
+    /// entry here.
     /// </summary>
+    /// <remarks>
+    /// <c>BeforeInputEvents</c> is required in every install, the offline test runtime's included:
+    /// its target exists in <c>KSA.dll</c> wherever the extension can load, and offline (never
+    /// called by a game, no active pump) the postfix does nothing.
+    /// </remarks>
     public static IReadOnlyList<KfsPatch> Patches { get; } =
     [
         new("ApplyRequest", "VehicleComputer.ApplyRequest", Required: true,
             ApplyRequestPatch.TargetMethod, (h, t) => ApplyRequestPatch.Apply(h, t), ApplyRequestPatch.Remove),
         new("IssueResult", "VehicleComputer ISyscallHost.IssueResult", Required: true,
             IssueResultPatch.TargetMethod, (h, t) => IssueResultPatch.Apply(h, t), IssueResultPatch.Remove),
+        new("BeforeInputEvents", "KfsIntegration.BeforeInputEvents", Required: true,
+            BeforeInputEventsPatch.TargetMethod, (h, t) => BeforeInputEventsPatch.Apply(h, t), BeforeInputEventsPatch.Remove),
         new("BenchApplyRequest", "HostComputer.ApplyRequest", Required: false,
             BenchApplyRequestPatch.TargetMethod, (h, t) => BenchApplyRequestPatch.Apply(h, t), BenchApplyRequestPatch.Remove),
     ];
@@ -57,14 +65,42 @@ public static class KfsExtension
     }
 
     /// <summary>
+    /// <see cref="KfsExtensionStatus.Summary"/> of the current status (<c>active — 22 services</c>,
+    /// <c>disabled — switched off</c>, <c>not installed</c>), computed when the status changes, so a
+    /// menu can show it every frame without allocating. Any thread.
+    /// </summary>
+    public static string StatusSummary => Volatile.Read(ref _summary);
+
+    private static string _summary = KfsExtensionStatus.NotInstalled.Summary;
+
+    /// <summary>
+    /// Why the last uninstall left <c>&lt;purrtty.h&gt;</c> registered (a compile may have been reading
+    /// the game's header table), while it still is; null otherwise. Any thread.
+    /// </summary>
+    public static string? HeaderLeftRegistered => SystemHeaderRegistration.LeftInPlace;
+
+    private static void SetStatus(KfsExtensionStatus status)
+    {
+        _status = status;
+        Volatile.Write(ref _summary, status.Summary);
+    }
+
+    /// <summary>
     /// Installs the extension with <paramref name="harmony"/> (plan §4.5) and logs one status line.
     /// When already active, returns the current status and does nothing else.
     /// </summary>
-    public static KfsExtensionStatus Install(Harmony harmony, KfsExtensionOptions? options = null) =>
-        Install(harmony, options, InstallSeams.Default);
+    /// <param name="harmony">The Harmony instance that owns the hooks.</param>
+    /// <param name="options">The switches (in the game, from <c>kfs.toml</c>); null for the defaults.</param>
+    /// <param name="gameServices">
+    /// The game-only part (in the game <see cref="Game.KsaGameServices"/>: host discovery, the
+    /// per-frame pump, the dispatch-thread fallback, restoring light templates); part of the
+    /// all-or-nothing install. Null in the offline test runtime, which binds its vehicles itself.
+    /// </param>
+    public static KfsExtensionStatus Install(Harmony harmony, KfsExtensionOptions? options = null, IKfsGameServices? gameServices = null) =>
+        Install(harmony, options, InstallSeams.Default, gameServices);
 
-    /// <summary>As <see cref="Install(Harmony, KfsExtensionOptions?)"/>, with parts of the sequence substituted (tests).</summary>
-    internal static KfsExtensionStatus Install(Harmony harmony, KfsExtensionOptions? options, InstallSeams seams)
+    /// <summary>As <see cref="Install(Harmony, KfsExtensionOptions?, IKfsGameServices?)"/>, with parts of the sequence substituted (tests).</summary>
+    internal static KfsExtensionStatus Install(Harmony harmony, KfsExtensionOptions? options, InstallSeams seams, IKfsGameServices? gameServices = null)
     {
         lock (Gate)
         {
@@ -75,7 +111,7 @@ public static class KfsExtension
             {
                 status = harmony is null || seams is null
                     ? KfsExtensionStatus.Disabled(KfsDisabledReason.Unexpected, "no Harmony instance")
-                    : TryInstall(harmony, options ?? new KfsExtensionOptions(), seams);
+                    : TryInstall(harmony, options ?? new KfsExtensionOptions(), seams, gameServices);
             }
             catch (Exception e)
             {
@@ -84,7 +120,7 @@ public static class KfsExtension
                 status = KfsExtensionStatus.Disabled(KfsDisabledReason.Unexpected, $"install failed ({e.GetType().Name}: {e.Message})");
             }
 
-            _status = status;
+            SetStatus(status);
             try { (seams?.Log ?? KfsLog.Info)(status.ToString()); }
             catch { /* logging never fails an install */ }
             return Status;
@@ -92,9 +128,10 @@ public static class KfsExtension
     }
 
     /// <summary>
-    /// Removes the hooks, <c>&lt;purrtty.h&gt;</c> and the builtin names, closes the registry and
-    /// unbinds every vehicle. The published tables stay for the life of the process; a later
-    /// <see cref="Install"/> reuses them. Does nothing when not installed.
+    /// Stops the game services (pump, fallback; private light templates restored), removes the
+    /// hooks, <c>&lt;purrtty.h&gt;</c> and the builtin names, closes the registry and unbinds every
+    /// vehicle. The published tables stay for the life of the process; a later
+    /// <see cref="Install(Harmony, KfsExtensionOptions?, IKfsGameServices?)"/> reuses them. Does nothing when not installed.
     /// </summary>
     public static void Uninstall()
     {
@@ -102,7 +139,7 @@ public static class KfsExtension
         {
             Installation? installed = _installed;
             _installed = null;
-            _status = KfsExtensionStatus.NotInstalled;
+            SetStatus(KfsExtensionStatus.NotInstalled);
             if (installed is null) return;
 
             installed.Undo();
@@ -120,7 +157,7 @@ public static class KfsExtension
 
     // ------------------------------------------------------------------ the sequence
 
-    private static KfsExtensionStatus TryInstall(Harmony harmony, KfsExtensionOptions options, InstallSeams seams)
+    private static KfsExtensionStatus TryInstall(Harmony harmony, KfsExtensionOptions options, InstallSeams seams, IKfsGameServices? gameServices)
     {
         ServiceCatalog catalog = seams.Catalog;
 
@@ -145,6 +182,21 @@ public static class KfsExtension
             required.Add((patch, target));
         }
 
+        //    ... and every capability of the game services, equally required.
+        if (gameServices is not null)
+        {
+            string? why;
+            try
+            {
+                why = gameServices.Prepare();
+            }
+            catch (Exception e)
+            {
+                why = $"{e.GetType().Name}: {e.Message}";
+            }
+            if (why is not null) return KfsExtensionStatus.Disabled(KfsDisabledReason.GameServicesUnavailable, $"{GameServicesName(gameServices)} unavailable ({why})");
+        }
+
         // 4. Dry run: the game's own loader over the augmented rows.
         GameTables built;
         try
@@ -162,7 +214,7 @@ public static class KfsExtension
         var installation = new Installation(harmony);
         try
         {
-            KfsExtensionStatus status = InstallFrom(harmony, options, seams, catalog, required, built, installation);
+            KfsExtensionStatus status = InstallFrom(harmony, options, seams, catalog, required, built, installation, gameServices);
             if (!status.IsActive) installation.Undo();
             return status;
         }
@@ -174,9 +226,9 @@ public static class KfsExtension
         }
     }
 
-    /// <summary>Steps 5–9. A refusal returned from here is undone by the caller; so is an exception.</summary>
+    /// <summary>Steps 5–10. A refusal returned from here is undone by the caller; so is an exception.</summary>
     private static KfsExtensionStatus InstallFrom(Harmony harmony, KfsExtensionOptions options, InstallSeams seams, ServiceCatalog catalog,
-        List<(KfsPatch Patch, MethodBase Target)> required, GameTables built, Installation installation)
+        List<(KfsPatch Patch, MethodBase Target)> required, GameTables built, Installation installation, IKfsGameServices? gameServices)
     {
         // 5. Publish.
         KfsTablesPublication publication;
@@ -298,8 +350,39 @@ public static class KfsExtension
         }
         seams.Step?.Invoke("optional");
 
-        // 9. Extension point (task A5): register the `purr` console command here. A failure there
-        //    must be logged and ignored like an optional patch, never undo the install.
+        // 9. The `purr` console command (plan §4.13), when the game services bring a console. A
+        //    failure to register is logged and reported in the status, like an optional patch: it
+        //    never undoes the install, and the host stays attached so the purrTTY menu still runs
+        //    the verbs. A later failure undoes it with the rest (the installation unregisters).
+        PurrCommandState consoleState = PurrCommandState.None;
+        string consoleMessage = "";
+        IKfsConsoleHost? console = gameServices is null ? null : ConsoleOf(gameServices);
+        if (console is not null)
+        {
+            consoleState = PurrConsole.Attach(console, out consoleMessage);
+            installation.Console = console;
+            installation.ConsoleState = consoleState;
+            seams.Step?.Invoke("console");
+        }
+
+        // 10. The game services, as the last step that can fail: from here on the pump binds the
+        //     game's hosts and the fallback binds from dispatch threads (both refuse while the
+        //     registry is still closed, i.e. until the next line but one). A failure undoes the
+        //     install; so does any later exception (the installation detaches them).
+        if (gameServices is not null)
+        {
+            installation.GameServices = gameServices;
+            try
+            {
+                gameServices.Attach();
+            }
+            catch (Exception e)
+            {
+                return KfsExtensionStatus.Disabled(KfsDisabledReason.GameServicesFailed,
+                    $"{GameServicesName(gameServices)} not attached ({e.GetType().Name}: {e.Message})");
+            }
+            seams.Step?.Invoke("game services");
+        }
 
         var status = new KfsExtensionStatus
         {
@@ -311,6 +394,10 @@ public static class KfsExtension
             ServiceCount = catalog.Services.Count,
             FirstId = catalog.Services.Count == 0 ? (ushort)0 : catalog.Services.Min(s => s.Id),
             LastId = catalog.Services.Count == 0 ? (ushort)0 : catalog.Services.Max(s => s.Id),
+            GameServices = gameServices is null ? null : GameServicesName(gameServices),
+            EditorProbe = gameServices is null ? null : StockEditorProbe.Problem,
+            ConsoleCommand = consoleState,
+            ConsoleMessage = consoleMessage,
         };
         // Last, after everything that can fail: bindings may be created from now on.
         PartsRegistry.Open();
@@ -323,6 +410,31 @@ public static class KfsExtension
         LoadEmbeddedFallbackPatch.TargetMethod,
         static (_, _) => throw new InvalidOperationException("applied with its tables by the installer"),
         LoadEmbeddedFallbackPatch.Remove);
+
+    private static IKfsConsoleHost? ConsoleOf(IKfsGameServices services)
+    {
+        try
+        {
+            return services.Console;
+        }
+        catch (Exception e)
+        {
+            KfsLog.Once("game services console", e);
+            return null;
+        }
+    }
+
+    private static string GameServicesName(IKfsGameServices services)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(services.Name) ? "game services" : services.Name;
+        }
+        catch
+        {
+            return "game services";
+        }
+    }
 
     private static MethodBase? Resolve(InstallSeams seams, KfsPatch patch)
     {
@@ -371,13 +483,33 @@ public static class KfsExtension
         public Harmony Harmony { get; } = harmony;
         public List<(KfsPatch Patch, MethodBase Target)> Applied { get; } = [];
         public SystemHeaderRegistration? Header { get; set; }
+        public IKfsGameServices? GameServices { get; set; }
+        public IKfsConsoleHost? Console { get; set; }
+        public PurrCommandState ConsoleState { get; set; }
 
-        /// <summary>Removes the header and every applied patch, newest first. Never throws; idempotent.</summary>
+        /// <summary>Removes the console command, detaches the game services, then removes every applied patch (newest first) and the header. Never throws; idempotent.</summary>
         public void Undo()
         {
+            IKfsConsoleHost? console = Console;
+            Console = null;
+            if (console is not null) PurrConsole.Detach(console, ConsoleState);   // never throws
+
+            IKfsGameServices? services = GameServices;
+            GameServices = null;
+            // Asked before the services detach: whether anything may read SystemHeaders off the main thread now.
+            string? inUse = Header is null ? null : SystemHeaderReaders.InUse(services is null ? null : services.SystemHeadersInUse);
+            if (services is not null)
+            {
+                try { services.Detach(); }
+                catch (Exception e) { KfsLog.Once("detach game services", e); }
+            }
             for (int i = Applied.Count - 1; i >= 0; i--) TryRemove(Applied[i].Patch, Applied[i].Target);
             Applied.Clear();
-            try { Header?.Dispose(); }
+            try
+            {
+                if (Header is { } header && !header.Release(inUse))
+                    KfsLog.Info($"{KfsExtensionStatus.LinePrefix}<purrtty.h> left registered: {inUse} (changing the game's header table under a running compile could corrupt it; the next install takes it over)");
+            }
             catch (Exception e) { KfsLog.Once("remove header", e); }
             Header = null;
         }

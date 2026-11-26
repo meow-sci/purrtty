@@ -144,7 +144,8 @@ public class UnixProcessManager : IProcessManager
                     options.EnvironmentVariables,
                     options.InitialWidth,
                     options.InitialHeight,
-                    _logger);
+                    _logger,
+                    options.RemovedEnvironmentVariables);
             }
             catch (Exception ex) when (ex is not ProcessStartException)
             {
@@ -276,28 +277,43 @@ public class UnixProcessManager : IProcessManager
 
     /// <summary>
     ///     Resizes the PTY. The kernel delivers SIGWINCH to the foreground process
-    ///     group automatically on TIOCSWINSZ.
+    ///     group automatically on TIOCSWINSZ. A no-op when no process is running
+    ///     (not started, exited, stopped); an ioctl failure is reported through
+    ///     <see cref="ProcessError"/> (see <see cref="IProcessManager.Resize"/>).
     /// </summary>
     public void Resize(int width, int height)
     {
         ThrowIfDisposed();
 
+        string? error = null;
+        int pid;
+
         // The ioctl runs under the lock (it never blocks) so teardown — which
         // invalidates _masterFd under the same lock before closing it — cannot
-        // close the fd mid-call.
+        // close the fd mid-call. Deciding "not running" under the same lock is what
+        // makes a resize racing the exit safe: the waiter sets _exited and cleanup
+        // invalidates the fd under this lock, so either the fd is still open for the
+        // whole call or the call sees the exit and returns.
         lock (_stateLock)
         {
             if (_pid == 0 || _exited || _masterFd < 0)
             {
-                throw new InvalidOperationException("No process is running");
+                return;
             }
 
+            pid = _pid;
             var winSize = new UnixPtyNative.WinSize { ws_row = (ushort)height, ws_col = (ushort)width };
             if (UnixPtyNative.WinSizeIoctl(_masterFd, UnixPtyNative.TIOCSWINSZ, ref winSize) != 0)
             {
-                throw new InvalidOperationException(
-                    $"Failed to resize PTY: {Marshal.GetLastPInvokeErrorMessage()}");
+                error = Marshal.GetLastPInvokeErrorMessage();
             }
+        }
+
+        // Outside the lock: an event handler must never run under _stateLock.
+        if (error is not null)
+        {
+            ProcessError?.Invoke(this, new ProcessErrorEventArgs(
+                new InvalidOperationException($"Failed to resize PTY: {error}"), $"Failed to resize PTY: {error}", pid));
         }
     }
 

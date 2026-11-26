@@ -98,7 +98,7 @@ sources:
   - id: gatos-light-analysis
     resource: gatos:docs/LIGHT_PART_ANALYSIS.md
     title: gatOS light part analysis (secondary source)
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:36:15Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -149,11 +149,20 @@ See [part and module model](/game-targets/part-and-module-model.md) for the surr
 | `Transform` | `TransformReference` | `<Transform><Position X Y Z/><Rotation X Y Z/></Transform>` | identity | position in the parent (sub-)part's frame, metres; rotation as XYZ Euler **radians**; a spot shines along the rotated local **+X** |
 | `Range` | `FloatReference` | `<Range Value=…/>` | `1` | metres; hard cut-off radius of the falloff window; a range that `IsNearlyZero()` suppresses the light entirely |
 | `Intensity` | `FloatReference` | `<Intensity Value=…/>` | `1` | unitless multiplier, see [photometry](#photometry-what-intensity-range-and-the-angles-mean) |
-| `ColorRgb` | `ColorRgbReference` | `<Color R G B/>` or `<Color Name=…/>` | `Color.Gray` | linear RGB floats, nominal 0–1 |
+| `ColorRgb` | `ColorRgbReference` | `<Color R G B/>` or `<Color Name=…/>` | `Color.Gray` | three RGB floats, nominal 0–1, handed to the renderer unconverted. `Unverified:` whether they are linear or sRGB values — see the note below the table[^light-color] |
 | `InnerAngle` | `FloatReference` | `<InnerAngle Value=…/>` | `π/8` (0.3927 rad, 22.5°) | spot only; **half-angle in radians** of the full-brightness core |
 | `OuterAngle` | `FloatReference` | `<OuterAngle Value=…/>` | `π/4` (0.7854 rad, 45°) | spot only; **half-angle in radians** where the cone reaches zero |
 | `RayTracing` | `bool` | `<RayTracing>` | `false` | route to the ray-traced IVA light list when ray tracing is active |
 | `DisableInIva` | `bool` | `<DisableInIva>` | `false` | hide in IVA camera mode **and** ignore the light switch (always on, draws no power) |
+
+**Colour space.** `ColorRgbReference.OnDataLoad` stores `new float3(R, G, B)` as a `Color.Preset`,
+which only packs the same numbers into float, 16-bit and 8-bit forms; the implicit conversion to
+`float3` is what `Light.CreatePointLight` / `CreateSpotLight` receive as `inColor` and store as
+`Light.Color`. No C# code between the template and the light list converts between colour spaces.
+`Unverified:` whether the lighting shader treats the three floats as linear or as sRGB-encoded
+values; that is decided in shader code that was not read, and an earlier version of this document
+called them "linear" without evidence. A mod should not promise either until a known colour has
+been compared in the running game.
 | `Key` (inherited) | `string` | `Key=` attribute | `"Light"` | becomes `LightModule.TemplateId` |
 | `OnDataLoad(Mod)` | override | | | calls `Transform.OnDataLoad(mod)` and `ColorRgb.OnDataLoad(mod)` |
 
@@ -215,6 +224,13 @@ lit  =  Template.DisableInIva                       (always on, switch ignored)
      or FullPart.LightSwitch.Parent.Tree != Tree    (inherited switch now on another vehicle)
      or (LightSwitch.LightIsActive  and  PowerConsumerState.Active)
 ```
+
+The two halves of the last line change at different times. `LightIsActive` is a field: writing it
+takes effect for the next reader. `PowerConsumerState.Active` is committed state, recomputed by
+`PowerConsumer.UpdateModules` in the physics job and committed at the start of the following
+frame. A light switched **off** therefore reads not lit at once (the predicate returns before it
+looks at the state), while a light switched **on** reads lit only one frame later — and only if
+it has power. See [dispatch and threading](/integration/dispatch-and-threading.md#what-a-dispatch-reads-live-fields-and-committed-state).
 
 ## `PowerConsumer` fields that implement it
 
@@ -587,3 +603,4 @@ All of these are field reads or one bounds-checked array read; none allocate.
 [^core-iva-space-a]: Core/CoreIVASpaceAGameData.xml — lights :10–68; comment :33–43.
 [^gemini-vehicle]: Core/defaultvehicles/Gemini7/vehicle.xml:2440.
 [^gatos-light-analysis]: gatos:docs/LIGHT_PART_ANALYSIS.md — §0 TL;DR :11–55; §10 emissive lens :472–594.
+[^light-color]: ColorRgbReference.cs:35-44 (`OnDataLoad`: `Value = new float3(R, G, B)`), :148-151 (implicit `float3`); Color.cs:8-36 (`Color.Preset` packs the float4 into `ushort4` and `byte4`, no transfer function); Light.cs:38-49 (`CreatePointLight(…, float3 inColor, …)`, `Color = inColor`), :54 (`CreateSpotLight`); LightModule.cs:104, :120 (the template's `ColorRgb` passed as that argument).

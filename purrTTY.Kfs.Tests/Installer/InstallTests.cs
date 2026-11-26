@@ -1,10 +1,13 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using KSA.Kfs;
 using KSA.Kfs.Host;
 using KSA.Kfs.Vm.Tables;
 using NUnit.Framework;
 using purrTTY.Kfs.Catalog;
+using purrTTY.Kfs.Commands;
+using purrTTY.Kfs.Game;
 using purrTTY.Kfs.Patches;
 using purrTTY.Kfs.Runtime;
 using purrTTY.Kfs.Tables;
@@ -49,6 +52,8 @@ public sealed class InstallTests : GameFixture
         Assert.That(PatchedBy(_harmony.Id), Is.Empty, "patches owned by the test's Harmony id were left");
         Assert.That(OurPatchesAnywhere(), Is.Empty, "purrTTY patches were left");
         Assert.That(PartsRegistry.Live, Is.Empty, "bindings were left");
+        Assert.That(PurrConsole.Host, Is.Null, "a console host was left attached");
+        Assert.That(PurrConsole.HasLingeringCommand, Is.False, "a purr command was left in a console");
     }
 
     // ------------------------------------------------------------------ install / report
@@ -61,7 +66,8 @@ public sealed class InstallTests : GameFixture
         Assert.That(status.State, Is.EqualTo(KfsExtensionState.Active), status.Describe());
         Assert.That(status.Reason, Is.EqualTo(KfsDisabledReason.None));
         Assert.That(status.IsActive && KfsExtension.IsActive && KfsExtension.Status.IsActive, Is.True);
-        Assert.That(status.RequiredPatches, Is.EqualTo(new[] { "ApplyRequest", "IssueResult" }));
+        Assert.That(status.RequiredPatches, Is.EqualTo(new[] { "ApplyRequest", "IssueResult", "BeforeInputEvents" }));
+        Assert.That(status.GameServices, Is.Null, "installed without game services, as the test runtime is");
         Assert.That(status.OptionalPatches, Is.EqualTo(new[] { "BenchApplyRequest" }));
         Assert.That(status.OptionalPatchesSkipped, Is.Empty);
         Assert.That(status.Tables, Is.EqualTo(KfsTablesPublication.Published));
@@ -79,7 +85,7 @@ public sealed class InstallTests : GameFixture
         Assert.That(_log, Has.Count.EqualTo(1));
         Assert.That(_log[0], Is.EqualTo(status.ToString()));
         Assert.That(_log[0], Is.EqualTo(
-            $"purrTTY kFS extension: active — {XCatalog.Services.Count} services 0x{status.FirstId:X4}–0x{status.LastId:X4}, 2 hooks (+1 optional), tables published"));
+            $"purrTTY kFS extension: active — {XCatalog.Services.Count} services 0x{status.FirstId:X4}–0x{status.LastId:X4}, 3 hooks (+1 optional), tables published"));
         Assert.That(_log[0], Does.Match(@"^purrTTY kFS extension: active — \d+ services 0x[0-9A-F]{4}–0x[0-9A-F]{4}, \d+ hooks \(\+\d+ optional\), tables \w+"));
         Assert.That(status.Describe().Split('\n'), Has.Length.GreaterThan(3));
     }
@@ -297,6 +303,7 @@ public sealed class InstallTests : GameFixture
     [TestCase("published")]
     [TestCase("required ApplyRequest")]
     [TestCase("required IssueResult")]
+    [TestCase("required BeforeInputEvents")]
     [TestCase("header")]
     [TestCase("optional")]
     public void Unexpected_Failure_At_A_Step_Undoes_The_Install(string step)
@@ -346,7 +353,7 @@ public sealed class InstallTests : GameFixture
         Assert.That(status.OptionalPatchesSkipped[0], Does.StartWith("BenchApplyRequest: "));
         Assert.That(KfsLog.Count("optional patch BenchApplyRequest"), Is.EqualTo(logged + 1));
         Assert.That(PostfixOwners(BenchApplyRequestPatch.TargetMethod()!), Is.Empty);
-        Assert.That(_log.Single(), Does.Contain("2 hooks (+0 optional)"));
+        Assert.That(_log.Single(), Does.Contain("3 hooks (+0 optional)"));
     }
 
     // ------------------------------------------------------------------ publication refusals
@@ -519,6 +526,384 @@ public sealed class InstallTests : GameFixture
         Assert.That(PartsRegistry.Find(fake.Computer), Is.Null);
     }
 
+    // ------------------------------------------------------------------ game services (task A4)
+
+    [Test]
+    public void Pump_Hook_Is_Inert_Without_Game_Services()
+    {
+        Assert.That(Install().IsActive, Is.True);
+        long calls = BeforeInputEventsPatch.Calls;
+
+        Assert.DoesNotThrow(RunGameFrameHook);
+
+        Assert.That(BeforeInputEventsPatch.Calls, Is.EqualTo(calls + 1), "the postfix runs offline too");
+        Assert.That(MainThreadPump.Active, Is.Null, "but has no pump to run");
+        Assert.That(KfsExtension.Status.Counters.PumpFrames, Is.EqualTo(calls + 1));
+    }
+
+    [Test]
+    public void Game_Services_Install_Offline_And_The_Hook_Runs_Their_Pump()
+    {
+        var services = new KsaGameServices();
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, Seams(), services);
+
+        Assert.That(status.IsActive, Is.True, status.Describe());
+        Assert.That(status.GameServices, Is.EqualTo("game back end"));
+        Assert.That(_log.Single(), Does.Contain(", 3 hooks (+1 optional), tables published, game back end").And.EndWith("game back end"));
+        Assert.That(status.Describe(), Does.Contain("back end: game back end"));
+        MainThreadPump pump = services.Pump ?? throw new AssertionException("no pump attached");
+        Assert.That(MainThreadPump.Active, Is.SameAs(pump));
+        Assert.That(PartsRegistry.Fallback, Is.SameAs(pump.BindFromDispatchDelegate));
+        Assert.That(services.Directory!.Count, Is.Zero, "no game hosts offline");
+
+        long frames = pump.Frames, calls = BeforeInputEventsPatch.Calls;
+        RunGameFrameHook();
+        RunGameFrameHook();
+        Assert.That(pump.Frames, Is.EqualTo(frames + 2), "the game's per-frame hook runs the pump");
+        Assert.That(BeforeInputEventsPatch.Calls, Is.EqualTo(calls + 2));
+        Assert.That((pump.Bound, pump.Pruned, pump.Failures), Is.EqualTo((0L, 0L, 0L)));
+        Assert.That(PartsRegistry.Live, Is.Empty);
+        Assert.That(FindsNoHostFor("stranger"), Is.True, "the fallback finds no host for a computer the game does not know");
+
+        KfsExtension.Uninstall();
+        Assert.That(MainThreadPump.Active, Is.Null, "uninstall stops the pump");
+        Assert.That(PartsRegistry.Fallback, Is.Null, "and clears the fallback");
+        Assert.That(services.Pump, Is.Null);
+        RunGameFrameHook();
+        Assert.That(BeforeInputEventsPatch.Calls, Is.EqualTo(calls + 2), "the hook is removed");
+        Assert.That(pump.BindFromDispatch(NewComputer("late")), Is.Null, "a dispatch thread still holding the old fallback binds nothing and throws nothing");
+    }
+
+    [Test]
+    public void Missing_AllHosts_Disables_And_Leaves_Nothing()
+    {
+        var services = new KsaGameServices(() => null);
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, Seams(), services);
+
+        Assert.That(status.State, Is.EqualTo(KfsExtensionState.Disabled), status.Describe());
+        Assert.That(status.Reason, Is.EqualTo(KfsDisabledReason.GameServicesUnavailable));
+        Assert.That(status.Message, Is.EqualTo("game back end unavailable (field KfsVehicleHost.AllHosts not found)"));
+        Assert.That(_log, Is.EqualTo(new[] { "purrTTY kFS extension: disabled — game back end unavailable (field KfsVehicleHost.AllHosts not found)" }));
+        Assert.That(KfsExtension.IsActive, Is.False);
+        Assert.That(TablesAreNull(), Is.True, "refused with the patch targets, before anything was published");
+        Assert.That(PatchedBy(_harmony.Id), Is.Empty);
+        Assert.That(SystemHeaderScope.IsClean(), Is.True);
+        Assert.That(MainThreadPump.Active, Is.Null);
+        Assert.That(PartsRegistry.Fallback, Is.Null);
+
+        Assert.That(new KsaGameServices(() => typeof(KfsExtension).GetField("Gate", BindingFlags.Static | BindingFlags.NonPublic)).Prepare(),
+            Does.Contain("not a static List<KfsVehicleHost>"), "a field of another type is refused too");
+        Assert.That(new KsaGameServices().Prepare(), Is.Null, "this build has the field");
+    }
+
+    [TestCase("attach")]
+    [TestCase("after attach")]
+    public void Game_Services_Failure_Undoes_The_Install(string where)
+    {
+        var services = new RecordingServices { ThrowOnAttach = where == "attach" };
+        InstallSeams seams = Seams() with
+        {
+            Step = s => { if (where == "after attach" && s == "game services") throw new InvalidOperationException("injected at " + s); },
+        };
+
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, seams, services);
+
+        Assert.That(status.State, Is.EqualTo(KfsExtensionState.Disabled), status.Describe());
+        Assert.That(status.Reason, Is.EqualTo(where == "attach" ? KfsDisabledReason.GameServicesFailed : KfsDisabledReason.Unexpected));
+        Assert.That(status.Message, Does.StartWith(where == "attach" ? "recording services not attached (InvalidOperationException: injected attach failure)" : "install failed ("));
+        Assert.That((services.Prepares, services.Attaches, services.Detaches), Is.EqualTo((1, 1, 1)), "prepared, attached, then detached by the undo");
+        Assert.That(KfsExtension.IsActive, Is.False);
+        Assert.That(PatchedBy(_harmony.Id), Is.Empty, "no hook left");
+        Assert.That(SystemHeaderScope.IsClean(), Is.True);
+
+        // A later install starts clean, and its uninstall detaches its services exactly once.
+        _log.Clear();
+        var next = new RecordingServices();
+        KfsExtensionStatus again = KfsExtension.Install(_harmony, null, Seams(), next);
+        Assert.That(again.IsActive, Is.True, again.Describe());
+        Assert.That(_log.Single(), Does.EndWith(", recording services"));
+        KfsExtension.Uninstall();
+        KfsExtension.Uninstall();
+        Assert.That((next.Prepares, next.Attaches, next.Detaches), Is.EqualTo((1, 1, 1)));
+    }
+
+    [Test]
+    public void Game_Services_Prepare_Failure_Refuses_Before_Any_Change()
+    {
+        var services = new RecordingServices { PrepareReason = "nothing to discover" };
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, Seams(), services);
+
+        Assert.That(status.Reason, Is.EqualTo(KfsDisabledReason.GameServicesUnavailable), status.Describe());
+        Assert.That(status.Message, Is.EqualTo("recording services unavailable (nothing to discover)"));
+        Assert.That((services.Prepares, services.Attaches, services.Detaches), Is.EqualTo((1, 0, 0)));
+        Assert.That(TablesAreNull(), Is.True);
+        Assert.That(PatchedBy(_harmony.Id), Is.Empty);
+    }
+
+    /// <summary>Game services that only count their calls (no game types).</summary>
+    private sealed class RecordingServices : IKfsGameServices
+    {
+        public bool ThrowOnAttach { get; init; }
+        public string? PrepareReason { get; init; }
+        public int Prepares { get; private set; }
+        public int Attaches { get; private set; }
+        public int Detaches { get; private set; }
+
+        public string Name => "recording services";
+
+        public string? Prepare()
+        {
+            Prepares++;
+            return PrepareReason;
+        }
+
+        public void Attach()
+        {
+            Attaches++;
+            if (ThrowOnAttach) throw new InvalidOperationException("injected attach failure");
+        }
+
+        public void Detach() => Detaches++;
+    }
+
+    // ------------------------------------------------------------------ the purr console command (step 9)
+
+    [Test]
+    public void Purr_Command_Is_Registered_Once_And_Removed_At_Uninstall()
+    {
+        var console = new SimConsoleHost();
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console));
+
+        Assert.That(status.IsActive, Is.True, status.Describe());
+        Assert.That(status.ConsoleCommand, Is.EqualTo(PurrCommandState.Registered));
+        Assert.That(_log.Single(), Does.EndWith(", console services, purr command"));
+        Assert.That(status.Describe(), Does.Contain("  console:  purr registered\n"));
+        Assert.That(console.Registered, Has.Count.EqualTo(1));
+        Assert.That(console.Registered[0], Is.SameAs(PurrConsole.Command));
+        AssertTerminalAction(console.Registered[0]);
+        Assert.That(PurrConsole.Host, Is.SameAs(console));
+
+        console.Type("status");   // what the console does with `purr status`
+        Assert.That(console.Lines, Is.EqualTo(KfsExtension.Status.Describe().Split('\n').Select(ConsoleText.ToAscii)), "in ASCII, for the console's font");
+
+        KfsExtension.Uninstall();
+        Assert.That((console.UnregisterCalls, console.Registered.Count), Is.EqualTo((1, 0)), "removed at uninstall");
+        Assert.That(PurrConsole.Host, Is.Null);
+
+        // A re-install registers it again — once.
+        _log.Clear();
+        Assert.That(KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console)).ConsoleCommand, Is.EqualTo(PurrCommandState.Registered));
+        Assert.That((console.RegisterCalls, console.Registered.Count), Is.EqualTo((2, 1)));
+        KfsExtension.Uninstall();
+        Assert.That(console.Registered, Is.Empty);
+    }
+
+    [Test]
+    public void Purr_Command_That_Cannot_Be_Removed_Stays_Inert_And_Is_Not_Registered_Twice()
+    {
+        var console = new SimConsoleHost { CanUnregister = false };
+        Assert.That(KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console)).ConsoleCommand, Is.EqualTo(PurrCommandState.Registered));
+        KfsExtension.Uninstall();
+        Assert.That((console.UnregisterCalls, console.Registered.Count), Is.EqualTo((1, 1)), "this console keeps the command");
+        Assert.That(PurrConsole.HasLingeringCommand, Is.True);
+
+        // The command still answers, through the console's own output, and does nothing.
+        console.Lines.Clear();
+        console.Type("parts");
+        console.Type("help");
+        Assert.That(console.Lines[0], Is.EqualTo("purr parts: the purrTTY kFS extension is not active (not installed); purr status says more"));
+        Assert.That(console.Lines[1], Is.EqualTo("purr: the purrTTY kFS extension is not active (not installed); verbs (purr <verb> [arguments]):"));
+
+        // A re-install recognises the console: no second registration.
+        _log.Clear();
+        KfsExtensionStatus again = KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console));
+        Assert.That(again.ConsoleCommand, Is.EqualTo(PurrCommandState.Kept), again.Describe());
+        Assert.That((console.RegisterCalls, console.Registered.Count), Is.EqualTo((1, 1)));
+        Assert.That(_log.Single(), Does.EndWith(", purr command"));
+        Assert.That(again.Describe(), Does.Contain("purr kept from an earlier install"));
+        console.Lines.Clear();
+        console.Type("help");
+        Assert.That(console.Lines[0], Is.EqualTo("purr: the purrTTY kFS extension is active; verbs (purr <verb> [arguments]):"), "the kept command reaches the new install");
+
+        // Once the console can remove it, the next uninstall does.
+        console.CanUnregister = true;
+        KfsExtension.Uninstall();
+        Assert.That(console.Registered, Is.Empty);
+        Assert.That(PurrConsole.HasLingeringCommand, Is.False);
+    }
+
+    [Test]
+    public void Purr_Command_Registration_Failure_Leaves_The_Install_Active()
+    {
+        var console = new SimConsoleHost { RegisterFailure = new InvalidOperationException("the game console does not exist yet") };
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console));
+
+        Assert.That(status.IsActive, Is.True, status.Describe());
+        Assert.That(status.ConsoleCommand, Is.EqualTo(PurrCommandState.Failed));
+        Assert.That(status.ConsoleMessage, Is.EqualTo("InvalidOperationException: the game console does not exist yet"));
+        Assert.That(_log.Single(), Does.EndWith(", console services, no purr command (InvalidOperationException: the game console does not exist yet)"));
+        Assert.That(status.Describe(), Does.Contain("  console:  purr not registered (InvalidOperationException: the game console does not exist yet); the purrTTY menu still runs it\n"));
+        Assert.That(status.Describe().Split('\n')[0], Is.EqualTo(status.ToString()), "the status line stays one line");
+        Assert.That(console.Registered, Is.Empty);
+
+        // The host stays attached: the menu's direct calls still work.
+        PurrConsole.Execute("help");
+        Assert.That(console.Lines[0], Is.EqualTo("purr: the purrTTY kFS extension is active; verbs (purr <verb> [arguments]):"));
+
+        KfsExtension.Uninstall();
+        Assert.That(console.UnregisterCalls, Is.Zero, "nothing to remove");
+        Assert.That(PurrConsole.Host, Is.Null);
+    }
+
+    [Test]
+    public void Purr_Command_Is_Removed_When_A_Later_Step_Undoes_The_Install()
+    {
+        var console = new SimConsoleHost();
+        InstallSeams seams = Seams() with
+        {
+            Step = s => { if (s == "game services") throw new InvalidOperationException("injected after the console"); },
+        };
+        KfsExtensionStatus status = KfsExtension.Install(_harmony, null, seams, new ConsoleServices(console));
+
+        Assert.That(status.State, Is.EqualTo(KfsExtensionState.Disabled), status.Describe());
+        Assert.That((console.RegisterCalls, console.UnregisterCalls, console.Registered.Count), Is.EqualTo((1, 1, 0)), "registered, then removed by the undo");
+        Assert.That(PurrConsole.Host, Is.Null);
+    }
+
+    [Test]
+    public void Purr_Command_Stands_While_The_Extension_Is_Disabled()
+    {
+        var console = new SimConsoleHost();
+        using IDisposable verb = PurrConsole.Verbs.Add("standing-test", "a verb that works without the extension", c => c.Print("standing ok"));
+        try
+        {
+            // The mod registers purr at load, before (and whatever) the install decides.
+            Assert.That(PurrConsole.Register(console, out string message), Is.EqualTo(PurrCommandState.Registered), message);
+            Assert.That((console.RegisterCalls, console.Registered.Count), Is.EqualTo((1, 1)));
+            Assert.That(console.Registered[0], Is.SameAs(PurrConsole.Command));
+            Assert.That(PurrConsole.HasStandingCommand, Is.True);
+
+            KfsExtensionStatus disabled = KfsExtension.Install(_harmony, new KfsExtensionOptions { Enabled = false }, Seams(), new ConsoleServices(console));
+            Assert.That(disabled.State, Is.EqualTo(KfsExtensionState.Disabled));
+            Assert.That(PurrConsole.Host, Is.Null);
+
+            console.Type("parts");
+            console.Type("examples");
+            console.Type("standing-test");
+            console.Type("help");
+            Assert.That(console.Lines[0], Is.EqualTo("purr parts: the purrTTY kFS extension is not active (disabled - switched off); purr status says more"));
+            Assert.That(console.Lines[1], Is.EqualTo("purr examples: the purrTTY kFS extension is not active (disabled - switched off); purr status says more"));
+            Assert.That(console.Lines[2], Is.EqualTo("standing ok"), "verbs that do not need the extension work");
+            Assert.That(console.Lines[3], Is.EqualTo("purr: the purrTTY kFS extension is not active (disabled - switched off); verbs (purr <verb> [arguments]):"));
+
+            // An install on the same console uses the standing registration; its uninstall leaves it.
+            KfsExtensionStatus active = KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console));
+            Assert.That(active.ConsoleCommand, Is.EqualTo(PurrCommandState.Standing), active.Describe());
+            Assert.That(active.Describe(), Does.Contain("purr registered by purrTTY for as long as the mod is loaded"));
+            Assert.That(active.ToString(), Does.EndWith(", console services, purr command"));
+            Assert.That(console.RegisterCalls, Is.EqualTo(1), "not registered twice");
+            console.Lines.Clear();
+            console.Type("help");
+            Assert.That(console.Lines[0], Is.EqualTo("purr: the purrTTY kFS extension is active; verbs (purr <verb> [arguments]):"));
+            KfsExtension.Uninstall();
+            Assert.That((console.UnregisterCalls, console.Registered.Count), Is.EqualTo((0, 1)), "the uninstall leaves it");
+
+            // The mod unloads: removed.
+            PurrConsole.Unregister();
+            Assert.That((console.UnregisterCalls, console.Registered.Count, PurrConsole.HasStandingCommand), Is.EqualTo((1, 0, false)));
+        }
+        finally
+        {
+            PurrConsole.Unregister();
+        }
+    }
+
+    [Test]
+    public void Purr_Command_Registered_By_An_Install_Becomes_The_Standing_One()
+    {
+        var console = new SimConsoleHost();
+        try
+        {
+            Assert.That(KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console)).ConsoleCommand, Is.EqualTo(PurrCommandState.Registered));
+            Assert.That(PurrConsole.Register(console, out _), Is.EqualTo(PurrCommandState.Registered));
+            Assert.That(console.RegisterCalls, Is.EqualTo(1), "the console already held it");
+            Assert.That(PurrConsole.Register(console, out _), Is.EqualTo(PurrCommandState.Standing), "a second Register is a no-op");
+
+            KfsExtension.Uninstall();
+            Assert.That((console.UnregisterCalls, console.Registered.Count), Is.EqualTo((0, 1)), "standing now: the uninstall leaves it");
+            console.Type("status");
+            Assert.That(console.Lines[0], Is.EqualTo(KfsExtensionStatus.NotInstalled.ToString()), "and it still answers through the console");
+
+            PurrConsole.Unregister();
+            Assert.That(console.Registered, Is.Empty);
+        }
+        finally
+        {
+            PurrConsole.Unregister();
+        }
+    }
+
+    [Test]
+    public void Purr_Standing_Registration_Registers_When_The_Install_Could_Not()
+    {
+        // The install's registration failed (the console was not there yet) but its host stays
+        // attached; the mod's standing registration later must still register the command.
+        var console = new SimConsoleHost { RegisterFailure = new InvalidOperationException("the game console does not exist yet") };
+        try
+        {
+            Assert.That(KfsExtension.Install(_harmony, null, Seams(), new ConsoleServices(console)).ConsoleCommand, Is.EqualTo(PurrCommandState.Failed));
+            Assert.That(PurrConsole.Host, Is.SameAs(console), "attached although not registered");
+            console.RegisterFailure = null;
+
+            Assert.That(PurrConsole.Register(console, out string message), Is.EqualTo(PurrCommandState.Registered), message);
+            Assert.That((console.RegisterCalls, console.Registered.Count), Is.EqualTo((2, 1)), "registered by the standing registration");
+            console.Type("help");
+            Assert.That(console.Lines[0], Is.EqualTo("purr: the purrTTY kFS extension is active; verbs (purr <verb> [arguments]):"));
+
+            KfsExtension.Uninstall();
+            Assert.That(console.Registered.Count, Is.EqualTo(1), "the standing one stays after the uninstall");
+            PurrConsole.Unregister();
+            Assert.That(console.Registered, Is.Empty);
+        }
+        finally
+        {
+            KfsExtension.Uninstall();
+            PurrConsole.Unregister();
+        }
+    }
+
+    [Test]
+    public void Purr_Standing_Registration_Failure_Is_Reported()
+    {
+        var console = new SimConsoleHost { RegisterFailure = new InvalidOperationException("the game console does not exist yet") };
+        Assert.That(PurrConsole.Register(console, out string message), Is.EqualTo(PurrCommandState.Failed));
+        Assert.That(message, Is.EqualTo("InvalidOperationException: the game console does not exist yet"));
+        Assert.That(PurrConsole.HasStandingCommand, Is.False);
+        PurrConsole.Unregister();
+        Assert.That(console.UnregisterCalls, Is.Zero);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AssertTerminalAction(Action<string> command)
+    {
+        var action = command.Method.GetCustomAttribute<Brutal.ImGuiApi.Abstractions.TerminalActionAttribute>();
+        Assert.That(action, Is.Not.Null, "the console finds the command by its [TerminalAction]");
+        Assert.That((action!.CommandName, action.ParsingMode), Is.EqualTo(("purr", Brutal.ImGuiApi.Abstractions.ArgParseMode.Unparsed)));
+        Assert.That(action.Description, Is.EqualTo(PurrConsole.Description));
+        Assert.That(command.Method.GetParameters().Select(p => (p.ParameterType, p.HasDefaultValue)), Is.EqualTo(new[] { (typeof(string), true) }),
+            "Unparsed needs exactly one string parameter (Brutal's Command.CreateArgDefinitions)");
+    }
+
+    /// <summary>Game services with only a console (no game types).</summary>
+    private sealed class ConsoleServices(IKfsConsoleHost console) : IKfsGameServices
+    {
+        public string Name => "console services";
+        public string? Prepare() => null;
+        public void Attach() { }
+        public void Detach() { }
+        public IKfsConsoleHost? Console { get; } = console;
+    }
+
     // ------------------------------------------------------------------ the bench without its hook
 
     [Test]
@@ -583,6 +968,17 @@ public sealed class InstallTests : GameFixture
     // ------------------------------------------------------------------ helpers (game types allowed in bodies and signatures)
 
     private InstallSeams Seams() => InstallSeams.Default with { Log = _log.Add };
+
+    /// <summary>What <c>Program.PrepareFrame</c> calls once per frame in the game.</summary>
+    private static void RunGameFrameHook() => KfsIntegration.BeforeInputEvents();
+
+    private static VehicleComputer NewComputer(string name) => new FakeVehicle(KfsIntegration.Tables, 1, name).Computer;
+
+    private static bool FindsNoHostFor(string name)
+    {
+        VehicleComputer computer = NewComputer(name);
+        return PartsRegistry.Find(computer) is null && !PartsRegistry.TryGet(computer, out _);
+    }
 
     /// <summary>A method Harmony cannot patch (no body).</summary>
     private static MethodBase? AbstractMethod() => typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose));

@@ -6,6 +6,7 @@ using purrTTY.Display.Theming;
 using StarMap.API;
 using purrTTY.Logging;
 using purrTTY.GameMod.InWorld;
+using purrTTY.GameMod.Kfs;
 using purrTTY.GameMod.Layouts;
 using purrTTY.GameMod.Layouts.UI;
 using purrTTY.GameMod.UI;
@@ -48,6 +49,9 @@ public class TerminalMod
     private LayoutManager? _layoutManager;
     private LayoutManagerUI? _layoutUi;
 
+    private KfsNeovimLauncher? _neovim;
+    private KfsLspService? _lsp;
+
     private bool IsTerminalVisible => _controller?.IsVisible ?? _terminalVisible;
 
     /// <summary>
@@ -68,6 +72,12 @@ public class TerminalMod
     [StarMapAfterGui]
     public void OnAfterUi(double dt)
     {
+        // The kFS language server's frame first, on its own: its queued `kfs` commands run here (the
+        // UI phase, where the console runs commands and the workbench may be touched), whether or
+        // not the terminal came up (a failed terminal init disposes the terminal, not the server;
+        // Unload stops the server). Never throws.
+        _lsp?.Frame();
+
         if (!_isInitialized || _isDisposed)
         {
             return;
@@ -84,6 +94,9 @@ public class TerminalMod
             // Layouts dialog: applying a layout creates in-world instances, which need an
             // active ImGui frame — so it is pumped here in OnAfterUi like the other dialogs.
             _layoutUi?.Draw();
+
+            // kFS Neovim launcher: creates queued in-world editor terminals (needs the ImGui frame).
+            _neovim?.Pump();
 
             // Handle terminal toggle keybind (dynamic, defaults to F12). Suppressed
             // while the in-world terminal is focused so the key reaches that shell.
@@ -139,6 +152,14 @@ public class TerminalMod
             // still lets the terminal come up.
             Patcher.patch();
 
+            // The kFS language server (after the extension's install, which patch() did), on its
+            // own: a failure leaves the terminal unaffected and is shown by `purr lsp` and the menu.
+            TryStartLanguageServer();
+
+            // The kFS submenu (status + purr verbs): shown whether the extension came up or not,
+            // so a disabled install shows its reason.
+            TerminalMenus.DrawKfsMenu = KfsMenu.Draw;
+
             InitializeTerminal();
 
             // In-world render-to-texture quad (plans/GAME_SPACE_QUAD_PLAN.md).
@@ -148,10 +169,26 @@ public class TerminalMod
             // Layout manager (save/load/edit/tear-down sets of terminals) sits above both
             // the 2D controller and the in-world manager, so it is built last.
             TryInitializeLayouts();
+
+            // kFS Neovim launcher (purr nvim, kFS menu > Edit in Neovim), on both coordinators.
+            TryInitializeNeovim();
         }
         catch (Exception ex)
         {
             ModLog.Log.Error($"purrTTY GameMod initialization failed: {ex.Message}");
+        }
+    }
+
+    private void TryStartLanguageServer()
+    {
+        try
+        {
+            _lsp = KfsLspService.Start();
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY kFS LSP: start failed ({ex.Message}); the terminal is unaffected");
+            _lsp = null;
         }
     }
 
@@ -204,6 +241,30 @@ public class TerminalMod
         }
     }
 
+    private void TryInitializeNeovim()
+    {
+        if (_controller == null)
+        {
+            return;
+        }
+
+        try
+        {
+            // _inWorld may be null — then only window editors open (nvim_open_in = "inworld" reports it).
+            _neovim = new KfsNeovimLauncher(_controller, _inWorld);
+            // The in-game language server's address and token (null while it is not running).
+            _neovim.ServerInfo = () => KfsLspService.Current?.Endpoint;
+            KfsMenu.Neovim = _neovim;
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Error($"purrTTY GameMod: kFS Neovim launcher init failed: {ex.Message}");
+            KfsMenu.Neovim = null;
+            _neovim?.Dispose();
+            _neovim = null;
+        }
+    }
+
     /// <summary>
     ///     Called for immediate loading.
     /// </summary>
@@ -223,6 +284,10 @@ public class TerminalMod
         ModLog.Log.Debug("purrTTY Unload");
         try
         {
+            // The language server before Harmony unpatching: its queued commands fail, its
+            // connections close, its threads are joined, its tee and info file are removed.
+            StopLanguageServer();
+
             Patcher.unload();
 
             DisposeResources();
@@ -231,6 +296,19 @@ public class TerminalMod
         {
             ModLog.Log.Debug($"purrTTY GameMod unload error: {ex.Message}");
         }
+    }
+
+    private void StopLanguageServer()
+    {
+        try
+        {
+            _lsp?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ModLog.Log.Debug($"purrTTY kFS LSP: stop error: {ex.Message}");
+        }
+        _lsp = null;
     }
 
     /// <summary>
@@ -657,6 +735,11 @@ public class TerminalMod
 
         try
         {
+            // The Neovim launcher (built last) first: it removes `purr nvim` and drops queued launches.
+            KfsMenu.Neovim = null;
+            _neovim?.Dispose();
+            _neovim = null;
+
             // Dispose in reverse construction order: the in-world subsystem (built
             // after the controller in OnFullyLoaded) owns GPU resources and goes first.
             _inWorld?.Dispose();
@@ -676,6 +759,7 @@ public class TerminalMod
             _themeDialog = null;
             TerminalMenus.OpenInWorldManager = null;
             TerminalMenus.OpenLayoutManager = null;
+            TerminalMenus.DrawKfsMenu = null;
             _layoutUi = null;
             _layoutManager = null;
 

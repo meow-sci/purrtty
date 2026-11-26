@@ -18,10 +18,12 @@ namespace purrTTY.Kfs.Testing;
 /// sleeps or reads a clock.
 /// </summary>
 /// <remarks>
-/// <para>One <see cref="Frame"/> mirrors the game's order: the <b>pump</b>
-/// (<see cref="BindingPump.DrainAndApply"/>, the code the game's main-thread pump runs) applies
-/// what the last ticks requested; the <b>world steps</b> by the frame's time
-/// (<see cref="SimVehicleParts.Step"/>); then one <b>dispatch</b>
+/// <para>One <see cref="Frame"/> mirrors the game's order: the <b>world steps</b> by the frame's
+/// time (<see cref="SimVehicleParts.Step"/>: the physics job that ran since the last dispatch,
+/// with the goals and switches as they were before this frame's pump — the game commits its
+/// results at the start of the frame); the <b>pump</b> (<see cref="BindingPump.DrainAndApply"/>,
+/// the code the game's main-thread pump runs) applies what the last ticks requested to the live
+/// fields (a switch, a goal, a light's appearance); then one <b>dispatch</b>
 /// (<c>VehicleComputer.Dispatch(timeNs, Func&lt;HostSample&gt;)</c>, as <c>FakeVehicle.Dispatch</c>) runs the ticks that are due, all
 /// of them seeing one telemetry sample taken just before the first. Afterwards the stock requests
 /// the computer accepted are taken and recorded, and each <c>kfs_stage()</c> is acknowledged
@@ -259,6 +261,25 @@ public sealed class SimVehicle : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Writes a 4-byte program global (<c>uint32_t</c>, <c>int32_t</c>, <c>float</c>) by its leaf
+    /// path straight into the VM's RAM, as the game's <c>kfs poke</c> does; the program sees it from
+    /// its next tick.
+    /// </summary>
+    /// <exception cref="KeyNotFoundException">No such leaf.</exception>
+    /// <exception cref="InvalidCastException">The leaf is not 4 bytes, or <typeparamref name="T"/> is not a 4-byte value.</exception>
+    public void WriteGlobal<T>(string path, T value) where T : unmanaged
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(path);
+        if (!Globals().TryGetValue(path, out GlobalLeaf? leaf)) throw new KeyNotFoundException($"no global '{path}' in the loaded program");
+        if (leaf.Size != 4 || System.Runtime.CompilerServices.Unsafe.SizeOf<T>() != 4)
+            throw new InvalidCastException($"global '{path}' is {leaf.Size} bytes; WriteGlobal writes 4-byte values only");
+        Span<byte> raw = stackalloc byte[4];
+        System.Runtime.InteropServices.MemoryMarshal.Write(raw, in value);
+        Computer.Machine.WriteRam((int)leaf.Address, raw);
+    }
+
     // ------------------------------------------------------------------ loading
 
     /// <summary>Builds one kC file against this vehicle's layout and loads it.</summary>
@@ -286,6 +307,20 @@ public sealed class SimVehicle : IDisposable
             ["program.kasm"] = source,
             [Catalog.XCatalog.KincName] = Catalog.CatalogEmitter.Kinc(Catalog.XCatalog.Catalog),
         };
+        BuildResult build = LastBuild = _runtime.BuildKasm(files, Layout);
+        if (!build.Ok) throw new KfsBuildException("kASM", build);
+        return LoadImage(build.Image!, start);
+    }
+
+    /// <summary>
+    /// Assembles a pure kASM project (file name inside the folder → text: every <c>.kasm</c> in
+    /// name order, the rest reachable through <c>.include "…"</c>, as the game's Workbench builds a
+    /// workspace folder) and loads it. Nothing is added to <paramref name="files"/>.
+    /// </summary>
+    /// <exception cref="KfsBuildException">The assembly failed.</exception>
+    public SimVehicle LoadKasm(IReadOnlyDictionary<string, string> files, bool start = true)
+    {
+        ThrowIfDisposed();
         BuildResult build = LastBuild = _runtime.BuildKasm(files, Layout);
         if (!build.Ok) throw new KfsBuildException("kASM", build);
         return LoadImage(build.Image!, start);
@@ -363,8 +398,11 @@ public sealed class SimVehicle : IDisposable
     }
 
     /// <summary>
-    /// One frame: pump, step the parts by <paramref name="frameDt"/> (the time since the previous
-    /// frame; the first dispatching frame dispatches at the start time without stepping), dispatch.
+    /// One frame: step the parts by <paramref name="frameDt"/> (the time since the previous frame;
+    /// the first dispatching frame dispatches at the start time without stepping), pump, dispatch.
+    /// A command issued in frame N is applied by the pump of frame N+1 and moves the parts in the
+    /// step of frame N+2, as in the game, where a dispatch reads the part states committed by the
+    /// physics job before it, which ran with the goals the pump had set before that.
     /// Returns the ticks the dispatch ran. <paramref name="beforeDispatch"/> sees the world as the
     /// frame's ticks will. A paused frame runs the pump only and returns 0.
     /// </summary>
@@ -446,20 +484,24 @@ public sealed class SimVehicle : IDisposable
 
     private int FrameCore(long dtNs, double dtS, Action<SimVehicle>? beforeDispatch)
     {
-        BindingPump.DrainAndApply(Binding);
         if (IsPaused)
         {
+            BindingPump.DrainAndApply(Binding);
             LastTicksRun = 0;
             LastDispatchAllocatedBytes = 0;
             TicksPerFrame.Add(0);
             _frames++;
             return 0;
         }
+        // The physics job that ran since the last dispatch stepped the parts with the goals and
+        // switches as they were then; the game commits its results before this frame's pump
+        // applies what the last ticks requested (ApplyVehicleSolvers, then BeforeInputEvents).
         if (_dispatched)
         {
             TimeNs += dtNs;
             Parts.Step(dtS);
         }
+        BindingPump.DrainAndApply(Binding);
         _dispatched = true;
         beforeDispatch?.Invoke(this);
         Func<HostSample> sample = _sample ??= Sample;

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using KSA.Kfs.Host;
 
@@ -15,6 +16,10 @@ namespace purrTTY.Kfs.Runtime;
 /// <para>Binding touches nothing of the computer: in particular it does not wrap
 /// <see cref="VehicleComputer.ImageLoaded"/> (the game's host owns that single delegate slot). A new
 /// run is detected by the binding itself (<see cref="VehicleBinding.SyncRun"/>).</para>
+/// <para><b>Generations.</b> When a computer is unbound (the pump no longer saw its host, e.g. in
+/// another star system) and bound again later with a new back end, the new lists continue from
+/// the generation the old ones had reached (<see cref="VehiclePartsBase.ContinueAfter"/>): the
+/// program kept running and may compare <c>X_PARTS_GENERATION</c> values.</para>
 /// <para>Bindings are created only while the registry is open: <see cref="KfsExtension"/> opens it
 /// as the last step of a successful install and closes it, under the same lock, before unbinding
 /// everything at uninstall. So a dispatch thread that read <see cref="Fallback"/> just before an
@@ -26,6 +31,7 @@ public static class PartsRegistry
 {
     private static readonly object Gate = new();
     private static readonly ConditionalWeakTable<VehicleComputer, VehicleBinding> Table = new();
+    private static readonly ConditionalWeakTable<VehicleComputer, StrongBox<int>> LastGeneration = new();
     private static VehicleBinding[] _live = [];
     private static Func<VehicleComputer, VehicleBinding?>? _fallback;
     private static bool _open;
@@ -57,21 +63,39 @@ public static class PartsRegistry
     /// bound the existing binding is returned and <paramref name="parts"/> is not used.
     /// </summary>
     /// <exception cref="InvalidOperationException">The registry is closed (the extension is not installed).</exception>
-    public static VehicleBinding Bind(VehicleComputer computer, IVehicleParts parts)
+    public static VehicleBinding Bind(VehicleComputer computer, IVehicleParts parts) =>
+        TryBind(computer, parts) ?? throw new InvalidOperationException("the purrTTY kFS extension is not installed: no vehicle can be bound");
+
+    /// <summary>
+    /// As <see cref="Bind"/>, but returns null instead of throwing when the registry is closed
+    /// (the extension is not installed, or is being installed or uninstalled right now). For
+    /// callers that may race an install or uninstall from another thread: the game pump and the
+    /// dispatch-thread host discovery.
+    /// </summary>
+    internal static VehicleBinding? TryBind(VehicleComputer computer, IVehicleParts parts)
     {
         ArgumentNullException.ThrowIfNull(computer);
         ArgumentNullException.ThrowIfNull(parts);
         lock (Gate)
         {
-            if (!_open) throw new InvalidOperationException("the purrTTY kFS extension is not installed: no vehicle can be bound");
+            if (!_open) return null;
             if (Table.TryGetValue(computer, out VehicleBinding? existing)) return existing;
 
+            if (parts is VehiclePartsBase continued && LastGeneration.TryGetValue(computer, out StrongBox<int>? last))
+                continued.ContinueAfter(last.Value);
             var binding = new VehicleBinding(computer, parts);
             Table.Add(computer, binding);
             Volatile.Write(ref _live, [.. _live, binding]);
             return binding;
         }
     }
+
+    /// <summary>
+    /// The binding of <paramref name="computer"/> if it has one, without consulting
+    /// <see cref="Fallback"/>. Lock-free and allocation-free.
+    /// </summary>
+    public static bool TryGet(VehicleComputer computer, [NotNullWhen(true)] out VehicleBinding? binding) =>
+        Table.TryGetValue(computer, out binding);
 
     /// <summary>
     /// The binding of <paramref name="computer"/>, or — when it has none — whatever
@@ -103,6 +127,7 @@ public static class PartsRegistry
         {
             if (!Table.TryGetValue(computer, out VehicleBinding? binding)) return false;
             Table.Remove(computer);
+            RememberGeneration(binding);
             binding.MarkUnbound();
             Volatile.Write(ref _live, _live.Where(b => !ReferenceEquals(b, binding)).ToArray());
             return true;
@@ -136,8 +161,16 @@ public static class PartsRegistry
         foreach (VehicleBinding binding in _live)
         {
             Table.Remove(binding.Computer);
+            RememberGeneration(binding);
             binding.MarkUnbound();
         }
         Volatile.Write(ref _live, []);
+    }
+
+    // Under Gate. Never builds lists (a binding unbound before its first build has nothing to continue).
+    private static void RememberGeneration(VehicleBinding binding)
+    {
+        if (binding.Parts is VehiclePartsBase parts && parts.PublishedGeneration > 0)
+            LastGeneration.AddOrUpdate(binding.Computer, new StrongBox<int>(parts.PublishedGeneration));
     }
 }

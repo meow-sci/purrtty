@@ -4,8 +4,11 @@
         <Platform Name="x64" />
         <Platform Name="x86" />
     </Configurations>
+    <Project Path="purrTTY.Kfs.Cli/purrTTY.Kfs.Cli.csproj" />
+    <Project Path="purrTTY.Kfs.Lsp/purrTTY.Kfs.Lsp.csproj" />
     <Project Path="purrTTY.Kfs.Testing/purrTTY.Kfs.Testing.csproj" />
     <Project Path="purrTTY.Kfs.Tests/purrTTY.Kfs.Tests.csproj" />
+    <Project Path="purrTTY.Kfs.Tools.Tests/purrTTY.Kfs.Tools.Tests.csproj" />
     <Project Path="purrTTY.Kfs/purrTTY.Kfs.csproj" />
     <Project Path="purrTTY.Logging/purrTTY.Logging.csproj" />
     <Folder Name="/vendor/">

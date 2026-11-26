@@ -71,7 +71,7 @@ sources:
   - id: gemini-vehicle
     resource: ksa-content:Core/defaultvehicles/Gemini7/vehicle.xml
     title: Gemini7 default vehicle save
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:36:15Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -98,6 +98,14 @@ In both cases the mechanism is identical:
 So "toggle deployed" is `TimeGoal = deployed ? 0 : Shared.Duration`, and "set actuation to *x*" is
 `TimeGoal = x * Shared.Duration`. Neither is instantaneous; both are slewed at a fixed rate that
 the animation asset determines.
+
+The two values also become visible to a reader at different times. `TimeGoal` is a field: once
+written it is what every later reader sees. `State.TimeCurrent` and `State.DeploymentState` are
+committed state: the physics job computes them into its own buffer and the main thread commits
+them once per frame. Code that runs inside the job before the module update — a flight-computer
+pass, and so a kFS program — therefore reads a goal set in the frame's sync window at once, and
+the position that goal produces one frame later; several passes in one frame all read the same
+position. See [dispatch and threading](/integration/dispatch-and-threading.md#what-a-dispatch-reads-live-fields-and-committed-state).[^physics-bubble-order]
 
 Related: [part and module model](/game-targets/part-and-module-model.md),
 [stock control paths](/game-targets/stock-control-paths.md),
@@ -520,3 +528,4 @@ None of them move vehicle parts.
 [^core-utility-gamedata]: Core/CoreUtilityAGameData.xml:145–173.
 [^core-service-module-gamedata]: Core/CoreServiceModuleAGameData.xml — Single :3–49; Double :98–162; Triple :221–303; Quad :372–472.
 [^gemini-vehicle]: Core/defaultvehicles/Gemini7/vehicle.xml:2271, :2385.
+[^physics-bubble-order]: PhysicsBubble.cs — `RunFlightComputer` before `UpdateModules`: :1505 then :1548 / :1569 (single vehicle); the flight-computer loop :1639-1652 then the `UpdateModulesJob`s :1881-1886 (full physics). KeyframeAnimationModule.cs:162-214 (`UpdateModules` reads `module.TimeGoal`, writes `current.State`).

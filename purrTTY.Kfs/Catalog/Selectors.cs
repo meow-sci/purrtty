@@ -50,7 +50,7 @@ public enum LightProp : uint
     HasSwitch = 1,
     /// <summary>Commanded state of the switch (1 for switchless lights).</summary>
     On = 2,
-    /// <summary>Actually emitting: switched on and powered.</summary>
+    /// <summary>Actually emitting: switched on and powered (always for an interior fill light or a light without a switch).</summary>
     Lit = 3,
     /// <summary>A <see cref="LightType"/> value.</summary>
     Type = 4,

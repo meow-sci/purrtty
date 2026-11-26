@@ -133,16 +133,17 @@ public sealed class StockProgramTests : RuntimeFixture
 
         Assert.That(v.LogText.Where(l => l.StartsWith("solar ", StringComparison.Ordinal)),
             Is.EqualTo(new[] { "solar 1 at 10500 m", "solar 0 at 10000 m" }), v.Dump);
-        // Deploy issued in the tick at 2.1 s and applied by the next frame's pump (the parts' clock
-        // still reads 2.1 s), moving from the step that follows: 2 s of travel; retract issued at 6.0 s.
+        // Deploy issued in the tick at 2.1 s and applied by the next frame's pump (after that frame's
+        // step: the parts' clock reads 2.2 s), moving from the step of the frame after (2.3 s): 2 s of
+        // travel; retract issued at 6.0 s, applied at 6.1 s, moving from 6.2 s.
         var history = v.Parts.DeployHistory;
         Assert.That(history.Select(h => (h.Index, h.State)), Is.EqualTo(new[]
         {
             (0, DeployState.Deploying), (0, DeployState.Deployed), (0, DeployState.Retracting), (0, DeployState.Retracted),
         }));
-        Assert.That(history.Select(h => h.TimeS), Is.EqualTo(new[] { 2.2, 4.1, 6.1, 8.0 }).Within(1e-6));
+        Assert.That(history.Select(h => h.TimeS), Is.EqualTo(new[] { 2.3, 4.2, 6.2, 8.1 }).Within(1e-6));
         Assert.That(v.Parts.Applied.Select(a => a.Command.U), Is.EqualTo(new[] { 1u, 0u }));
-        Assert.That(v.Parts.Applied.Select(a => a.TimeS), Is.EqualTo(new[] { 2.1, 6.0 }).Within(1e-6));
+        Assert.That(v.Parts.Applied.Select(a => a.TimeS), Is.EqualTo(new[] { 2.2, 6.1 }).Within(1e-6));
     }
 
     // The game's own example, verbatim (KSA.Kfs.Host.Workbench.Examples.Files).

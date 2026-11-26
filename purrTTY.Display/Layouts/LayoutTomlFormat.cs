@@ -20,7 +20,7 @@ namespace purrTTY.Display.Layouts;
 /// [layout]      name / description
 /// [[terminal]]  name / kind ("window"|"inworld") / theme / placement
 ///   [terminal.shell] shell_type / custom_shell_path / custom_shell_id / arguments /
-///                    working_directory / startup_command
+///                    working_directory / startup_command / close_on_exit
 /// </code>
 /// 2D windows store position + size (px) only — never cols/rows or font. In-world
 /// entries store cols/rows (authoritative) plus the anchor + transform. Absent keys
@@ -122,6 +122,8 @@ internal static class LayoutTomlFormat
                 Arguments = GetStringList(shell, "arguments"),
                 WorkingDirectory = GetString(shell, "working_directory"),
                 StartupCommand = GetString(shell, "startup_command"),
+                CloseOnExit = GetBool(shell, "close_on_exit") ?? false,
+                CloseOnSuccessfulExit = GetBool(shell, "close_on_successful_exit") ?? false,
             };
         }
 
@@ -204,6 +206,9 @@ internal static class LayoutTomlFormat
 
             AppendStr(sb, "working_directory", e.Shell.WorkingDirectory);
             AppendStr(sb, "startup_command", e.Shell.StartupCommand);
+            // Only when set: layouts without it stay byte-identical to older files.
+            AppendBool(sb, "close_on_exit", e.Shell.CloseOnExit ? true : null);
+            AppendBool(sb, "close_on_successful_exit", e.Shell.CloseOnSuccessfulExit ? true : null);
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);

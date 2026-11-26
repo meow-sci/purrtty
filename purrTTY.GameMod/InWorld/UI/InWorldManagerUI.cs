@@ -125,27 +125,34 @@ public sealed class InWorldManagerUI
             return;
         }
 
-        var instances = _manager.Instances;
-        if (ImGui.CollapsingHeader($"In-World Terminals ( {instances.Count} )##iw_list_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+        // Ended in the finally: a throw in the body (caught by the caller) must not leave the
+        // window begun, which would unbalance ImGui's stack for the rest of the frame.
+        try
         {
-            DrawInstanceList();
+            var instances = _manager.Instances;
+            if (ImGui.CollapsingHeader($"In-World Terminals ( {instances.Count} )##iw_list_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                DrawInstanceList();
+            }
+
+            ImGui.Spacing();
+
+            if (ImGui.CollapsingHeader("New Terminal##iw_new_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                DrawCreateForm();
+            }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            if (ImGui.Button(" Close ##iw_close", new float2(-1f, 0f)))
+            {
+                _visible = false;
+            }
         }
-
-        ImGui.Spacing();
-
-        if (ImGui.CollapsingHeader("New Terminal##iw_new_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+        finally
         {
-            DrawCreateForm();
+            ImGui.End();
         }
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        if (ImGui.Button(" Close ##iw_close", new float2(-1f, 0f)))
-        {
-            _visible = false;
-        }
-
-        ImGui.End();
     }
 
     private void DrawInstanceList()
@@ -366,50 +373,57 @@ public sealed class InWorldManagerUI
             return;
         }
 
-        // One label gutter shared across both sections (covers the widest label of either).
-        float labelWidth = Math.Max(
-            ImGuiWidgets.MeasureLabelWidth(ConfigureLabels),
-            ImGuiWidgets.MeasureLabelWidth(r.IsBillboard ? BillboardPlacementLabels : PartPlacementLabels));
-
-        if (ImGui.CollapsingHeader("Configure##iw_cfg_cfg_hdr", ImGuiTreeNodeFlags.DefaultOpen))
+        // Ended in the finally: a throw in the body (caught by the caller) must not leave the
+        // window begun, which would unbalance ImGui's stack for the rest of the frame.
+        try
         {
-            DrawConfigureSection(w, labelWidth);
-        }
+            // One label gutter shared across both sections (covers the widest label of either).
+            float labelWidth = Math.Max(
+                ImGuiWidgets.MeasureLabelWidth(ConfigureLabels),
+                ImGuiWidgets.MeasureLabelWidth(r.IsBillboard ? BillboardPlacementLabels : PartPlacementLabels));
 
-        ImGui.Spacing();
-
-        if (ImGui.CollapsingHeader("Placement##iw_cfg_place_hdr", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            if (r.IsBillboard)
+            if (ImGui.CollapsingHeader("Configure##iw_cfg_cfg_hdr", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                DrawBillboardForm(r, labelWidth);
+                DrawConfigureSection(w, labelWidth);
             }
-            else
+
+            ImGui.Spacing();
+
+            if (ImGui.CollapsingHeader("Placement##iw_cfg_place_hdr", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                DrawPartForm(r, labelWidth);
+                if (r.IsBillboard)
+                {
+                    DrawBillboardForm(r, labelWidth);
+                }
+                else
+                {
+                    DrawPartForm(r, labelWidth);
+                }
+            }
+
+            // Footer: Done | Destroy, half-width each (the destroy is red).
+            ImGui.Spacing();
+            ImGui.Separator();
+            float avail = ImGui.GetContentRegionAvail().X;
+            const float gap = 8f;
+            float buttonWidth = (avail - gap) / 2f;
+
+            if (ImGui.Button($" Done ##iw_cfg_done_{w.Id}", new float2(buttonWidth, 0f)))
+            {
+                w.Open = false;
+            }
+
+            ImGui.SameLine(0, gap);
+            if (ImGuiWidgets.DestructiveButton($" Destroy ##iw_cfg_destroy_{w.Id}", new float2(buttonWidth, 0f)))
+            {
+                _manager.Remove(instance);
+                w.Open = false;
             }
         }
-
-        // Footer: Done | Destroy, half-width each (the destroy is red).
-        ImGui.Spacing();
-        ImGui.Separator();
-        float avail = ImGui.GetContentRegionAvail().X;
-        const float gap = 8f;
-        float buttonWidth = (avail - gap) / 2f;
-
-        if (ImGui.Button($" Done ##iw_cfg_done_{w.Id}", new float2(buttonWidth, 0f)))
+        finally
         {
-            w.Open = false;
+            ImGui.End();
         }
-
-        ImGui.SameLine(0, gap);
-        if (ImGuiWidgets.DestructiveButton($" Destroy ##iw_cfg_destroy_{w.Id}", new float2(buttonWidth, 0f)))
-        {
-            _manager.Remove(instance);
-            w.Open = false;
-        }
-
-        ImGui.End();
     }
 
     // Configure section: rename + theme + grid size + the three live opacities, plus the

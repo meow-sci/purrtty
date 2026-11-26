@@ -7,6 +7,10 @@ using purrTTY.GameMod;
 using purrTTY.GameMod.InWorld;
 using purrTTY.GameMod.Patches;
 using purrTTY.GameMod.InWorld.Patches;
+using purrTTY.GameMod.Kfs;
+using purrTTY.Kfs;
+using purrTTY.Kfs.Commands;
+using purrTTY.Kfs.Game;
 using purrTTY.Logging;
 using RenderCore.Input;
 
@@ -33,6 +37,8 @@ internal static class Patcher
     typeof(ConsoleWindowPrintPatch),
     // In-world quad draw injection (no-op unless the in-world feature is active).
     typeof(RenderTranslucencyPassPatch),
+    // kFS language server: keeps `kfs` errors single in the console while its output tee is in place (R17).
+    typeof(KfsErrorEchoPatch),
   };
 
   public static void patch()
@@ -50,6 +56,48 @@ internal static class Patcher
     foreach (var type in s_optionalPatches)
     {
       ApplyPatch(harmony, type, required: false);
+    }
+
+    // After the terminal's own patches, on its own: the kFS extension (purrTTY.Kfs) is
+    // all-or-nothing and never throws, and nothing here may ever affect the terminal.
+    InstallKfs(harmony);
+
+    // The `purr` console command for as long as the mod is loaded, whether or not the extension
+    // installed (verbs that need it refuse with the reason; purr nvim, purr lsp work regardless).
+    RegisterPurrCommand();
+  }
+
+  private static void RegisterPurrCommand()
+  {
+    try
+    {
+      PurrCommandState state = PurrConsole.Register(new KsaConsoleHost(), out string message);
+      if (state == PurrCommandState.Failed)
+      {
+        ModLog.Log.Warning($"purrTTY: the purr console command is not registered ({message}); the purrTTY menu still runs its verbs");
+      }
+    }
+    catch (Exception ex)
+    {
+      ModLog.Log.Warning($"purrTTY: registering the purr console command failed ({ex.Message})");
+    }
+  }
+
+  /// <summary>
+  /// Installs the kFS extension (x_ services for lights and part animations) unless
+  /// <c>kfs.toml</c> switches it off. <see cref="KfsExtension.Install"/> logs its own one status
+  /// line (<c>purrTTY kFS extension: active — … , game back end</c> or <c>… disabled — reason</c>).
+  /// </summary>
+  private static void InstallKfs(Harmony harmony)
+  {
+    try
+    {
+      KfsConfig config = KfsConfig.Load();
+      KfsExtension.Install(harmony, new KfsExtensionOptions { Enabled = config.Enabled }, KsaGameServices.Create());
+    }
+    catch (Exception ex)
+    {
+      ModLog.Log.Error($"purrTTY kFS extension: install failed ({ex.GetType().Name}: {ex.Message}); the terminal is unaffected");
     }
   }
 
@@ -72,6 +120,29 @@ internal static class Patcher
 
   public static void unload()
   {
+    // The kFS extension first, while its patches are still in place: it stops its pump and
+    // dispatch fallback, restores private light templates, removes its own hooks (only those)
+    // and its header, and unbinds every vehicle. UnpatchAll below is the backstop for its hooks,
+    // which share this Harmony id.
+    try
+    {
+      KfsExtension.Uninstall();
+    }
+    catch (Exception ex)
+    {
+      ModLog.Log.Error($"purrTTY kFS extension: uninstall failed ({ex.GetType().Name}: {ex.Message})");
+    }
+
+    // The mod's own `purr` registration, after the uninstall (which leaves it in place).
+    try
+    {
+      PurrConsole.Unregister();
+    }
+    catch (Exception ex)
+    {
+      ModLog.Log.Error($"purrTTY: removing the purr console command failed ({ex.Message})");
+    }
+
     m_harmony?.UnpatchAll("purrTTY");
     m_harmony = null;
 

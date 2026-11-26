@@ -62,23 +62,4 @@ internal static class ProcessStateManager
             return process?.HasExited == true ? process.ExitCode : null;
         }
     }
-
-    /// <summary>
-    ///     Validates that a process is running and the pseudoconsole is available for resizing.
-    /// </summary>
-    /// <param name="process">The process to check</param>
-    /// <param name="pseudoConsole">The pseudoconsole handle to check</param>
-    /// <exception cref="InvalidOperationException">Thrown if no process is running or pseudoconsole is not available</exception>
-    internal static void ValidateProcessForResize(SysProcess? process, IntPtr pseudoConsole)
-    {
-        if (process == null || process.HasExited)
-        {
-            throw new InvalidOperationException("No process is running");
-        }
-
-        if (pseudoConsole == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("Pseudoconsole is not available");
-        }
-    }
 }

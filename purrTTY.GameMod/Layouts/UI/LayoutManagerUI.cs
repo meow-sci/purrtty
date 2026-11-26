@@ -84,23 +84,30 @@ public sealed class LayoutManagerUI
             return;
         }
 
-        if (_editLayout != null)
+        // Ended in the finally: a throw in the body (caught by the caller) must not leave the
+        // window begun, which would unbalance ImGui's stack for the rest of the frame.
+        try
         {
-            DrawEditView();
-        }
-        else
-        {
-            DrawListView();
-        }
+            if (_editLayout != null)
+            {
+                DrawEditView();
+            }
+            else
+            {
+                DrawListView();
+            }
 
-        ImGui.Spacing();
-        ImGui.Separator();
-        if (ImGui.Button(" Close ##layout_close", new float2(-1f, 0f)))
-        {
-            _visible = false;
+            ImGui.Spacing();
+            ImGui.Separator();
+            if (ImGui.Button(" Close ##layout_close", new float2(-1f, 0f)))
+            {
+                _visible = false;
+            }
         }
-
-        ImGui.End();
+        finally
+        {
+            ImGui.End();
+        }
     }
 
     // ---- List view: saved layouts + save-current ----

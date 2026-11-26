@@ -119,6 +119,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         _windows.Add(window);
         _lastFocusedWindow ??= window;
 
+        window.StartLaunchOptions = launchOptions;
         StartSession(window, launchOptions, sessionTitle);
         window.RequestFocus();
         return window;
@@ -151,6 +152,7 @@ public sealed class GhosttyTerminalController : ITerminalController
         _windows.Add(window);
         _lastFocusedWindow ??= window;
 
+        window.StartLaunchOptions = spec.Launch;
         StartSession(window, spec.Launch, title: null);
         window.RequestFocus();
         return window;
@@ -174,7 +176,8 @@ public sealed class GhosttyTerminalController : ITerminalController
 
     /// <summary>
     /// Snapshots every open window's spec (name, observed geometry, theme name, and the
-    /// active tab's shell) so the layout manager can capture the current 2D windows.
+    /// active tab's shell — or, while the first session is still starting, the shell it is
+    /// starting) so the layout manager can capture the current 2D windows.
     /// </summary>
     public IReadOnlyList<WindowLayoutRecord> CaptureWindows()
     {
@@ -193,7 +196,7 @@ public sealed class GhosttyTerminalController : ITerminalController
                 Position = window.HasObservedGeometry ? window.LastKnownPosition : null,
                 Size = window.HasObservedGeometry ? window.LastKnownSize : null,
                 ThemeName = window.Settings.ThemeName,
-                Launch = window.Sessions.ActiveSession?.LaunchOptions?.Clone(),
+                Launch = WindowLayoutRecord.LaunchOf(window.Sessions.ActiveSession?.LaunchOptions, window.StartLaunchOptions),
             });
         }
 
@@ -331,6 +334,12 @@ public sealed class GhosttyTerminalController : ITerminalController
             _isVisible = value;
             if (value)
             {
+                // A window can close while hidden (its CloseOnExit program ended,
+                // seen by the hidden drain). Prune it first, exactly as Render would
+                // (persisting its geometry if it was the last), so the reopened
+                // default window below restores that geometry.
+                PruneClosedWindows();
+
                 if (!_windows.Any(w => w.IsOpen))
                 {
                     OpenWindow();
@@ -386,11 +395,41 @@ public sealed class GhosttyTerminalController : ITerminalController
             return;
         }
 
-        // Prune windows closed last frame (close button / last tab closed).
-        // Remember the geometry of a pruned window: if it turns out to be the
-        // last one, its geometry must be persisted here — the hide path's
-        // PersistWindowState only sees *open* windows, so without this the
-        // next toggle restored stale geometry from the previous hide.
+        // Prune windows closed last frame (close button / last tab closed /
+        // close-on-exit).
+        if (PruneClosedWindows())
+        {
+            // Every window was closed; hide until the next toggle recreates one.
+            _isVisible = false;
+            _anyTerminalActive = false;
+            return;
+        }
+
+        bool hideChrome = _config.HideUiWhenNotHovered;
+        bool anyActive = false;
+        for (int i = 0; i < _windows.Count; i++)
+        {
+            var window = _windows[i];
+            window.Render(hideChrome, _cursorOn);
+            // The grid context menu steals ImGui focus from its window while
+            // open, but the user is still interacting with the terminal — keep
+            // the game-key gate engaged or hotkeys fire under the popup.
+            anyActive |= window.HasFocus || window.IsContextMenuOpen;
+        }
+
+        _anyTerminalActive = anyActive;
+    }
+
+    /// <summary>
+    /// Disposes and drops every closed window. Remembers the geometry of a pruned
+    /// window: if it turns out to be the last one, its geometry must be persisted
+    /// here — the hide path's PersistWindowState only sees *open* windows, so
+    /// without this the next toggle restored stale geometry from the previous hide.
+    /// Returns true when no window is left. Main thread, outside any window's
+    /// Begin/End (start of <see cref="Render"/>, or the show path).
+    /// </summary>
+    private bool PruneClosedWindows()
+    {
         (float2 Pos, float2 Size, int Cols, int Rows)? prunedGeometry = null;
         for (int i = _windows.Count - 1; i >= 0; i--)
         {
@@ -412,33 +451,18 @@ public sealed class GhosttyTerminalController : ITerminalController
             }
         }
 
-        if (_windows.Count == 0)
+        if (_windows.Count > 0)
         {
-            // Every window was closed; hide until the next toggle recreates one.
-            if (prunedGeometry is { } geo)
-            {
-                _config.SetTerminalWindowState(geo.Pos, geo.Size, geo.Cols, geo.Rows);
-                _config.Save();
-            }
-
-            _isVisible = false;
-            _anyTerminalActive = false;
-            return;
+            return false;
         }
 
-        bool hideChrome = _config.HideUiWhenNotHovered;
-        bool anyActive = false;
-        for (int i = 0; i < _windows.Count; i++)
+        if (prunedGeometry is { } geo)
         {
-            var window = _windows[i];
-            window.Render(hideChrome, _cursorOn);
-            // The grid context menu steals ImGui focus from its window while
-            // open, but the user is still interacting with the terminal — keep
-            // the game-key gate engaged or hotkeys fire under the popup.
-            anyActive |= window.HasFocus || window.IsContextMenuOpen;
+            _config.SetTerminalWindowState(geo.Pos, geo.Size, geo.Cols, geo.Rows);
+            _config.Save();
         }
 
-        _anyTerminalActive = anyActive;
+        return true;
     }
 
     /// <summary>Persists the primary window's geometry/grid so the next run restores it.</summary>

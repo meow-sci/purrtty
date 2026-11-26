@@ -246,7 +246,7 @@ public sealed class InWorldTerminalManager : IDisposable
 
     /// <summary>
     ///     Per frame on the main thread (StarMap <c>OnAfterGui</c>): draws the manager
-    ///     UI, processes a deferred dev-gate create, prunes failed instances, arbitrates
+    ///     UI, processes a deferred dev-gate create, prunes failed and closed-on-exit instances, arbitrates
     ///     focus + input forwarding, and drives each instance's off-screen render.
     /// </summary>
     public void OnAfterGui(double dt)
@@ -265,7 +265,7 @@ public sealed class InWorldTerminalManager : IDisposable
             Create(new InWorldTerminalRecord { Name = "In-World" });
         }
 
-        PruneFailed();
+        PruneRetired();
 
         if (!Active || _instances.Count == 0)
         {
@@ -382,13 +382,22 @@ public sealed class InWorldTerminalManager : IDisposable
     private static bool IsClickPickable(InWorldTerminalInstance instance)
         => !instance.IsBillboard || instance.Record.BillboardClickToFocus;
 
-    private void PruneFailed()
+    // Retires failed instances and those whose CloseOnExit shell has ended (the
+    // renderer closed the session in the previous frame's tick and has kept the last
+    // texture since). Both go through Remove: detach now, free the GPU two frames later.
+    private void PruneRetired()
     {
         for (int i = _instances.Count - 1; i >= 0; i--)
         {
-            if (_instances[i].IsFailed)
+            var instance = _instances[i];
+            if (instance.IsFailed)
             {
-                Remove(_instances[i]);
+                Remove(instance);
+            }
+            else if (instance.Content is { SessionEnded: true })
+            {
+                ModLog.Log.Debug($"purrTTY in-world: '{instance.Name}' closed, its process exited (CloseOnExit)");
+                Remove(instance);
             }
         }
     }

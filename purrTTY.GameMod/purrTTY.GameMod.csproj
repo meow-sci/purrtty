@@ -75,11 +75,26 @@
         </ItemGroup>
         <MakeDir Directories="$(DistDir)TerminalThemes"/>
         <Copy SourceFiles="@(ThemeFiles)" DestinationFolder="$(DistDir)TerminalThemes\%(RecursiveDir)"/>
+
+        <!-- Neovim runtime files (plan §7.4): nvim/** from the source folder to <mod folder>/nvim,
+             folder structure kept; KfsNeovimLauncher finds them beside its assembly. A doc/tags
+             file made by :helptags in the source folder is not shipped. -->
+        <ItemGroup>
+            <NvimRuntimeFiles Include="$(MSBuildThisFileDirectory)nvim\**\*" Exclude="$(MSBuildThisFileDirectory)nvim\doc\tags"/>
+        </ItemGroup>
+        <Copy SourceFiles="@(NvimRuntimeFiles)" DestinationFolder="$(DistDir)nvim\%(RecursiveDir)" Condition="'@(NvimRuntimeFiles)' != ''"/>
     </Target>
 
     <ItemGroup>
         <ProjectReference Include="..\purrTTY.CustomShells\purrTTY.CustomShells.csproj"/>
         <ProjectReference Include="..\purrTTY.Display\purrTTY.Display.csproj"/>
+        <!-- The kFS extension (x_ services for lights and part animations): installed from
+             Patcher.patch(); purrTTY.Kfs.dll ships through the purrTTY.*.dll glob below.
+             Never purrTTY.Kfs.Testing (the offline test runtime). -->
+        <ProjectReference Include="..\purrTTY.Kfs\purrTTY.Kfs.csproj"/>
+        <!-- The in-game kC/kASM language server (task C4): purrTTY.Kfs.Lsp.dll ships through the
+             same glob; it references only purrTTY.Kfs and purrTTY.Logging (no third-party package). -->
+        <ProjectReference Include="..\purrTTY.Kfs.Lsp\purrTTY.Kfs.Lsp.csproj"/>
     </ItemGroup>
 
     <ItemGroup>

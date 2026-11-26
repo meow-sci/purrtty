@@ -59,6 +59,39 @@ public sealed class TerminalSession : IDisposable
     /// </summary>
     public ProcessLaunchOptions? LaunchOptions { get; private set; }
 
+    /// <summary>
+    /// True once this run's process has exited, as reported by
+    /// <c>ProcessManager.ProcessExited</c>. Both real PTY backends raise that event only
+    /// after their output pump has drained the dying process's tail into
+    /// <c>DataReceived</c> (→ <c>Surface.Write</c>), so once this reads true every byte the
+    /// process wrote is already in the surface inbox: the next <c>BuildFrame</c> shows the
+    /// final screen. (<c>ProcessManager.IsRunning</c> flips earlier — at reap, before the
+    /// drain — so it is the wrong signal for "the program is done".) Set on the pump
+    /// thread; safe to read from any thread. Reset by a restart.
+    /// </summary>
+    public bool HasProcessExited => _processExited;
+
+    /// <summary>The exit code reported with <see cref="HasProcessExited"/>; null while running.</summary>
+    public int? ExitCode => _processExited ? _exitCode : null;
+
+    /// <summary>Whether this session was launched with <see cref="ProcessLaunchOptions.CloseOnExit"/>.</summary>
+    public bool CloseOnExit => LaunchOptions?.CloseOnExit == true;
+
+    /// <summary>Whether this session was launched with <see cref="ProcessLaunchOptions.CloseOnSuccessfulExit"/>.</summary>
+    public bool CloseOnSuccessfulExit => LaunchOptions?.CloseOnSuccessfulExit == true;
+
+    /// <summary>
+    /// True once this run's process has exited and the launch options ask for the session to
+    /// close: <see cref="CloseOnExit"/>, or <see cref="CloseOnSuccessfulExit"/> with exit code 0.
+    /// </summary>
+    public bool ShouldCloseAfterExit =>
+        _processExited && (CloseOnExit || (CloseOnSuccessfulExit && _exitCode == 0));
+
+    // Written on the pump thread: _exitCode first, then the volatile flag (release),
+    // so a reader that sees the flag also sees the code.
+    private volatile bool _processExited;
+    private int _exitCode;
+
     public SessionSettings Settings { get; }
     public SessionState State { get; private set; }
     public DateTime CreatedAt { get; }
@@ -163,12 +196,41 @@ public sealed class TerminalSession : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>Writes user-input bytes (already encoded by the surface) to the shell.</summary>
+    /// <summary>
+    /// Writes user-input bytes (already encoded by the surface) to the shell. Input to
+    /// a session whose process has exited is dropped silently.
+    /// </summary>
     public void SendInput(ReadOnlySpan<byte> data)
     {
         if (!_disposed && ProcessManager.IsRunning && !data.IsEmpty)
         {
-            ProcessManager.Write(data);
+            WriteIfRunning(data);
+        }
+    }
+
+    /// <summary>
+    /// Resizes the terminal: the surface grid (always — so a dead session's last frame
+    /// still reflows with its window), the recorded dimensions, and the PTY (a no-op
+    /// once the process has exited, per <see cref="IProcessManager.Resize"/>). Never
+    /// throws for an exited process, including one that exits on the pump thread
+    /// during this call. Tick thread only (the surface is single-threaded).
+    /// </summary>
+    public void Resize(int columns, int rows, int cellWidthPx, int cellHeightPx)
+    {
+        ThrowIfDisposed();
+        Surface.Resize(columns, rows, cellWidthPx, cellHeightPx);
+        UpdateTerminalDimensions(columns, rows);
+
+        try
+        {
+            ProcessManager.Resize(columns, rows);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The in-tree backends no longer throw here; this guards any other
+            // IProcessManager that still follows the old "throws when not running"
+            // contract, so no frontend caller can see it mid-ImGui-frame.
+            _logger.LogDebug(ex, "PTY resize ignored for session {SessionId}", Id);
         }
     }
 
@@ -205,7 +267,22 @@ public sealed class TerminalSession : IDisposable
     {
         if (ProcessManager.IsRunning)
         {
-            ProcessManager.Write(bytes);
+            WriteIfRunning(bytes);
+        }
+    }
+
+    // The IsRunning checks above race an exit on the pump thread: the backends still
+    // throw "no process is running" synchronously from Write (gotcha 20), and both
+    // callers run on the tick thread — SendInput between ImGui.Begin and End, the
+    // reply inside BuildFrame. Input for a process that just died is dropped.
+    private void WriteIfRunning(ReadOnlySpan<byte> data)
+    {
+        try
+        {
+            ProcessManager.Write(data);
+        }
+        catch (InvalidOperationException) when (!ProcessManager.IsRunning)
+        {
         }
     }
 
@@ -214,8 +291,13 @@ public sealed class TerminalSession : IDisposable
     private void OnProcessExited(object? sender, ProcessExitedEventArgs e)
     {
         Settings.UpdateProcessState(e.ProcessId, false, e.ExitCode);
+        _exitCode = e.ExitCode;
+        _processExited = true;
         ProcessExited?.Invoke(this, new SessionProcessExitedEventArgs(e.ExitCode, e.ProcessId));
     }
+
+    /// <summary>Clears the exit latch before the session's process manager is restarted.</summary>
+    internal void ResetProcessExited() => _processExited = false;
 
     // PTY write failures and input-queue overflow are reported here rather than
     // thrown (gotcha 20) — without this subscription the error channel

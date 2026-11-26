@@ -125,7 +125,7 @@ sources:
   - id: offline-harness
     resource: offline-harness.md
     title: Running kFS offline — the test harness and what it proved (this bundle)
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T22:24:14Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -143,9 +143,15 @@ the game's `Workbench`), and the same code in a test process that loads `KSA.dll
 so neither host needs reflection for the core path.[^offline-harness]
 
 The descriptions of game code were read from the decompiled sources. The recipes labelled
-`Inferred:` or `Unverified:` (reconstructing a layout from `vehicle.h`, the three ways to keep the
-AST, the concurrency verdict) were reasoned from that code and not executed; only the facts
-attributed to the offline harness were run.
+`Inferred:` or `Unverified:` (the three ways to keep the AST, the concurrency verdict) were reasoned
+from that code and not executed; only the facts attributed to the offline harness were run.
+
+Since this document was written a language server was built on this surface: purrTTY's
+`purrTTY.Kfs.Lsp` in this repository, with a standalone host and an in-game host. Where its tests
+executed something this document had only reasoned out, the label was changed and says so; what
+it needed, and what turned out unsafe or awkward, is collected in
+"[What an implementation found](#what-an-implementation-found)". Its tests run the real `KSA.dll`
+outside the game; **the in-game host has not run in the game**.
 
 Related reading: [compile pipeline](/compiler/compile-pipeline.md),
 [diagnostics infrastructure](/compiler/diagnostics-infrastructure.md),
@@ -380,12 +386,16 @@ go through `BuildText`.[^workbench-build-effects] The file starts with a banner 
 #define GIMBAL_COUNT <n>
 ```
 
-`<target>` is `bench` or `vehicle <id>`; `<part>` is `PartDescription.Name`. `Inferred:` a tool can
+`<target>` is `bench` or `vehicle <id>`; `<part>` is `PartDescription.Name`. A tool can
 therefore recover the build context with no game: parse the part name from the banner and look it up
 in `tables.Parts`; if the fingerprint equals `tables.BenchLayout.Fingerprint` use the bench layout,
 otherwise call `LayoutGenerator.Vehicle(name, THRUSTER_COUNT, ENGINE_COUNT, GIMBAL_COUNT)` and check
 that its `Fingerprint` equals the define. This rests on `Vehicle` being a pure function of the counts
-and on the count defines coming from `MessageLayout.GroupCount`; it was not executed. A layout JSON
+and on the count defines coming from `MessageLayout.GroupCount`. Tested offline: purrTTY's
+standalone host does exactly this (`purrTTY.Kfs.Cli/Commands/StandaloneLanguageHost.cs`), and for
+five combinations of counts its test writes the header with the game's own `GeneratedHeaders`,
+reads it back and finds the rebuilt fingerprint equal to the written one and the regenerated
+`<vehicle.h>` text identical (`purrTTY.Kfs.Tools.Tests/Runtime/Lsp/StandaloneHostTests.cs`). A layout JSON
 written with `GameTables.LayoutJson(GameTables.ToLayoutFile(layout, source))` and read back with
 `LoadLayout` is the lossless alternative (`LayoutFrom` rejects a fingerprint that does not match the
 canonical text).[^game-tables]
@@ -590,7 +600,9 @@ The names the assembler switches on: `.include`, `.macro`, `.endm`, `.equ`, `.st
 `.local64`, `.loc`, `.scope`, `.endscope`, `.loop_bound`, `.tick_hz`, `.program`, `.init`, `.task`,
 `.publish`, `.subscribe`, `.claim`, `.strict`, `.bounds`. `.lang`, `.loop` and `.endloop` are
 rejected in player source as IR-only (`KA-E002`).[^assembler-directives] Argument syntax is in
-[kASM assembly language](/compiler/kasm-assembly-language.md).
+[kASM assembly language](/compiler/kasm-assembly-language.md). The names are in no table: they are
+string literals in the assembler's code, so this list is a transcription that has to be checked
+again after a game update.
 
 **Needs new code.** Context detection (am I after `#pragma kfs`, inside `commands.`, after a
 mnemonic?) and the kC keyword list: keywords are lexed as `Ident`, and the set is the private static
@@ -857,6 +869,87 @@ build's `Image` with `LoadedBytes`.
 | live values, traps, log | `MachineSnapshot`, `ConsoleLog`, `TraceStore`, `GlobalLeaves` | low to medium, in-game only |
 | build / upload / open-in-game commands | `Workbench` | low, marshalled to the main thread |
 
+# What an implementation found
+
+purrTTY's language server (`purrTTY.Kfs.Lsp`, with `purrTTY.Kfs/Runtime/ProjectResolver.cs` and
+`ProjectCompiler.cs`) is built on the surface above. This section records what it took from the
+game, and which properties of that surface cost the most work. Everything was exercised offline
+against the real `KSA.dll`; nothing of it in the running game.
+
+## What it uses
+
+| Need | Game API used | Instead of |
+| --- | --- | --- |
+| Build kC | `Compiler.CompileOnThisThread` on one long-lived thread of its own (16 MiB stack, below-normal priority) | `Compiler.Compile`, which starts a 16 MiB thread per call and abandons it on timeout |
+| Build pure kASM | `new Assembler(tables, part, layout) { ProjectFiles = … }.Assemble(…)` with the open buffers consulted first | `Workbench.BuildText`, whose `ProjectFiles` reads the disk only |
+| Decide the file set | its own resolver, reproducing `Workspace.ProjectOf` rule for rule over disk **and** every open buffer | `ProjectOf`, which overlays one buffer |
+| Validate the image | `ImageReader.Read`, adding the game's `K?-E900` on failure | — |
+| Diagnostic ranges | `new Lexer(name, text).Lex()` for the token at the reported position; the trimmed line for kASM | — |
+| Hover and completion | the tables, the texts of `SystemHeaders.Files`, `VehicleHeader.Generate`, `MessageLayout`, `BuiltinIncludes`, `DiagnosticManual.Page` | a parser of its own (none was needed) |
+| Target outside the game | the layout rebuilt from a `vehicle.h` (above) | a layout file |
+| Run a command in the game | `KfsConsoleCommands.Execute(line)` on the main thread in the UI phase | calling `Workbench` methods directly, which skips the flag check and the exception handling |
+| Program log, state, trap | `HostComputer.Console` (`Version`, `CopyTail`), `HostComputer.Snapshot`, `LoadedBytes` | patches |
+
+No Harmony patch is needed for any of it. The one optional patch concerns output capture
+(below).
+
+## What proved unsafe
+
+- **`SystemHeaders` and the tables are read without a lock on the compiling thread.** The verdict
+  under "Threading and shared state" has a practical edge the first version missed: a mod that
+  registers a header also has to *remove* it at unload, and that is a write that can coincide
+  with a compile — the mod's own server's, or the stock editor's background build
+  (`EditorModel.Building`). The remedy is to leave the header registered when a compile is in
+  flight; see [adding a service](adding-a-service.md), "Taking it out again".[^system-headers]
+- **A compile cannot be cancelled and may not return.** `Compiler.Compile` gives up after its time
+  limit and leaves the thread running;[^compiler] `CompileOnThisThread` has no limit at all. A server
+  inside the game process therefore needs its own watchdog: publish a "did not finish" diagnostic,
+  retire the thread, start another — and cap how many retired threads may exist, because each
+  holds a 16 MiB stack inside the game.
+- **Exceptions are part of the interface.** The compiler throws on some inputs instead of
+  diagnosing (see the offline harness, E8 and E19); `Lexer.Lex` throws on malformed text; any of
+  these on a thread the mod started would end the game. Every entry needs a catch that turns the
+  exception into a diagnostic.
+- **A wrapper in `KfsIntegration.Output` doubles every error in the console**, because
+  `KfsIntegration.Error` writes to a non-default `Output` as well as to the log, which the console
+  displays itself. Both writes are read directly from the code;[^kfs-integration-error] that they
+  appear as two lines in the console is `Inferred:` from them and was not observed. A prefix and
+  finalizer on `Error` that tell the wrapper not to forward that one line would restore single
+  errors — if `Error`, a method of a few statements, is not inlined into its callers.
+  `Unverified:` in the game.
+- **Reading `HostComputer.Snapshot` is not free for the game.** The getter renews a one-second
+  lease during which the computer publishes a snapshot on every tick.[^host-computer] A server that
+  polls the state for an editor nobody is looking at keeps that going; poll only for a client that
+  asked, and slowly.
+- **`Workbench` calls have side effects a tool does not expect.** `Workspace.List()` creates the
+  workspace folder; `TargetActiveVehicle()` creates a vehicle host and retargets `kfs` without
+  checking the prototype switch; `Workbench.Load` cannot take a path that contains a space. Each is
+  documented where it lives: [workspace and files](/tooling/workspace-and-files.md),
+  [workbench](/tooling/workbench.md), [console commands](/tooling/console-commands.md).
+
+## What proved awkward
+
+- **The diagnostic manual is one line per code.** `DiagnosticManual.Page` returns the rule
+  sentence, severity, range and languages — useful as hover text on a code, not a substitute for
+  documentation.
+- **Units exist only in prose.** A message field's unit is inside the free text of
+  `MessageFieldRow.Meaning`; there is no unit column. A hover can show the prose, or derive a unit
+  from the field name's suffix (`_m`, `_s`, `_rad`) and say that it did.
+- **Nothing describes what a command field means.** An `IoField` has a name, a type, an offset, a
+  size and the one-shot flag; the meaning of `thruster[i].pulse_s` is in no table.
+- **The fixed vocabularies are not data.** `#pragma kfs` directives, preprocessor directives, the
+  keyword set (`Parser.Keywords` is private) and the kASM directive names have to be transcribed
+  from the code and re-checked after an update.
+- **The project rules have quirks a faithful tool must copy**: the include scan's regular
+  expression matches inside comments and misses an indented include that follows another include
+  line ([workspace and files](/tooling/workspace-and-files.md)). A tool that "fixes" them builds a
+  different file set from the game's.
+- **Two things every buffer needs before it compiles at all** — `#include <kfs.h>` (without it
+  `uint32_t` is unknown) and, for a program that writes `commands.*`, `#pragma kfs claim ALLOCATION`
+  (`KC-E544`) — make good first completions and good first diagnostics to explain.
+- **A build names files, not paths**, and one build yields diagnostics for several files; a file
+  that belongs to two open projects gets diagnostics from both, which the server has to merge.
+
 # Modding notes
 
 - **Public surface.** `Compiler`, `CompileInput`, `CompileResult`, `Diagnostic`, `DiagnosticBag`,
@@ -952,3 +1045,4 @@ build's `Image` with `LoadedBytes`.
 [^host-computer]: HostComputer.cs — `Console`, `Traces`, `Watches`, `Leaves` :135-141; `Snapshot` :167-174; `LoadedBytes` :196; `Watched` :204-213; `WantSnapshot` :229-232; `WantRam` :234-245; `Enqueue`/`DrainQueue` :288-300; watch sampling :580-582; `Watch`/`Unwatch` :595-623; MachineSnapshot.cs (record and init properties); TaskSnapshot.cs; TrapSnapshot.cs; FunctionSnapshot.cs.
 [^host-services]: ConsoleLog.cs — `CAPACITY` :11; `Version` :35-44; `Snapshot` :168-174; `CopyTail` :176-187; TraceStore.cs — `Channels` :21-30; `Samples` :60-67; `CopyLast` :78-91; LogLine.cs; TraceSample.cs:3.
 [^global-leaves]: GlobalLeaves.cs — `Globals` :16-28; `Leaves` :39-60; GlobalLeaf.cs:7-44; BusMonitorView.cs — `_enumNames` :16, `lock` :218-230; `Definition` :274.
+[^kfs-integration-error]: KfsIntegration.cs:128-135 (`Error`: `DefaultCategory.Log.Error(line, …)`, then `if (!(Output is ConsoleWindowWriter)) Output.WriteLine(line)`); ConsoleWindow.cs:14 (the console window is an `ILoggerProvider`).

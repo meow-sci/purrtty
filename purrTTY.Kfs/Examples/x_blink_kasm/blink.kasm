@@ -1,0 +1,72 @@
+; blink.kasm: x_blink in kASM. Every half second, switch every light that has
+; a switch on or off: one blink a second. Lights without a switch (interior
+; fill lights), and lights whose part has left the vehicle, read
+; X_LIGHT_HAS_SWITCH 0 and are left alone.
+;
+; purrtty.kinc, next to this file, holds the X_* constants of <purrtty.h>;
+; purr examples writes it, generated from the mod's service catalogue. The
+; SVC_X_* service ids come from <kfs.kinc>, like the stock ones. A service's
+; arguments go on the stack first, the first one deepest; SYSCALL pops them
+; and pushes the result, if there is one.
+.include <kfs.kinc>
+.include "purrtty.kinc"
+.tick_hz 10
+.format f_count "blink.kasm: %u lights"
+.global logbuf, 8, 8                ; kfs_logf's argument buffer
+.global ticks, 4                    ; ticks since the program started
+.global on, 4                       ; 1 while the lights are meant to be on
+.global count, 4                    ; x_light_count() at the last switch
+
+.task blink rate_hz=10
+.func blink
+    .local i
+    LDG   ticks
+    PUSH8 5
+    REMU                            ; ticks % 5: switch on every fifth tick only
+    JNZ   done
+    LDG   on
+    PUSH8 1
+    XOR
+    STG   on                        ; on = on ^ 1
+    SYSCALL SVC_X_LIGHT_COUNT       ; pops 0, pushes 1
+    STG   count
+    PUSH8 0
+    STL   i
+    .loop_bound next, 64
+next:
+    LDL   i
+    LDG   count
+    GEU
+    JNZ   log                       ; every light done
+    LDL   i
+    PUSH8 64
+    GEU
+    JNZ   log                       ; and never more than 64 (the loop bound)
+    LDL   i                         ; u32 light (deepest)
+    PUSH8 X_LIGHT_HAS_SWITCH        ; u32 prop (on top)
+    SYSCALL SVC_X_LIGHT_GETI        ; pops 2, pushes 1
+    JZ    skip
+    LDL   i                         ; u32 light
+    LDG   on                        ; u32 on
+    SYSCALL SVC_X_LIGHT_SET_ON      ; pops 2, pushes 0
+skip:
+    LDL   i
+    PUSH8 1
+    ADD
+    STL   i
+    JMP   next
+log:
+    LDG   ticks
+    JNZ   done                      ; log the count at the first tick only
+    LDG   count
+    STG   logbuf + f_count.arg0
+    PUSH16 f_count                  ; u32 fmt (deepest)
+    PUSH32 logbuf                   ; ptr argp (on top)
+    SYSCALL SVC_LOG                 ; pops 2, pushes 0
+done:
+    LDG   ticks
+    PUSH8 1
+    ADD
+    STG   ticks
+    RET   0
+.endfunc

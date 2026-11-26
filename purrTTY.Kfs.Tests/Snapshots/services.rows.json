@@ -177,7 +177,7 @@
       "finite:>=0"
     ],
     "host_checks": "light index out of range or departed",
-    "summary": "Overrides a light's emission colour (linear RGB, each component clamped to 0..1)."
+    "summary": "Overrides a light's emission colour (red, green, blue, each component clamped to 0..1)."
   },
   {
     "id": 20501,

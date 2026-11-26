@@ -36,6 +36,20 @@
             <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <!-- The `purr` console command: TerminalActionAttribute, ArgParseMode, TerminalInterface
+             (namespace Brutal.ImGuiApi.Abstractions). -->
+        <Reference Include="Brutal.ImGui.Abstractions" Condition="Exists('$(KSAFolder)/Brutal.ImGui.Abstractions.dll')">
+            <HintPath>$(KSAFolder)/Brutal.ImGui.Abstractions.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The example programs `purr examples` writes (Examples/ExampleCatalog.cs). Each folder is
+             one workspace project; the resource name keeps the folder: purrTTY.Kfs.Examples/<folder>/<file>. -->
+        <EmbeddedResource Include="Examples\**\*.c;Examples\**\*.kasm">
+            <LogicalName>purrTTY.Kfs.Examples/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)</LogicalName>
+        </EmbeddedResource>
     </ItemGroup>
 
     <ItemGroup>

@@ -5,6 +5,7 @@ using purrTTY.Display.Theming;
 using purrTTY.Logging;
 using PurrTTY.Terminal.Rendering;
 using PurrTTY.Terminal.Sessions;
+using purrTTY.Core.Terminal;
 using TerminalTheme = PurrTTY.Terminal.TerminalTheme;
 
 namespace purrTTY.Display.Ghostty;
@@ -66,6 +67,14 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 
     public int Id { get; }
     public SessionManager Sessions { get; }
+
+    /// <summary>
+    /// The launch options this window's first session was started with (null: the default shell),
+    /// known from the moment the window opens — before that session has started, when
+    /// <c>Sessions.ActiveSession</c> is still null. What the layout capture falls back on
+    /// (<see cref="WindowLayoutRecord.LaunchOf"/>).
+    /// </summary>
+    public ProcessLaunchOptions? StartLaunchOptions { get; set; }
     public TerminalWindowSettings Settings { get; }
 
     /// <summary>False once the window has been closed; the controller disposes it.</summary>
@@ -171,6 +180,14 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
     public void DrainSessions()
     {
         if (_disposed || !IsOpen)
+        {
+            return;
+        }
+
+        // Hidden windows retire exited CloseOnExit tabs too, so a window whose
+        // program ended while hidden is not shown again (the controller prunes it
+        // when the terminal is next made visible).
+        if (CloseExitedSessions())
         {
             return;
         }
@@ -304,6 +321,13 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
             return;
         }
 
+        // Before Begin: a CloseOnExit tab whose process exited is closed here, and
+        // if it was the last tab the window closes without being submitted.
+        if (CloseExitedSessions())
+        {
+            return;
+        }
+
         float fontSize = Settings.FontSize;
         var fonts = ResolveFontsCached(fontSize);
 
@@ -423,9 +447,10 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
 
             if (cols != session.Surface.Cols || rows != session.Surface.Rows)
             {
-                session.Surface.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
-                session.UpdateTerminalDimensions(cols, rows);
-                session.ProcessManager.Resize(cols, rows);
+                // Surface + recorded dims + PTY; the PTY part is a no-op once the
+                // process has exited, so a dead tab still reflows and never throws
+                // here between Begin and End.
+                session.Resize(cols, rows, (int)_cellWidth, (int)_cellHeight);
                 Sessions.UpdateLastKnownTerminalDimensions(cols, rows);
             }
 
@@ -684,6 +709,35 @@ public sealed partial class TerminalWindow : IDisposable, INamedTerminal
             : $"{title}##tab_{session.Id}";
         _tabLabels[session.Id] = (title, exitCode, label);
         return label;
+    }
+
+    /// <summary>
+    /// Closes this window's exited <c>CloseOnExit</c> sessions (tick thread, never
+    /// between Begin and End) and, when that left no tab, closes the window through
+    /// the same path as its "x" button (<see cref="Close"/>; the controller prunes it
+    /// next frame, persisting its geometry if it was the last window, and the
+    /// game-key gate follows). Returns true when the window closed.
+    /// </summary>
+    private bool CloseExitedSessions()
+    {
+        var closed = Sessions.CloseExitedSessions();
+        if (closed.Count == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < closed.Count; i++)
+        {
+            _tabLabels.Remove(closed[i]);
+        }
+
+        if (!SessionExitPolicy.ShouldRetireHost(closed.Count, Sessions.SessionCount))
+        {
+            return false;
+        }
+
+        Close();
+        return true;
     }
 
     private void CloseSession(Guid sessionId)

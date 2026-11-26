@@ -288,6 +288,57 @@ public sealed class SessionManager : IDisposable
     }
 
     /// <summary>
+    /// Closes and removes every published session that was launched with
+    /// <see cref="ProcessLaunchOptions.CloseOnExit"/> and whose process has exited
+    /// (<see cref="TerminalSession.HasProcessExited"/>), or with
+    /// <see cref="ProcessLaunchOptions.CloseOnSuccessfulExit"/> and whose process exited
+    /// with code 0 (<see cref="TerminalSession.ShouldCloseAfterExit"/>). Returns the ids closed (an
+    /// empty array when none — the common case, allocation-free), so a frontend
+    /// can retire a window/instance left with no sessions.
+    ///
+    /// <para>
+    /// MUST be called on the tick thread, outside any surface iteration: closing
+    /// disposes the native surface synchronously (gotcha 19). This is how an exit
+    /// — raised on a PTY pump thread — reaches UI state: the latch is set there and
+    /// polled here, so no cross-thread marshalling is needed. Before each close the
+    /// surface is ticked once (<c>BuildFrame</c>): the latch is only set after the
+    /// backend drained the tail into the inbox, so this applies the program's final
+    /// output and its side effects (title, an OSC 52 clipboard write such as a yank
+    /// just before <c>:q</c>) before the surface goes away. Sessions without the
+    /// option are never touched: they keep their last screen and exit code.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<Guid> CloseExitedSessions()
+    {
+        if (_disposed)
+        {
+            return Array.Empty<Guid>();
+        }
+
+        var sessions = Sessions;
+        List<Guid>? closed = null;
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            var session = sessions[i];
+            if (!session.ShouldCloseAfterExit)
+            {
+                continue;
+            }
+
+            session.Surface.BuildFrame();
+            _logger.LogDebug(
+                "Closing session {SessionId}: process exited with code {ExitCode} (close on exit)",
+                session.Id, session.ExitCode);
+
+            // Completes synchronously (TerminalSession.CloseAsync), on this thread.
+            CloseSessionAsync(session.Id).GetAwaiter().GetResult();
+            (closed ??= new List<Guid>()).Add(session.Id);
+        }
+
+        return closed is null ? Array.Empty<Guid>() : closed;
+    }
+
+    /// <summary>
     /// Restarts the shell process for a session that has exited, reusing the
     /// surface. Restart support depends on the underlying process manager.
     /// </summary>
@@ -319,6 +370,9 @@ public sealed class SessionManager : IDisposable
             await session.ProcessManager.StopAsync(cancellationToken);
         }
 
+        // Before the start: a new process that exits at once must re-arm the latch.
+        // (CloseOnExit keeps following the session's original launch options.)
+        session.ResetProcessExited();
         await session.ProcessManager.StartAsync(effective, cancellationToken);
     }
 

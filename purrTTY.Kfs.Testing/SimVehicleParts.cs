@@ -48,8 +48,21 @@ public sealed class SimLight
     /// <summary>The switch state; true for a light without a switch (as programs read it).</summary>
     public bool On => Switch?.On ?? true;
 
-    /// <summary>Actually emitting: updated by <see cref="SimVehicleParts.Step"/> (interior lights always).</summary>
-    public bool Lit { get; internal set; }
+    /// <summary>
+    /// What <c>X_LIGHT_LIT</c> reads, modelled on the game's <c>LightModule.IsActive</c>
+    /// (<c>Template.DisableInIva || !Part.IsLightSwitchedOff()</c>): always true for an interior
+    /// fill light and for a light without a switch; otherwise the <b>live</b> switch and the
+    /// switch's <b>committed</b> state (<see cref="SwitchCommitted"/>) must both be on. So switching
+    /// off reads dark at once, switching on reads lit only after the next <see cref="SimVehicleParts.Step"/>.
+    /// </summary>
+    public bool Lit => Interior || Switch is null || (Switch.On && SwitchCommitted);
+
+    /// <summary>
+    /// The switch's state as the last <see cref="SimVehicleParts.Step"/> (or creation) committed it:
+    /// switched on and powered, as the game's <c>PowerConsumer.UpdateModules</c> computes
+    /// <c>PowerConsumerState.Active</c> in the physics job and <c>ApplyVehicleSolvers</c> commits it.
+    /// </summary>
+    public bool SwitchCommitted { get; private set; }
 
     /// <summary>Current intensity.</summary>
     public float Intensity { get; set; }
@@ -91,7 +104,7 @@ public sealed class SimLight
         Overridden = false;
     }
 
-    internal void UpdateLit() => Lit = Interior || (Switch is { On: true } && Powered);
+    internal void CommitSwitchState() => SwitchCommitted = Switch is { On: true } && Powered;
 }
 
 /// <summary>A simulated animation: a goal and a position in seconds, slewing at one second per second.</summary>
@@ -133,8 +146,15 @@ public sealed class SimAnimation
     /// <summary>False once the part left the vehicle.</summary>
     public bool Present { get; internal set; } = true;
 
-    /// <summary>The derived deployment state.</summary>
+    /// <summary>The deployment state derived from the position and the goal now.</summary>
     public DeployState State => PartMath.State(PositionS, GoalS);
+
+    /// <summary>
+    /// The deployment state as of the last <see cref="SimVehicleParts.Step"/> (or creation): what a
+    /// program reads as <c>X_DEPLOY_STATE</c>, as the game reports the <c>DeploymentState</c> its last
+    /// physics step committed, so a goal set since then shows only after the next step.
+    /// </summary>
+    public DeployState CommittedState { get; internal set; }
 
     /// <summary>True while the position differs from the goal.</summary>
     public bool Moving => PartMath.Moving(PositionS, GoalS);
@@ -240,7 +260,7 @@ public sealed class SimVehicleParts : VehiclePartsBase
         if (spec.SharesSwitchWith is int other) light.Switch = _lights[other].Switch;
         else if (spec.HasSwitch && !spec.Interior) light.Switch = new SimSwitch { On = spec.On };
         light.ResetAppearance();
-        light.UpdateLit();
+        light.CommitSwitchState();
         _lights.Add(light);
         return light;
     }
@@ -267,19 +287,20 @@ public sealed class SimVehicleParts : VehiclePartsBase
     }
 
     /// <summary>
-    /// Advances the simulated world by <paramref name="dtSeconds"/>: animations slew toward their
-    /// goals at one animation-second per second (recording state changes of deployables), and
-    /// <see cref="SimLight.Lit"/> follows switch and power.
+    /// Advances the simulated world by <paramref name="dtSeconds"/> (one physics job and its commit):
+    /// animations slew toward their goals at one animation-second per second and commit their
+    /// <see cref="SimAnimation.CommittedState"/> (recording state changes of deployables), and each
+    /// light commits its switch's state (<see cref="SimLight.SwitchCommitted"/>: switch and power).
     /// </summary>
     public void Step(double dtSeconds)
     {
         TimeS += dtSeconds;
-        foreach (SimLight light in _lights) light.UpdateLit();
+        foreach (SimLight light in _lights) light.CommitSwitchState();
         var deployables = Sets.Deployables;
         foreach (SimAnimation anim in _animations)
         {
             anim.PositionS = PartMath.Slew(anim.PositionS, anim.GoalS, dtSeconds);
-            DeployState state = anim.State;
+            DeployState state = anim.CommittedState = anim.State;
             if (state == anim.LastSeenState) continue;
             anim.LastSeenState = state;
             if (anim.Kind != PartKind.Deployable) continue;
@@ -386,6 +407,11 @@ public sealed class SimVehicleParts : VehiclePartsBase
     protected override double ReadGoalS(AnimSlot slot) => A(slot).GoalS;
 
     /// <inheritdoc/>
+    /// <remarks><see cref="SimAnimation.CommittedState"/> in the game's numbering (Deployed 0 …), as the game back end reads its committed state.</remarks>
+    protected override int? ReadGameDeploymentState(AnimSlot slot) =>
+        A(slot).CommittedState is DeployState s and not DeployState.None ? (int)s - 1 : null;
+
+    /// <inheritdoc/>
     protected override void WriteSwitchOn(LightSlot slot, bool on) => L(slot).Switch!.On = on;
 
     /// <inheritdoc/>
@@ -450,7 +476,7 @@ public sealed class SimVehicleParts : VehiclePartsBase
             PositionS = start,
             Links = spec.Links,
         };
-        anim.LastSeenState = anim.State;
+        anim.LastSeenState = anim.CommittedState = anim.State;
         _animations.Add(anim);
         return anim;
     }

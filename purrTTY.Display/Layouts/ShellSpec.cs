@@ -6,7 +6,8 @@ namespace purrTTY.Display.Layouts;
 /// Serializable shell description stored inside a saved layout (the on-disk mapping
 /// lives in <see cref="LayoutTomlFormat"/>): enough to rebuild the shell (type +
 /// custom path/id + args + working directory) plus the optional
-/// <see cref="StartupCommand"/> that auto-runs once the shell starts. The standard
+/// <see cref="StartupCommand"/> that auto-runs once the shell starts and the
+/// <see cref="CloseOnExit"/> flag. The standard
 /// environment (TERM, etc.) is re-applied by <see cref="ToLaunchOptions"/> from the
 /// platform defaults, so it is not persisted.
 /// </summary>
@@ -18,6 +19,16 @@ public sealed class ShellSpec
     public List<string> Arguments { get; set; } = new();
     public string? WorkingDirectory { get; set; }
     public string? StartupCommand { get; set; }
+
+    /// <summary>
+    /// <see cref="ProcessLaunchOptions.CloseOnExit"/>: part of what the terminal *does*
+    /// (a one-program terminal closes when it ends), so it round-trips like
+    /// <see cref="StartupCommand"/>.
+    /// </summary>
+    public bool CloseOnExit { get; set; }
+
+    /// <summary><see cref="ProcessLaunchOptions.CloseOnSuccessfulExit"/>, round-tripped like <see cref="CloseOnExit"/>.</summary>
+    public bool CloseOnSuccessfulExit { get; set; }
 
     /// <summary>Rebuilds launch options on top of the platform defaults (standard env preserved).</summary>
     public ProcessLaunchOptions ToLaunchOptions()
@@ -33,6 +44,8 @@ public sealed class ShellSpec
         }
 
         options.StartupCommand = string.IsNullOrEmpty(StartupCommand) ? null : StartupCommand;
+        options.CloseOnExit = CloseOnExit;
+        options.CloseOnSuccessfulExit = CloseOnSuccessfulExit;
         return options;
     }
 
@@ -52,6 +65,8 @@ public sealed class ShellSpec
             Arguments = new List<string>(options.Arguments),
             WorkingDirectory = options.WorkingDirectory,
             StartupCommand = options.StartupCommand,
+            CloseOnExit = options.CloseOnExit,
+            CloseOnSuccessfulExit = options.CloseOnSuccessfulExit,
         };
     }
 }

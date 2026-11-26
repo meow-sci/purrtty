@@ -121,6 +121,10 @@ public class CustomShellPtyBridge : IProcessManager
                 WorkingDirectory = options.WorkingDirectory,
                 EnvironmentVariables = new Dictionary<string, string>(options.EnvironmentVariables)
             };
+            foreach (string name in options.RemovedEnvironmentVariables)
+            {
+                customOptions.EnvironmentVariables.Remove(name);
+            }
 
             // Start the custom shell - the shell handles output asynchronously through
             // its internal output channel/pump, just like ProcessManager reads from ConPTY.
@@ -267,12 +271,15 @@ public class CustomShellPtyBridge : IProcessManager
     public void Resize(int width, int height)
     {
         ThrowIfDisposed();
-        
+
+        // Not running (not started, terminated, stopped): a no-op, per the
+        // IProcessManager.Resize contract. A resize racing termination reaches the
+        // shell's NotifyTerminalResize, whose faults are reported below, not thrown.
         lock (_stateLock)
         {
             if (!_isRunning)
             {
-                throw new InvalidOperationException("Custom shell is not running");
+                return;
             }
         }
 

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Applied through RunSettingsFilePath in purrTTY.Kfs.Tools.Tests.csproj. If a game type leaks into a
+     type shape of the test assembly, NUnit cannot load it and finds no tests; without this the
+     run would still exit 0. See the rule in ModuleInit.cs. -->
+<RunSettings>
+  <RunConfiguration>
+    <TreatNoTestsAsError>true</TreatNoTestsAsError>
+  </RunConfiguration>
+</RunSettings>

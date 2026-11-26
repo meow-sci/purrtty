@@ -62,7 +62,7 @@ public sealed record SimLightSpec
     /// <summary>An interior fill light: no switch, always lit.</summary>
     public bool Interior { get; init; }
 
-    /// <summary>False for a light whose part has no switch.</summary>
+    /// <summary>False for a light whose part has no switch (it reads lit whatever its power, as in the game).</summary>
     public bool HasSwitch { get; init; } = true;
 
     /// <summary>Index of an earlier light whose switch this one shares (emitters of one part); null for its own switch.</summary>

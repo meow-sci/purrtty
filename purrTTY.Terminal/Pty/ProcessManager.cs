@@ -177,7 +177,7 @@ public class ProcessManager : IProcessManager
             {
                 try
                 {
-                    envBlock = ProcessLifecycleManager.CreateEnvironmentBlock(options.EnvironmentVariables);
+                    envBlock = ProcessLifecycleManager.CreateEnvironmentBlock(options.EnvironmentVariables, options.RemovedEnvironmentVariables);
                 }
                 catch (Exception ex)
                 {
@@ -330,10 +330,12 @@ public class ProcessManager : IProcessManager
     /// <summary>
     ///     Resizes the pseudoconsole terminal dimensions.
     ///     Uses Windows ConPTY ResizePseudoConsole API for proper terminal resizing.
+    ///     A no-op when there is no live pseudoconsole (not started, or torn down
+    ///     after the process exited / was stopped); a failed resize is reported
+    ///     through <see cref="ProcessError"/> (see <see cref="IProcessManager.Resize"/>).
     /// </summary>
     /// <param name="width">New width in columns</param>
     /// <param name="height">New height in rows</param>
-    /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
     /// <exception cref="PlatformNotSupportedException">Thrown on non-Windows platforms</exception>
     public void Resize(int width, int height)
     {
@@ -344,22 +346,44 @@ public class ProcessManager : IProcessManager
             throw new PlatformNotSupportedException("ConPTY resizing is only supported on Windows");
         }
 
+        int result;
+        int? processId;
+
         // The resize runs under the lock so teardown (which nulls _pseudoConsole
         // under the same lock before closing it) cannot close the handle mid-call.
+        // The decision is made on the handle alone, under that lock: a client that
+        // has exited but whose Exited callback has not yet run cleanup still has a
+        // valid pseudoconsole (conhost owns it until ClosePseudoConsole), so resizing
+        // it is harmless; once cleanup has nulled it, the call is a no-op. Checking
+        // Process.HasExited instead (as this used to) threw in exactly that window.
         lock (_processLock)
         {
-            ProcessStateManager.ValidateProcessForResize(_process, _pseudoConsole);
-
-            var newSize = new ConPtyNative.COORD((short)width, (short)height);
-            int result = ConPtyNative.ResizePseudoConsole(_pseudoConsole, newSize);
-
-            if (result != 0)
+            if (_process == null || _pseudoConsole == IntPtr.Zero)
             {
-                throw new InvalidOperationException($"Failed to resize pseudoconsole: Win32 error {result}");
+                return;
             }
 
-            _currentSize = newSize;
+            var newSize = new ConPtyNative.COORD((short)width, (short)height);
+            result = ConPtyNative.ResizePseudoConsole(_pseudoConsole, newSize);
+            if (result == 0)
+            {
+                _currentSize = newSize;
+                return;
+            }
+
+            try
+            {
+                processId = _process.Id;
+            }
+            catch (InvalidOperationException)
+            {
+                processId = null;
+            }
         }
+
+        // Outside the lock: an event handler must never run under _processLock.
+        string message = $"Failed to resize pseudoconsole: HRESULT 0x{result:X8}";
+        OnProcessError(new ProcessErrorEventArgs(new InvalidOperationException(message), message, processId));
     }
 
     /// <summary>

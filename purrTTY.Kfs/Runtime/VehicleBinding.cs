@@ -30,10 +30,12 @@ public enum BindingEvent
 /// thread) and the pump (main thread, solver idle) both call <see cref="SyncRun"/> first, so a new
 /// run is noticed at its first service call or the next frame, whichever comes first.</para>
 /// <para>
-/// The queue has the lock-swap-drain shape: <see cref="Enqueue"/> (dispatch) adds under a lock;
-/// <see cref="Take"/> (pump) swaps the pending list for the spare one under the same lock and
-/// returns it; <see cref="Recycle"/> clears it and keeps it as the next spare. No allocation once
-/// both lists have grown to the working size.</para>
+/// The queue is a ring under a lock: <see cref="Enqueue"/> (dispatch) writes at the tail and, when
+/// <see cref="QueueLimit"/> commands wait, overwrites the oldest — O(1) either way, as it runs on
+/// the solver thread, at high time warp many times a frame. <see cref="Take"/> (pump) copies the
+/// ring in order into the spare list under the same lock and returns it; <see cref="Recycle"/>
+/// clears it and keeps it as the next spare. The ring grows by doubling up to the limit; no
+/// allocation once it and the list have grown to the working size.</para>
 /// </remarks>
 public sealed class VehicleBinding
 {
@@ -43,7 +45,8 @@ public sealed class VehicleBinding
     private static readonly List<PartCommand> NothingTaken = new(0);
 
     private readonly object _gate = new();
-    private List<PartCommand> _pending = new(32);
+    private PartCommand[] _ring = new PartCommand[32];
+    private int _head, _count;   // the oldest waiting command and how many wait
     private List<PartCommand>? _spare = new(32);
     private bool _overflowReported;
     private readonly long[] _lastReportSecond = [-1, -1, -1, -1];
@@ -98,7 +101,7 @@ public sealed class VehicleBinding
     /// <summary>Commands waiting for the pump.</summary>
     public int PendingCount
     {
-        get { lock (_gate) return _pending.Count; }
+        get { lock (_gate) return _count; }
     }
 
     /// <summary>
@@ -110,14 +113,21 @@ public sealed class VehicleBinding
         bool report = false;
         lock (_gate)
         {
-            if (_pending.Count >= QueueLimit)
+            if (_count == QueueLimit)
             {
-                _pending.RemoveAt(0);
+                // Full: the newest takes the oldest's place.
+                _ring[_head] = command;
+                _head = (_head + 1) % QueueLimit;
                 _dropped++;
                 report = !_overflowReported;
                 _overflowReported = true;
             }
-            _pending.Add(command);
+            else
+            {
+                if (_count == _ring.Length) Grow();
+                _ring[(_head + _count) % _ring.Length] = command;
+                _count++;
+            }
         }
         Interlocked.Increment(ref _accepted);
         if (!report) return;
@@ -133,13 +143,30 @@ public sealed class VehicleBinding
     {
         lock (_gate)
         {
-            if (_pending.Count == 0) return NothingTaken;
-            List<PartCommand> taken = _pending;
-            _pending = _spare ?? new List<PartCommand>(taken.Capacity);
+            if (_count == 0) return NothingTaken;
+            List<PartCommand> taken = _spare ?? new List<PartCommand>(_count);
             _spare = null;
+            taken.EnsureCapacity(_count);
+            for (int i = 0; i < _count; i++)
+            {
+                int at = (_head + i) % _ring.Length;
+                taken.Add(_ring[at]);
+                _ring[at] = default;   // hold no slot of a departed generation
+            }
+            _head = 0;
+            _count = 0;
             _overflowReported = false;
             return taken;
         }
+    }
+
+    // Under _gate, with the ring full and below the limit: doubles it, oldest first.
+    private void Grow()
+    {
+        var bigger = new PartCommand[Math.Min(QueueLimit, _ring.Length * 2)];
+        for (int i = 0; i < _count; i++) bigger[i] = _ring[(_head + i) % _ring.Length];
+        _ring = bigger;
+        _head = 0;
     }
 
     /// <summary>Returns a list from <see cref="Take"/> for reuse.</summary>

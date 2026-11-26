@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <AssemblyName>purrTTY.Kfs.Lsp</AssemblyName>
+        <RootNamespace>purrTTY.Kfs.Lsp</RootNamespace>
+        <Description>A language server for kFS's kC and kASM over the game's own toolchain (ships with the mod; also hosted by purr-kfs lsp)</Description>
+        <IsPackable>false</IsPackable>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
+    </PropertyGroup>
+
+    <!-- Ships with the mod (plan §3.4): no reference to purrTTY.Kfs.Testing, NUnit or Harmony, and no
+         third-party package. JSON-RPC is hand-rolled over System.Text.Json. -->
+    <ItemGroup>
+        <ProjectReference Include="..\purrTTY.Kfs\purrTTY.Kfs.csproj"/>
+        <ProjectReference Include="..\purrTTY.Logging\purrTTY.Logging.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- KSA game DLLs: compile-only, never copied to an output. -->
+        <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+            <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <!-- LspLog.ModLog writes through purrTTY.Logging's LogCategory, which lives here. -->
+        <Reference Include="Brutal.Logging" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>

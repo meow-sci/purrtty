@@ -100,37 +100,44 @@ public sealed class ThemeDialog
             return;
         }
 
-        var target = ResolveTarget();
-        if (target == null)
+        // Ended in the finally: a throw in the body (caught by the caller) must not leave the
+        // window begun, which would unbalance ImGui's stack for the rest of the frame.
+        try
         {
-            ImGui.TextDisabled("No terminal is open. Open a terminal, then reopen this dialog.");
-        }
-        else
-        {
-            DrawTargetSection(target);
-
-            if (target is TerminalWindow window)
+            var target = ResolveTarget();
+            if (target == null)
             {
-                DrawPaletteSection(window);
-                DrawFontSection(window);
-                DrawOpacitySection(window);
-                DrawAdvancedSection(window);
+                ImGui.TextDisabled("No terminal is open. Open a terminal, then reopen this dialog.");
             }
             else
             {
-                ImGui.SeparatorText("Theme");
-                DrawPaletteApply(target);
+                DrawTargetSection(target);
+
+                if (target is TerminalWindow window)
+                {
+                    DrawPaletteSection(window);
+                    DrawFontSection(window);
+                    DrawOpacitySection(window);
+                    DrawAdvancedSection(window);
+                }
+                else
+                {
+                    ImGui.SeparatorText("Theme");
+                    DrawPaletteApply(target);
+                }
+            }
+
+            ImGui.Spacing();
+            ImGui.Separator();
+            if (ImGui.Button(" Close ##theme_close", new float2(-1f, 0f)))
+            {
+                _visible = false;
             }
         }
-
-        ImGui.Spacing();
-        ImGui.Separator();
-        if (ImGui.Button(" Close ##theme_close", new float2(-1f, 0f)))
+        finally
         {
-            _visible = false;
+            ImGui.End();
         }
-
-        ImGui.End();
     }
 
     private INamedTerminal? ResolveTarget()

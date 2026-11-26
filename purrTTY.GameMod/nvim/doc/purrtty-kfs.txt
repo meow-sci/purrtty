@@ -1,0 +1,387 @@
+*purrtty-kfs.txt*  kC and kASM (kFS, Kitten Space Agency) for Neovim
+
+                       purrTTY kFS for Neovim
+
+Plain Lua shipped with the purrTTY mod. No plugin manager, no dependency
+beyond Neovim's built-in LSP client. Tested with Neovim 0.12.6. The files
+check for 0.11 (the oldest release with every API they use) but have not
+been run on 0.11 itself; a Neovim older than 0.11 gets one message and
+nothing else.
+
+1. Introduction                                 |purrtty-kfs-intro|
+2. Installing                                   |purrtty-kfs-install|
+3. Filetypes                                    |purrtty-kfs-filetypes|
+4. Finding the language server                  |purrtty-kfs-discovery|
+5. Commands                                     |purrtty-kfs-commands|
+6. The log and the status line                  |purrtty-kfs-log|
+7. Configuration                                |purrtty-kfs-config|
+8. Suggested mappings                           |purrtty-kfs-mappings|
+9. Troubleshooting                              |purrtty-kfs-troubleshooting|
+
+==============================================================================
+1. Introduction                                         *purrtty-kfs-intro*
+
+kFS is the programmable flight computer of Kitten Space Agency. Its programs
+are kC (a C subset, `*.c` and `*.h`) and kASM (`*.kasm` and `*.kinc`) files
+in a workspace folder; each folder is one project. These files give such
+buffers their own filetypes and attach them to a kFS language server:
+
+- inside the game, the server the purrTTY mod runs (diagnostics against the
+  vehicle being edited, hover, completion, and commands that build, load and
+  run programs on the vehicle, plus the program's live log);
+- outside the game, the same server when the game is running, or the
+  standalone `purr-kfs lsp` (diagnostics, hover and completion only).
+
+The purrTTY menu entry kFS > Edit in Neovim, or the game console command
+`purr nvim [file]`, opens your own `nvim` in a purrTTY terminal with these
+files loaded. Your own configuration loads as usual; nothing is written to
+it, no global option is changed.
+
+==============================================================================
+2. Installing                                         *purrtty-kfs-install*
+
+In the game: nothing to do. The mod starts Neovim with >
+    nvim --cmd "lua dofile(vim.env.PURRTTY_KFS_NVIM .. '/purrtty_kfs.lua')" \
+         -- <file>
+<
+and these environment variables:
+
+  PURRTTY_KFS_NVIM    this folder (`<mod folder>/nvim`; spaces are fine)
+  PURRTTY_KFS_ROOT    the kFS workspace folder
+  PURRTTY_KFS_LSP     the server's address, `127.0.0.1:<port>` (only while
+                      the mod's language server runs)
+  PURRTTY_KFS_TOKEN   the session token the server requires; read at
+                      start-up and removed from Neovim's environment, so
+                      |:terminal|, |:!| and plugins do not inherit it
+  PURRTTY_CONFIG_DIR  the folder that contains the mod's `.purrTTY`
+                      configuration folder, where the server info file is
+                      (|purrtty-kfs-info-file|)
+  SHELL               your own shell (as the game saw it), so 'shell' and
+                      |:terminal| are yours even when Neovim was started
+                      through /bin/sh
+
+FORCE_COLOR and CLICOLOR_FORCE, which other purrTTY terminals set, are
+removed, so programs run through pipes (|:!|, |:make|, linters) write no
+colour codes into the quickfix list.
+
+Neovim not on the game's PATH (common on macOS: a game started from the
+Dock has a short PATH): the mod starts it through your login shell. That
+shell is not interactive: it reads `~/.zprofile` or `~/.profile` (bash:
+`~/.bash_profile`), not `~/.zshrc` or anything behind an interactivity
+check, so set PATH there, or `nvim_path` in `kfs.toml`. A profile that
+`exec`s another program (tmux, another shell) replaces the shell before
+Neovim starts: set `nvim_path` then.
+
+The window closes when Neovim exits normally. When it exits with an error
+(it crashed at start, a wrapper's target is missing), the window stays,
+with the error on screen and " (exit N)" in its tab.
+
+A new file (`purr nvim new/dir/file.c`) is not created by the mod; the first
+|:w| creates its folder, for kC and kASM files below a workspace root only.
+
+Outside the game, either of these:
+
+- Load the entry script by path (works from any folder, spaces included): >
+    nvim --cmd "lua dofile('/path/to/mods/purrTTY/nvim/purrtty_kfs.lua')"
+<  or in your init.lua: >lua
+    dofile('/path/to/mods/purrTTY/nvim/purrtty_kfs.lua')
+<
+- Install the folder as an ordinary plugin: copy (or link) the mod's `nvim`
+  folder to `~/.local/share/nvim/site/pack/purrtty/start/purrtty_kfs` (on
+  Windows `~/AppData/Local/nvim-data/site/pack/purrtty/start/purrtty_kfs`), or
+  point your plugin manager at it. `plugin/purrtty_kfs.lua` then calls
+  `require('purrtty_kfs').setup()`, and |:helptags| makes this file
+  available to |:help|.
+
+Both ways may be active at once: setup() runs once and later calls only
+merge their options (|purrtty-kfs-config|). A plugin manager that resets
+'runtimepath' during start-up does not matter to the entry script, which
+finds its Lua modules relative to its own location.
+
+==============================================================================
+3. Filetypes                                        *purrtty-kfs-filetypes*
+
+                                                *ft-kc* *ft-kasm*
+kc      `*.c` and `*.h` below a kFS workspace root (|purrtty-kfs-roots|).
+        C files anywhere else keep filetype `c`, so a C language server or
+        your C settings never apply to kC files and still apply to ordinary
+        C files. kc buffers get Neovim's C syntax, 'commentstring' `// %s`,
+        C comments, 'cindent' and 'suffixesadd' `.h,.c`. The C tree-sitter
+        parser is registered for kc (|vim.treesitter.language.register()|),
+        so a tree-sitter set-up that handles C handles kC too; set
+        `treesitter = true` to start tree-sitter highlighting yourself.
+
+kasm    `*.kasm` and `*.kinc` everywhere (no other filetype owns them),
+        any letter case. kasm buffers get the shipped `syntax/kasm.vim`
+        (sourced by path; it is generated from the game's opcode table and
+        assembler), 'commentstring' `; %s` and 'autoindent'. Only kASM
+        files below a workspace root are attached to a language server.
+
+Extensions are matched case-insensitively, as the game does. On Windows,
+paths compare case-insensitively with `\` and `/` alike; symbolic links are
+resolved for the comparison.
+
+                                                        *purrtty-kfs-roots*
+Workspace roots are, in this order:
+- `$PURRTTY_KFS_ROOT`;
+- the `root` option (|purrtty-kfs-config|);
+- the `workspace_root` of every server info file found
+  (|purrtty-kfs-info-file|);
+- the game's default workspace,
+  `<Documents>/My Games/Kitten Space Agency/kfs`, when that folder exists.
+  `<Documents>` is what .NET calls "My Documents": `~/Documents` on macOS;
+  `$XDG_DOCUMENTS_DIR`, `~/Documents` and `~` on Linux;
+  `%USERPROFILE%\Documents` and `%OneDrive%\Documents` on Windows.
+`~` and environment variables in `root` and `$PURRTTY_KFS_ROOT` are
+expanded, and a relative path is taken from Neovim's working directory.
+
+==============================================================================
+4. Finding the language server                      *purrtty-kfs-discovery*
+
+When the first kc or kasm buffer of a workspace opens, the server is looked
+for in this order; the first that answers is used, and every buffer of that
+workspace shares one client (one connection):
+
+1. `$PURRTTY_KFS_LSP` with `$PURRTTY_KFS_TOKEN` (the in-game launch), when
+   `$PURRTTY_KFS_ROOT` is unset or is this workspace.
+2. A server info file whose `workspace_root` is this workspace
+   (|purrtty-kfs-info-file|). A file whose `pid` is not running is stale and
+   ignored.
+3. `purr-kfs lsp --stdio --workspace <root>`, when `purr-kfs` is on `PATH`
+   (the standalone server; it needs a .NET runtime and `KSA_DLL_DIR`).
+4. Nothing: the buffers keep their syntax, and one message says so.
+
+A TCP address is probed with a short connect before Neovim's client is
+started, so an address nobody listens on is skipped quietly (Neovim itself
+never retries a refused connection). The token goes in the `initialize`
+request's `initializationOptions.token`. Start-up is never blocked: the
+probe and the server start are asynchronous.
+
+Reconnecting: when no server was found, or the server goes away (the game
+quit, the mod reloaded), Neovim looks again every `retry_interval_ms`
+(3 seconds) for as long as a kc/kasm buffer of that workspace is loaded, and
+attaches all of them when a server appears, e.g. through a new server info
+file with a new port and token. A server that refuses the token is reported
+once and is not tried again until |:KfsRestart|. A `purr-kfs` that exits with
+an error is not restarted either. A connection that is not answered within
+`initialize_timeout_ms`, or closes before answering, is given up without a
+message; the interval doubles each time (up to 16 times), and after
+`max_attempts` in a row that address is not tried again until its address
+or token changes or |:KfsRestart|. Only a connection that had worked is
+announced as lost. A buffer that is already attached to the
+standalone server stays with it when the game starts; |:KfsRestart| switches.
+
+                                                    *purrtty-kfs-info-file*
+The mod writes `<config>/.purrTTY/kfs-lsp.json` while its server runs: >json
+    { "address": "127.0.0.1:50123", "token": "…", "pid": 4242,
+      "ksa_build": "v2026.11.25.5949", "workspace_root": "/…/kfs" }
+<Unknown keys are ignored. It is looked for in:
+- `$PURRTTY_CONFIG_DIR/.purrTTY/kfs-lsp.json` only, when PURRTTY_CONFIG_DIR
+  is set: it names the folder that CONTAINS `.purrTTY`, the same folder the
+  mod's `purrtty.toml` and `kfs.toml` live under. The mod sets it for every
+  Neovim it starts, so after `purr lsp restart` (a new port and a new token)
+  the new server is found exactly;
+- otherwise beside every known workspace root (the default layout has
+  `…/Kitten Space Agency/.purrTTY/` next to `…/Kitten Space Agency/kfs/`,
+  so `<root>/../.purrTTY/kfs-lsp.json`), and in
+  `<Documents>/My Games/Kitten Space Agency/.purrTTY/`.
+
+When the live server's info file names the address in `$PURRTTY_KFS_LSP`
+with another token (a restart with a fixed `lsp_port`), the environment is
+stale: it is skipped (|:KfsInfo| says "superseded") instead of being refused.
+
+The token keeps other users and machines out; another process of your own
+user can read this file.
+
+==============================================================================
+5. Commands                                          *purrtty-kfs-commands*
+
+Each command sends `workspace/executeCommand` to the current buffer's kFS
+client (from another buffer: the only kFS client). The game runs it on its
+main thread, in its next frame; if no frame comes within 10 seconds (a
+loading screen) the command is not run and says so.
+
+The answer is `{ ok, output, error }`. `ok` true means the game RAN the
+command; `output` is what it printed, shown as it is: a short one as a
+message, a long one in the scratch buffer `kfs://output`, nothing as "sent;
+the game printed nothing". The game's text may report a failure (a build
+error, "kfs is off"): it is shown verbatim and never called a success, but
+it is not a warning either, because the game's wording cannot be parsed
+reliably; build errors also appear as diagnostics. `ok` false means it did
+not run (a refusal: a file outside the workspace, a path with a space for
+`kfs load`, `kfs.verb` switched off, no frame in time); `error` says why and
+is shown as a warning, never as a Lua error. A protocol error is shown the
+same way. Outside the game (the standalone `purr-kfs lsp`) every command but
+|:KfsManual| is refused by the server with "needs the game"; against a
+server without commands at all, the command says so itself. When a command
+finishes, the |User| event `KfsCommandDone` fires with
+`data = { command, ok, output, error }`.
+
+The game builds and loads from disk, never from Neovim's unsaved text, so
+the commands marked (writes) first write every modified kC/kASM buffer of the
+workspace (like |:update| in each); buffers outside it are left alone.
+Nothing is written for a command the server has said it will refuse
+(outside the game; |:KfsVerb| while it is switched off).
+
+                                                                *:KfsBuild*
+:KfsBuild [file]        (writes) Build the current buffer's file (or
+                        [file]); also writes `vehicle.h`/`vehicle.kinc`,
+                        as `kfs build` does. Sends `kfs.build [uri]`.
+                        [file] is a file name taken as written (no
+                        wildcards; `~` and `%` work).
+
+                                                                 *:KfsLoad*
+:KfsLoad [file]         (writes) Build and load the program into the
+                        workbench target. Sends `kfs.load [uri]`.
+
+                                                                *:KfsStart*
+:KfsStart               Start the loaded program. Sends `kfs.start`.
+
+                                                                 *:KfsStop*
+:KfsStop                Stop it. Sends `kfs.stop`.
+
+                                                                *:KfsReset*
+:KfsReset               Reset the computer. Sends `kfs.reset`.
+
+                                                               *:KfsTarget*
+:KfsTarget {target}     Build for `vehicle` (the controlled vehicle's
+                        layout) or `bench`. Sends `kfs.target [target]`.
+
+                                                                *:KfsParts*
+:KfsParts [kind]        The part index tables (`lights`, `deploy`,
+                        `actuators`, or all). Sends `kfs.parts [kind]`.
+
+                                                               *:KfsManual*
+:KfsManual [code]       The manual page of a diagnostic code such as
+                        `KC-E003`; without [code], the code of the
+                        diagnostic under the cursor. Sends
+                        `kfs.manual [code]`.
+
+                                                                 *:KfsVerb*
+:KfsVerb {line}         (writes) Run any `kfs` console line, e.g.
+                        `:KfsVerb state`. The game may refuse it
+                        (`lsp_allow_vehicle_commands` in `kfs.toml`).
+                        Sends `kfs.verb [line]`.
+
+                                                                  *:KfsLog*
+:KfsLog                 Open the program log (|purrtty-kfs-log|).
+
+                                                                 *:KfsInfo*
+:KfsInfo                Connection status: the environment, which server
+                        info files were found, each workspace root, its
+                        client, how the server was found, what discovery
+                        tried, the server's commands and the program state.
+
+                                                              *:KfsRestart*
+:KfsRestart             Stop the kFS clients, forget refused tokens and
+                        failed servers, re-detect the filetypes of loaded
+                        buffers and look for a server again.
+
+==============================================================================
+6. The log and the status line                            *purrtty-kfs-log*
+
+|:KfsLog| opens the scratch buffer `kfs://log` in a split and subscribes the
+kFS clients to the in-game feeds (`purrtty/subscribe`). It starts with the
+program log's last lines (up to 100, under a line `-- the program log
+before this … --`); new lines are appended as they come; output of `kfs`
+commands is prefixed `> `; a trap adds a line `!! trap …` and is announced
+once. A window whose cursor is on
+the last line follows the tail; move the cursor up to stop following, |G| to
+follow again. The buffer keeps the last `log_max_lines` lines. Wiping the
+buffer (|:bwipeout|, |:bdelete| or |:bunload|) unsubscribes; |:KfsLog| then
+starts a new one. Text from the server is shown on single lines, without
+escape sequences or control characters; very long lines are cut. The
+standalone server has no log.
+
+                                                     *purrtty-kfs-state*
+The program state (and a trap as an error diagnostic `KFS-TRAP` on the
+trapping line, until the program is reset, restarted or reloaded) is sent
+only to a client subscribed to it. Neovim subscribes from the first
+|:KfsLoad| or |:KfsStart| that ran, while `kfs://log` exists, or once
+status() is used, for the rest of the session; not at attach, because a
+subscriber keeps the vehicle's computer publishing a snapshot every tick.
+
+                                                       *purrtty-kfs-status()*
+require('purrtty_kfs').status()
+        A short string for a status line: empty without a kFS client,
+        otherwise e.g. `kFS: Running main.c tick 1200` or `kFS: Halted
+        main.c tick 1201, trap DIV_ZERO in task 0, function step
+        (main.c:12)` (the state as the game names it, the trap as it
+        words it). The first call subscribes to the program state.
+        Example: >lua
+            vim.o.statusline =
+              "%f %m%=%{v:lua.require'purrtty_kfs'.status()} "
+<
+==============================================================================
+7. Configuration                                       *purrtty-kfs-config*
+
+Set `vim.g.purrtty_kfs` (read whenever an option is needed, so it may be set
+in init.lua although the mod's entry script runs before it), or call
+`require('purrtty_kfs').setup({ ... })`. Options and defaults: >lua
+    vim.g.purrtty_kfs = {
+      root = nil,               -- extra workspace folder(s): a path or a list
+      retry_interval_ms = 3000, -- how often to look for a server again
+      probe_timeout_ms = 500,   -- TCP probe limit
+      stdio = true,             -- fall back to `purr-kfs lsp --stdio`
+      purr_kfs = 'purr-kfs',    -- that executable (name on PATH, or a path)
+      log_max_lines = 10000,    -- lines kept in kfs://log
+      treesitter = false,       -- tree-sitter highlighting in kc buffers
+      buffer_options = true,    -- false: leave kc/kasm options to you
+      initialize_timeout_ms = 5000, -- a new connection's limit
+      max_attempts = 3,         -- early ends before an address is dropped
+    }
+<
+`buffer_options`: the buffer options above ('commentstring', 'cindent', …)
+are set after every other |FileType| handler, so they win over yours; set
+it to false to keep your own (from an ftplugin or a FileType autocommand).
+Language server attach is not affected.
+
+Everything is namespaced: the augroup `purrtty_kfs`, the LSP client `kfs`,
+the `Kfs*` commands, the buffers `kfs://log` and `kfs://output`, the
+filetypes `kc` and `kasm`, the buffer variable `b:purrtty_kfs`.
+
+==============================================================================
+8. Suggested mappings                                *purrtty-kfs-mappings*
+
+No mappings are defined beyond Neovim's own LSP defaults (|K| hover,
+|CTRL-]| definition, |]d| next diagnostic, |i_CTRL-X_CTRL-O| completion …).
+Some ideas for your configuration: >lua
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = { 'kc', 'kasm' },
+      callback = function(ev)
+        local map = function(lhs, cmd)
+          vim.keymap.set('n', lhs, cmd, { buffer = ev.buf })
+        end
+        map('<leader>kb', '<Cmd>KfsBuild<CR>')
+        map('<leader>kl', '<Cmd>KfsLoad<CR>')
+        map('<leader>ks', '<Cmd>KfsStart<CR>')
+        map('<leader>kx', '<Cmd>KfsStop<CR>')
+        map('<leader>km', '<Cmd>KfsManual<CR>')
+        map('<leader>kg', '<Cmd>KfsLog<CR>')
+      end,
+    })
+<
+==============================================================================
+9. Troubleshooting                            *purrtty-kfs-troubleshooting*
+
+Start with |:KfsInfo|; it shows what was found and what was tried.
+
+- "no language server found": in the game, check that the mod's language
+  server is enabled (`lsp_enabled` in `kfs.toml`; purrTTY console `purr lsp`).
+  Outside the game: start the game, or put `purr-kfs` on PATH, or set
+  PURRTTY_CONFIG_DIR when the game's config folder is not the default one.
+- A `.c` file has filetype `c`: it is not below a known workspace root. Set
+  PURRTTY_KFS_ROOT or the `root` option, then |:KfsRestart|.
+- "refused this session": the token is wrong, e.g. a stale environment from
+  an earlier game session. A new server info file is picked up by itself;
+  |:KfsRestart| retries everything.
+- `purr-kfs` quit at once: it needs a .NET runtime and `KSA_DLL_DIR` (the
+  game's folder of DLLs); its messages are in the LSP log,
+  `:exe 'edit' v:lua.vim.lsp.log.get_filename()`.
+- Diagnostics disagree with the game's own build: |:KfsTarget| `vehicle`
+  makes the server build for the controlled vehicle's layout.
+- |:help| does not find this file: it is not on 'runtimepath' when loaded
+  through the entry script; open it directly, or install the folder as a
+  plugin and run |:helptags|.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

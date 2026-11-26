@@ -23,7 +23,22 @@ sources:
   - id: offline-harness
     resource: /modding/offline-harness.md
     title: Offline harness experiments
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T22:02:02Z }
+  - id: system-headers
+    resource: ksa-decomp:KSA.Kfs.KC/SystemHeaders.cs
+    title: SystemHeaders (decompiled)
+  - id: compiler
+    resource: ksa-decomp:KSA.Kfs.Compiler/Compiler.cs
+    title: Compiler (decompiled)
+  - id: host-computer
+    resource: ksa-decomp:KSA.Kfs.Host/HostComputer.cs
+    title: HostComputer (decompiled)
+  - id: console-commands
+    resource: /tooling/console-commands.md
+    title: kFS console commands
+  - id: extension-points
+    resource: /modding/extension-points.md
+    title: kFS extension-point map
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -58,6 +73,7 @@ image that uses a mod service fails cleanly at load without the mod ("unknown se
 | Inside a dispatch (`ApplyRequest`, `IssueResult`, anything under `KfsVehicleHost.Dispatch`) | Caught by `KfsDispatch.TryComputeControl`: the vehicle's computer is **halted with a sticky host fault** and the stock flight computer takes over mid-flight.[^kfs-dispatch] |
 | In `GameTables.LoadEmbedded` | The lazy initialiser leaves the tables null and rethrows on every access: **kFS is unusable** for the session.[^kfs-integration] |
 | In a `BeforeInputEvents` postfix | Nothing in kFS catches it; it propagates into the game's frame preparation. |
+| On a thread the mod started inside the game process (a compile thread, a socket reader, a timer) | Nothing catches it at all: an unhandled exception on such a thread ends the process, and with it the game. |
 | In the kC compiler (mismatched prototype, multi-cell result) | A build fails with an internal error instead of a diagnostic.[^offline-harness] |
 
 Wrap every entry point in `try`/`catch`, log once, and degrade: reject the request, return zero,
@@ -96,7 +112,13 @@ domains so the VM rejects non-finite arguments, and clamp in the handler. See
 | Program calls a mod service on the bench | "rejected …: no vehicle to act on"; results 0 | Expected; document |
 | Indices shift after docking or a reload | A program addresses the wrong light | Frozen, `InstanceId`-ordered lists with a generation counter; never persist indices |
 | Mod state for a dead host | Leak, or writes to a disposed vehicle | Key state on the host object; sweep on `IsAlive`; check the module is still in the vehicle's tree before every write |
-| A method the mod patches gets inlined at its call site | Patch silently never fires | Prefer large, non-trivial targets; self-test each hook once and report |
+| A method the mod patches gets inlined at its call site | Patch silently never fires | Prefer large, non-trivial targets; self-test each hook once and report. Small targets are the exposed ones: `KfsIntegration.Error` is a few statements, the base `HostComputer.ApplyRequest` is `return false`. Keep patches on such methods optional, and give each a symptom a player can see[^kfs-integration-small-targets] |
+| The mod changes `SystemHeaders.Files` / `Builtins` or the tables while a compile runs (its own, or the stock editor's background build) | A `Dictionary` or `HashSet` written under a concurrent reader: a corrupted collection or an exception inside the game's compiler | Change them only when nothing compiles; at unload, leave the header registered if a compile is in flight (see [adding a service](/modding/adding-a-service.md), "Taking it out again")[^system-headers] |
+| A compile started by the mod never returns | The game's compiler cannot be cancelled; the thread and its 16 MiB stack stay | Compile on the mod's own thread with a watchdog; retire a stuck thread, cap how many may be retired, and refuse further compiles beyond the cap[^compiler] |
+| The mod's console command is registered under a second owner object (a reload) | The game's own `help` throws on the duplicate name | One owner object per process, reused across reloads; unregister that owner at unload[^console-commands] |
+| A wrapper is installed in `KfsIntegration.Output` | Every `kfs` error appears twice in the game console | Do not forward `Error`'s line to the original writer (a prefix and finalizer on `KfsIntegration.Error` can mark the call)[^console-commands] |
+| A mod reads `HostComputer.Snapshot` every frame for a display nobody is looking at | The vehicle's computer keeps publishing a snapshot on every tick (reading the property renews a one-second lease) | Read it only while something shows it, and no more often than needed[^host-computer] |
+| The mod opens a local socket (for an editor, say) | Any local process that learns the address and secret can drive what the mod exposes; an unauthenticated peer can still consume threads and memory | Loopback only, a random secret per start in an owner-only file, a small fixed command set, and hard limits on connections, message sizes and queued work — in a game process a refused connection is better than a slow frame |
 
 # When the game updates
 
@@ -117,6 +139,16 @@ host hooks, so most breakage appears as a failing test.[^offline-harness] Then c
    `ShowDeployRetract`).
 8. Whether stock kFS has gained the feature itself. When it does, retire the mod's version rather
    than compete with it.
+9. For a mod that also adds a console command, drives the workbench or serves an editor, the
+   members those parts lean on: `TerminalInterface.RegisterCommand` / `UnregisterObject` and the
+   `[TerminalAction]` attribute; `KfsIntegration.Output`, `Print`, `Error` and the `Workbench`
+   getter; `KfsConsoleCommands.Execute`; `Workbench.TargetVehicle`, `Bench`, `TargetName`, `Loaded`
+   and `TargetActiveVehicle`; `Workspace.Folder`, `Exists`, `Write`, `List`;
+   `HostComputer.Snapshot`, `Console`, `LoadedBytes`; `Compiler.CompileOnThisThread`, `Assembler`
+   and `BuiltinIncludes`; and the private members reached by reflection —
+   `KfsIntegration._tables`, `KfsIntegration._workbench`, `KfsVehicleHost.AllHosts`,
+   `EditorModel.Building` through the workbench. The parsing rules of `Workbench.Load` and
+   `Workspace.ProjectOf` are part of the contract of any tool that mirrors them.
 
 The repository's `upgrade-ksa` skill and `docs/ksa-*-compatibility.md` reviews are the place to
 record the outcome.
@@ -128,7 +160,10 @@ record the outcome.
 | Table augmentation, kC header and builtin binding, kASM symbols, argument-domain enforcement, request interception, synchronous results, the workbench path | Executed offline against the real `KSA.dll` |
 | Thread model, frame order, lifecycle, load checks | Read from decompiled code |
 | Light and animation writes | Read from decompiled code; the same writes are made in game by gatOS and zippo |
+| What a dispatch reads after a main-thread write (fields at once, committed state a frame later) | Read from decompiled code; reproduced by purrTTY's simulator, which was built from that reading — not an independent confirmation |
+| A complete extension on these points — services, main-thread pump, console command, example programs, a language server with an in-game host (purrTTY, this repository) | Implemented and executed offline against the real `KSA.dll`; the parts that need a live game are compiled against it and were compared member by member with the decompiled sources, and no test executes them[^extension-points] |
 | Harmony behaviour under the game's runtime (inlining, patch timing relative to StarMap load) | **Not verified** — needs an in-game run |
+| The colour space of a light's RGB values | **Not verified** — see [light module](/game-targets/light-module.md) |
 | Any of it in a running game with this mod | **Not verified** |
 
 # Modding notes
@@ -137,6 +172,11 @@ record the outcome.
   break in a game update can be turned off without losing the rest of the mod.
 - Log one clear line at start-up stating which hooks applied and whether the services are live;
   it is the first thing to ask a player for.
+- Count what each hook does and show the counters on request. Whether a patched method is really
+  called can only be seen in the game, and a counter that stays at zero is the one symptom that
+  separates "inlined" from "nothing happened to call it".
+- Keep the code that can only run in the game thin and put its decisions into types a test can
+  run. What remains untested should be a list short enough to check by hand in the game.
 
 [^kfs-prototype]: KfsPrototype.cs:6–28.
 [^kfs-dispatch]: KfsDispatch.cs:19–27.
@@ -144,3 +184,9 @@ record the outcome.
 [^image-reader]: ImageReader.cs:642–649 (table versions), :773–780 (part and layout fingerprint), :557–560 (unknown service id).
 [^game-tables]: GameTables.cs:75–126, :538–690.
 [^offline-harness]: Experiments E3, E8 and E10, and the "what the harness cannot show" list.
+[^kfs-integration-small-targets]: KfsIntegration.cs:128-135 (`Error`); HostComputer.cs:813-816 (`ApplyRequest`).
+[^system-headers]: SystemHeaders.cs:8-30 (`Files`, a `Dictionary<string, string>`; `Builtins`, a `HashSet<string>`; both `public static readonly`), :34-41 (`Get`, called on the compiling thread).
+[^compiler]: Compiler.cs:26-59 (`Compile`: a new thread per call, joined for `TimeLimitMs`, abandoned on timeout), :61 (`CompileOnThisThread`); no member takes a cancellation token.
+[^console-commands]: "Registering a separate command: the owner matters" and the output-channel table (`KfsIntegration.Error`).
+[^host-computer]: HostComputer.cs:167-174 (`Snapshot` getter), :229-232 (`WantSnapshot`, the 1000 ms lease).
+[^extension-points]: "What an implementation has exercised".

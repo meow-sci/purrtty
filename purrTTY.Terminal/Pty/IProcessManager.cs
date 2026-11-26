@@ -58,11 +58,18 @@ public interface IProcessManager : IDisposable
     void Write(string text);
 
     /// <summary>
-    ///     Resizes the shell process terminal dimensions.
+    ///     Resizes the shell process terminal dimensions. A no-op when no process is
+    ///     running — before the first start, after the process has exited or been
+    ///     stopped — so a caller never has to check <see cref="IsRunning"/> first
+    ///     (that check would race an exit observed on the pump thread anyway). The
+    ///     real backends decide under their state lock, atomically with teardown.
+    ///     An OS-level failure to resize a live PTY is reported through
+    ///     <see cref="ProcessError"/>, not thrown (the frontend calls this on the
+    ///     render tick thread, between <c>ImGui.Begin</c> and <c>End</c>).
     /// </summary>
     /// <param name="width">New width in columns</param>
     /// <param name="height">New height in rows</param>
-    /// <exception cref="InvalidOperationException">Thrown if no process is running</exception>
+    /// <exception cref="ObjectDisposedException">Thrown if the manager has been disposed</exception>
     void Resize(int width, int height);
 
     /// <summary>

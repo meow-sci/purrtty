@@ -300,15 +300,16 @@ public sealed class HarnessTests : RuntimeFixture
 
         double took = v.RunUntil(() => v.Parts.Deployable(0).State == DeployState.Deployed, timeoutSeconds: 10, frameDt: 0.1);
 
-        // Issued in tick 5 (0.5 s), applied by the next frame's pump, 2 s of travel: deployed at 2.5 s.
-        Assert.That(took, Is.EqualTo(2.5).Within(1e-9));
-        Assert.That(v.TimeS, Is.EqualTo(2.5).Within(1e-9));
+        // Issued in tick 5 (0.5 s), applied by the 0.6 s frame's pump, moving from the 0.7 s frame's
+        // step (the game's next physics job), 2 s of travel: deployed at 2.6 s.
+        Assert.That(took, Is.EqualTo(2.6).Within(1e-9));
+        Assert.That(v.TimeS, Is.EqualTo(2.6).Within(1e-9));
         Assert.That(v.RunUntil(() => true, 10), Is.Zero, "a condition already true runs no frame");
 
         // An hour of simulated time costs no wall-clock waiting; the timeout names the state.
         var e = Assert.Throws<TimeoutException>(() => v.RunUntil(() => false, timeoutSeconds: 3600, frameDt: 1.0));
         Assert.That(e!.Message, Does.StartWith("condition not met within 3600 s of simulated time"));
-        Assert.That(v.TimeS, Is.EqualTo(3602.5).Within(1e-6));
+        Assert.That(v.TimeS, Is.EqualTo(3602.6).Within(1e-6));
     }
 
     [Test]

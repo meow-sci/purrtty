@@ -173,6 +173,15 @@ public static class CatalogEmitter
         return k.ToString();
     }
 
+    // ------------------------------------------------------------------ one line per service
+
+    /// <summary>
+    /// One line per service, in catalogue order (<c>purr services</c>):
+    /// <c>0x5013  void x_light_set_on(uint32_t light, uint32_t on) — Switches a light's part on or off; …</c>.
+    /// </summary>
+    public static IReadOnlyList<string> ServiceLines(ServiceCatalog catalog) =>
+        catalog.Services.Select(s => $"0x{s.Id:X4}  {s.Prototype} — {s.Summary}").ToArray();
+
     // ------------------------------------------------------------------ markdown
 
     /// <summary>A markdown reference of every service and constant (<c>\n</c> line ends).</summary>

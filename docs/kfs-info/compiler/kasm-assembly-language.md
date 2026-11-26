@@ -62,7 +62,7 @@ sources:
   - id: offline-harness
     resource: /modding/offline-harness.md
     title: Offline harness experiments E1–E12
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:29:02Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -101,7 +101,11 @@ globals, strings, entries, constants) → **PassB** (entry options, instructions
 Each physical line (CRLF is normalised to LF) is processed as:[^assembler-split]
 
 1. **Comment.** A `;` outside a double-quoted string starts a comment that runs to the end of the
-   line.
+   line. Only `"` opens and closes a string for this purpose (a `"` preceded by `\` does not); a
+   single quote means nothing to the comment stripper. Together with the expression grammar below,
+   which has no character literal, this means **kASM has no character literals**: `PUSH8 ';'` is
+   cut at the `;` and what is left, `PUSH8 '`, is an expression error (`KA-E012`); write the
+   number.[^assembler-strip-comment]
 2. **Label.** An optional `name:` at the start, matching `^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:(?!\S)` — an
    identifier, a colon, then whitespace or end of line.
 3. **Word and rest.** The first whitespace-delimited token is the *word* (a directive if it starts
@@ -651,6 +655,13 @@ Other points:
 
 - `BuiltinIncludes` is recomputed on every `.include <…>`; there is **no cache**, so table changes are
   picked up by the next assembly.
+- **The directive names are in no table.** Mnemonics come from the opcode table, but `.func`,
+  `.task`, `.equ` and the rest exist only as string literals compared in `Assembler`'s code
+  (`text2 == ".macro"`, `case ".long":` …); nothing in `GameTables` or the embedded JSON lists
+  them. A tool that needs the list — a syntax file, a completion source — must transcribe it (it is
+  written out under "Program-level directives" above and in
+  [language-tooling surface](/modding/language-tooling-surface.md#kasm-directives)) or read the
+  string literals out of the assembler's compiled methods, and re-check after a game update.[^assembler-directive-literals]
 - An unknown `SVC_NEW` symbol is `KA-E003` at assembly; a numeric `SYSCALL 200` with no table row is
   `KA-E101` from program analysis ("SYSCALL 200 is not a service in the table").
 - `Assembler` and `BuiltinIncludes` are public; `BuiltinIncludes.Names` and `.Scalars` are `public
@@ -681,3 +692,5 @@ Other points:
 [^catalogue-enums]: CatalogueEnums.cs:12-64
 [^examples]: Examples.cs:48-56; KSA.Kfs.KC.Library.string.kasm:89-114
 [^offline-harness]: Experiment E9 in the offline harness document.
+[^assembler-strip-comment]: Assembler.cs:180-195 (`StripComment`: toggles on `"` unless the previous character is `\`, returns the text before the first `;` seen outside such a string), :213 (its one caller, `Split`); Expr.cs:220-287 (`Unary`: a sign or `~`, `(`, an ASCII digit, a letter or `_`; anything else is `unexpected '<c>' in expression`, number 12).
+[^assembler-directive-literals]: Assembler.cs:272, :282, :294 (`.endm`, `.macro`, `.include` compared as literals during preprocessing), :518-524 (data-item `case` labels), :559-878 (the directive `switch`). A search of the decompiled `KSA.Kfs.Vm.Tables` folder and of the embedded `KSA.Kfs.Vm.Tables.Data.*.json` files finds no directive name.

@@ -50,6 +50,12 @@ internal static class TerminalMenus
     internal static Action? OpenLayoutManager;
 
     /// <summary>
+    ///     Draws the entries of the <c>kFS</c> submenu (<c>Kfs/KfsMenu.Draw</c>: the kFS extension's
+    ///     status and its <c>purr</c> verbs). Null until the mod has tried to install the extension.
+    /// </summary>
+    internal static Action? DrawKfsMenu;
+
+    /// <summary>
     ///     The live controller the game menus act on (null until initialized).
     /// </summary>
     internal static GhosttyTerminalController? MenuController;
@@ -77,10 +83,44 @@ internal static class TerminalMenus
         }
     };
 
+    private static bool s_menuFailureLogged;
+
     /// <summary>
     ///     Draws the shared menu content used by both ModMenu and the fallback injected menu.
+    ///     Never throws: it runs inside a Harmony postfix of the game's menu hook (or ModMenu's
+    ///     draw), so an exception is logged once and swallowed; every submenu it begins is ended
+    ///     in a <c>finally</c>, so the ImGui stack stays balanced either way.
     /// </summary>
     internal static void DrawMenuContent()
+    {
+        try
+        {
+            DrawMenuContentCore();
+        }
+        catch (Exception ex)
+        {
+            if (!s_menuFailureLogged)
+            {
+                s_menuFailureLogged = true;
+                purrTTY.Logging.ModLog.Log.Warning($"purrTTY: drawing the menu failed ({ex.GetType().Name}: {ex.Message}); further failures are not logged");
+            }
+        }
+    }
+
+    // Ends a submenu begun by the caller, also when its body threw.
+    private static void Submenu(Action body)
+    {
+        try
+        {
+            body();
+        }
+        finally
+        {
+            ImGui.EndMenu();
+        }
+    }
+
+    private static void DrawMenuContentCore()
     {
         var isVisible = GetIsVisible?.Invoke() ?? false;
         var hotkeyShortcut = GetToggleHotkeyShortcut?.Invoke() ?? DefaultToggleShortcut;
@@ -95,7 +135,7 @@ internal static class TerminalMenus
             OpenToggleHotkeySettings?.Invoke();
         }
 
-        if (OpenInWorldManager != null || OpenLayoutManager != null)
+        if (OpenInWorldManager != null || OpenLayoutManager != null || DrawKfsMenu != null)
         {
             ImGui.Separator();
         }
@@ -110,6 +150,12 @@ internal static class TerminalMenus
             OpenLayoutManager.Invoke();
         }
 
+        var drawKfsMenu = DrawKfsMenu;
+        if (drawKfsMenu != null && KSA.ImGuiHelper.BeginMenu("kFS"))
+        {
+            Submenu(drawKfsMenu);
+        }
+
         var controller = MenuController;
         if (controller == null)
         {
@@ -120,14 +166,26 @@ internal static class TerminalMenus
 
         if (KSA.ImGuiHelper.BeginMenu("New Tab"))
         {
-            DrawShellItems(controller, LaunchAsTab);
-            ImGui.EndMenu();
+            try
+            {
+                DrawShellItems(controller, LaunchAsTab);
+            }
+            finally
+            {
+                ImGui.EndMenu();
+            }
         }
 
         if (KSA.ImGuiHelper.BeginMenu("New Window"))
         {
-            DrawShellItems(controller, LaunchAsWindow);
-            ImGui.EndMenu();
+            try
+            {
+                DrawShellItems(controller, LaunchAsWindow);
+            }
+            finally
+            {
+                ImGui.EndMenu();
+            }
         }
 
         ImGui.Separator();
@@ -141,8 +199,14 @@ internal static class TerminalMenus
 
         if (KSA.ImGuiHelper.BeginMenu("Window"))
         {
-            DrawWindowMenu(controller);
-            ImGui.EndMenu();
+            try
+            {
+                DrawWindowMenu(controller);
+            }
+            finally
+            {
+                ImGui.EndMenu();
+            }
         }
     }
 
@@ -251,16 +315,21 @@ internal static class TerminalMenus
         // (launching wsl.exe without a distribution yields a dead session).
         if (KSA.ImGuiHelper.BeginMenu("WSL2"))
         {
-            var distributions = snapshot.WslDistributions;
-            for (int i = 0; i < distributions.Count; i++)
+            try
             {
-                if (ImGui.MenuItem(distributions[i].DisplayName))
+                var distributions = snapshot.WslDistributions;
+                for (int i = 0; i < distributions.Count; i++)
                 {
-                    launch(ProcessLaunchOptions.CreateWsl(distributions[i].Name));
+                    if (ImGui.MenuItem(distributions[i].DisplayName))
+                    {
+                        launch(ProcessLaunchOptions.CreateWsl(distributions[i].Name));
+                    }
                 }
             }
-
-            ImGui.EndMenu();
+            finally
+            {
+                ImGui.EndMenu();
+            }
         }
     }
 

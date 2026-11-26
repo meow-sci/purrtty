@@ -226,6 +226,35 @@ public sealed class RobustnessTests : RuntimeFixture
         Assert.That(v.Binding.Accepted, Is.EqualTo(4 * 500 * 5));
     }
 
+    [Test]
+    public void Rejections_The_Event_Limit_Drops_Allocate_Nothing_And_Still_Count()
+    {
+        // A program hammering a bad index: past the host's 20 events a second (ConsoleLog.EventAllowed)
+        // the reason text is never shown, so it must not be built either.
+        using SimVehicle v = Vehicle(lights: 1);
+        v.LoadKc(Kc.Ticked("")).RunTicks(1);
+        VehicleComputer computer = v.Computer;
+        RejectedCalls(computer, 100);   // JIT, and the second's 20 events used up
+        uint before = v.RejectedRequests;
+
+        long allocated = RejectedCalls(computer, 500);
+
+        Assert.That(allocated, Is.Zero, "a rejection whose event the host would drop formats nothing");
+        Assert.That(v.Binding.Rejected, Is.EqualTo(600), "every rejection is counted");
+        Assert.That(v.RejectedRequests - before, Is.EqualTo(500u), "and reaches sys.rejected_requests");
+        Assert.That(v.LogText.Count(t => t.StartsWith("rejected x_light_set_", StringComparison.Ordinal) && t.Contains("light 7 out of range", StringComparison.Ordinal)), Is.EqualTo(20), v.Dump);
+    }
+
+    /// <summary>Accepts <paramref name="calls"/> setters naming a light that does not exist; returns the bytes this thread allocated meanwhile.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static long RejectedCalls(VehicleComputer computer, int calls)
+    {
+        ServiceRequest[] requests = [new(Svc.LightSetOn, [7, 1], null), new(Svc.LightSetIntensity, [7, BitConverter.SingleToUInt32Bits(1f)], null)];
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < calls; i++) ServiceRouter.Accept(computer, requests[i & 1]);
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
     /// <summary>
     /// A whole tick through the game's VM, the host and both Harmony hooks: the bytes a dispatch
     /// allocates per call of a service, against the same program without the calls. The VM itself
@@ -340,6 +369,31 @@ public sealed class RobustnessTests : RuntimeFixture
         Assert.That(v.Parts.Applied[0].Command.A, Is.EqualTo(4f), "the oldest four were dropped");
         Assert.That(v.Parts.Light(0).Intensity, Is.EqualTo(VehicleBinding.QueueLimit + 3));
         Assert.That(v.Binding.PendingCount, Is.Zero);
+    }
+
+    [Test]
+    public void Queue_Overflow_Keeps_The_Newest_In_Order_Across_Takes()
+    {
+        using SimVehicle v = Vehicle(lights: 1);
+        PartSlot slot = v.Parts.Sets.Lights[0];
+        // A partial batch first, so the next batch's oldest is not at the start of the queue's storage.
+        for (int i = 0; i < 10; i++) v.Binding.Enqueue(new PartCommand(Svc.LightSetIntensity, slot, A: -1 - i));
+        v.Binding.Recycle(v.Binding.Take());
+
+        int total = 2 * VehicleBinding.QueueLimit + 7;
+        for (int i = 0; i < total; i++) v.Binding.Enqueue(new PartCommand(Svc.LightSetIntensity, slot, A: i));
+        Assert.That((v.Binding.PendingCount, v.Binding.Dropped), Is.EqualTo((VehicleBinding.QueueLimit, (long)(total - VehicleBinding.QueueLimit))));
+
+        List<PartCommand> taken = v.Binding.Take();
+        float[] values = taken.Select(c => c.A).ToArray();
+        v.Binding.Recycle(taken);
+        Assert.That(values, Is.EqualTo(Enumerable.Range(total - VehicleBinding.QueueLimit, VehicleBinding.QueueLimit).Select(i => (float)i)),
+            "the newest QueueLimit commands, oldest first");
+
+        v.Binding.Enqueue(new PartCommand(Svc.LightSetIntensity, slot, A: 42));
+        Assert.That(v.Binding.PendingCount, Is.EqualTo(1), "an emptied queue starts again");
+        Assert.That(BindingPump.DrainAndApply(v.Binding), Is.EqualTo(1));
+        Assert.That(v.Parts.Light(0).Intensity, Is.EqualTo(42f));
     }
 
     [Test]

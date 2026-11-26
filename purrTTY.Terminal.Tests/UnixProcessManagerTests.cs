@@ -42,8 +42,23 @@ public sealed class UnixProcessManagerTests
                     _output.Append(Encoding.UTF8.GetString(e.Data.Span));
                 }
             };
-            Manager.ProcessExited += (_, e) => Exited.TrySetResult(e.ExitCode);
+            Manager.ProcessExited += (_, e) =>
+            {
+                // Snapshot first: the tail-before-exit contract is about what had
+                // been delivered when the event fired.
+                OutputAtExit = Output;
+                Exited.TrySetResult(e.ExitCode);
+            };
+            Manager.ProcessError += (_, e) => Interlocked.Increment(ref _errors);
         }
+
+        private int _errors;
+
+        /// <summary>ProcessError events raised so far.</summary>
+        public int Errors => Volatile.Read(ref _errors);
+
+        /// <summary>Output delivered before ProcessExited was raised.</summary>
+        public string? OutputAtExit { get; private set; }
 
         public string Output
         {
@@ -121,6 +136,27 @@ public sealed class UnixProcessManagerTests
     }
 
     [Test]
+    public async Task RemovedEnvironmentVariables_Are_Absent_Inherited_Or_Default()
+    {
+        // FORCE_COLOR is a default of CreateDefault; the other is inherited from this process.
+        const string Inherited = "PURRTTY_TEST_INHERITED_VARIABLE";
+        Environment.SetEnvironmentVariable(Inherited, "from-parent");
+        try
+        {
+            using var harness = new Harness();
+            var options = ShOptions("printf 'fc=%s inh=%s ct=%s\\n' \"${FORCE_COLOR-unset}\" \"${" + Inherited + "-unset}\" \"${COLORTERM-unset}\"");
+            options.RemovedEnvironmentVariables.AddRange(["FORCE_COLOR", Inherited]);
+            await harness.Manager.StartAsync(options);
+
+            await harness.WaitForOutput("fc=unset inh=unset ct=truecolor");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(Inherited, null);
+        }
+    }
+
+    [Test]
     public async Task WorkingDirectory_IsApplied()
     {
         string dir = Directory.CreateTempSubdirectory("purrtty-pty-test").FullName;
@@ -149,6 +185,102 @@ public sealed class UnixProcessManagerTests
         Assert.DoesNotThrow(() => harness.Manager.Resize(120, 40));
 
         await harness.Manager.StopAsync();
+    }
+
+    [Test]
+    public async Task Resize_After_Exit_Is_Ignored()
+    {
+        using var harness = new Harness();
+        await harness.Manager.StartAsync(ShOptions("exit 3"));
+
+        int exitCode = await harness.Exited.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // The frontend keeps resizing a dead terminal (its window still reflows):
+        // that must be a silent no-op, not the InvalidOperationException it used to
+        // throw between ImGui.Begin and End.
+        Assert.DoesNotThrow(() => harness.Manager.Resize(120, 40));
+        Assert.DoesNotThrow(() => harness.Manager.Resize(80, 24));
+        Assert.That(exitCode, Is.EqualTo(3));
+        Assert.That(harness.Manager.ExitCode, Is.EqualTo(3), "a no-op resize must not disturb the exit code");
+        Assert.That(harness.Errors, Is.Zero, "a resize after exit is not an error");
+    }
+
+    [Test]
+    public async Task Resize_Before_Start_And_After_Stop_Is_Ignored()
+    {
+        using var harness = new Harness();
+        Assert.DoesNotThrow(() => harness.Manager.Resize(100, 30));
+
+        await harness.Manager.StartAsync(ShOptions("cat"));
+        await harness.Manager.StopAsync();
+
+        Assert.DoesNotThrow(() => harness.Manager.Resize(100, 30));
+        Assert.That(harness.Errors, Is.Zero);
+    }
+
+    [Test]
+    public void Resize_After_Dispose_Still_Throws()
+    {
+        var manager = new UnixProcessManager();
+        manager.Dispose();
+
+        // The one exception kept: using a disposed manager is a programming error.
+        Assert.Throws<ObjectDisposedException>(() => manager.Resize(80, 24));
+    }
+
+    [Test]
+    public async Task Resize_Racing_Exit_Never_Throws()
+    {
+        // A fast-exiting child, resized as fast as possible from this thread while
+        // the waiter thread observes the exit and tears the pty down: the not-running
+        // decision is taken under the manager's state lock, atomically with teardown,
+        // so no interleaving may throw. Several rounds, because the window is narrow.
+        // The child waits for a line, so the first resizes reach it alive (it prints the size it
+        // got, which proves it); the line then lets it exit at once while the resizes go on.
+        for (int round = 0; round < 25; round++)
+        {
+            using var harness = new Harness();
+            await harness.Manager.StartAsync(ShOptions("read x; stty size; exit 0"));
+
+            int resizes = 0;
+            for (int i = 0; i < 20; i++)
+            {
+                int cols = 80 + (resizes++ % 40);
+                Assert.DoesNotThrow(() => harness.Manager.Resize(cols, 24), $"round {round}, resize {resizes} (child alive)");
+            }
+
+            Assert.That(harness.Exited.Task.IsCompleted, Is.False, $"round {round}: the child must still be alive, waiting for its line");
+            Assert.DoesNotThrow(() => harness.Manager.Resize(97, 33), $"round {round}: the last resize while alive");
+            harness.Manager.Write("\n");
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!harness.Exited.Task.IsCompleted && DateTime.UtcNow < deadline)
+            {
+                int cols = 97 + (resizes++ % 2);   // keeps "33 97" or "33 98": the child prints one of them
+                Assert.DoesNotThrow(() => harness.Manager.Resize(cols, 33), $"round {round}, resize {resizes}");
+            }
+
+            Assert.That(harness.Exited.Task.IsCompleted, Is.True, $"round {round}: the child never reported its exit");
+            Assert.That(harness.OutputAtExit, Does.Contain("33 97").Or.Contain("33 98"), $"round {round}: the live child saw the resizes. Output: {harness.OutputAtExit}");
+            Assert.DoesNotThrow(() => harness.Manager.Resize(81, 25), $"round {round}: resize after exit");
+        }
+    }
+
+    [Test]
+    public async Task FastExit_TailOutput_IsDeliveredBeforeProcessExited()
+    {
+        using var harness = new Harness();
+
+        // The session's exit latch (and close-on-exit) relies on this ordering: by the
+        // time ProcessExited fires, the dying process's final output has been raised
+        // through DataReceived — so a surface fed from DataReceived already holds the
+        // program's last screen.
+        await harness.Manager.StartAsync(ShOptions("printf 'purr-dying-words'; exit 5"));
+
+        int exitCode = await harness.Exited.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.That(exitCode, Is.EqualTo(5));
+        Assert.That(harness.OutputAtExit, Does.Contain("purr-dying-words"),
+            $"tail output must be delivered before ProcessExited. Output at exit: '{harness.OutputAtExit}', now: '{harness.Output}'");
     }
 
     [Test]

@@ -50,7 +50,7 @@ sources:
   - id: offline-harness
     resource: /modding/offline-harness.md
     title: Offline harness experiments E1–E12
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:56:52Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -79,6 +79,11 @@ Nothing is written at start-up. The `Workspace` constructor only resolves the pa
 folder is created (empty) the first time something calls `Workspace.Ensure()`: `kfs ws`, `kfs ls`,
 `kfs edit` with no file, any file creation, a header write, or the editor's file tree being drawn.
 [^workspace][^workbench][^editor-window]
+
+`Workspace.List()` and `Workspace.Write()` call `Ensure()` themselves, so **merely listing the
+workspace from code creates the folder**. A mod that wants to show the workspace's files without
+that side effect (for a menu, say) has to enumerate `Workspace.Folder` with its own directory
+calls; `Workspace.Exists(file)`, `Resolve(file)` and the `Folder` property touch nothing.[^workspace-ensure]
 
 Examples appear only when the player asks for them (`kfs examples`, or File > Examples in the editor);
 see [examples](/tooling/examples.md).
@@ -203,6 +208,38 @@ editor's (possibly unsaved) text is used instead of the disk text.
 ```text
 ^\s*#\s*include\s*"([^"]+)"\s*
 ```
+
+The scan is a regular expression over the whole text (`RegexOptions.Multiline`, applied with
+`Matches`), not the preprocessor, and it differs from what the compiler will later include in
+three ways:[^workspace-include-scan]
+
+- **It does not know comments or conditionals.** An `#include "x.h"` inside a `/* … */` block or
+  an inactive `#if` branch is found like any other, so `x.h` joins the project's file set (when it
+  exists) although the compiler never reads it. This only widens the set.
+- **It misses an indented include that directly follows another include line.** The pattern ends
+  in `\s*`, which also consumes the line break and the next line's indentation; the search for the
+  next match then resumes in the middle of that line, where `^` cannot match. In
+
+  ```c
+  #include "a.h"
+      #include "b.h"
+  #include "c.h"
+  ```
+
+  the scan finds `a.h` and `c.h` and not `b.h`. If `b.h` is reached by no other include it is
+  missing from the project's file set, and the compiler — which looks a quoted include up in that
+  set, not on disk — reports it as not found (`KC-E015`) although the file exists. An unindented
+  include on the next line is found (the match stops exactly at its line start).
+- **The name may span lines**: `[^"]+` accepts a line break between the quotes.
+
+`Inferred:` these three follow from the pattern and from how `Regex.Matches` continues after a
+match; the game was not run. The same pattern, executed by .NET's regular-expression engine,
+behaves this way in purrTTY's tests (`purrTTY.Kfs.Tools.Tests/Projects/IncludeScanTests.cs` in
+this repository), whose project resolver reproduces the scan deliberately so that a tool builds
+the same file set as the game.
+
+Only a root-level `.c` file is scanned at all; a folder project takes every source file of the
+folder.
 
 ## How the two languages resolve includes
 
@@ -386,3 +423,5 @@ clears `_lastFile` when it pointed there, and removes the containing folder if t
 [^editor-window]: KfsEditorWindow.cs — `WorkspaceTreeNow` :1416-1433; `WatchWorkspace` (calls `Ensure`, creates the `FileSystemWatcher`) :1435-1460; unsaved marker in the tree :1524-1527.
 [^offline-harness]: The complete spike program and its output (`program log k=1: lights: 3`) in the offline harness document.
 [^text-box-widget]: KfsTextBoxWidget.cs — `BUFFER_CAPACITY` :11-13; `Draw` (`_buffer.SetValue`) :41-54. Brutal.ImGuiApi/ImInputString.cs — `SetValue` :52-68; `ValidateLength` :82-88.
+[^workspace-include-scan]: Workspace.cs:169 (`[GeneratedRegex("^\\s*#\\s*include\\s*\"([^\"]+)\"\\s*", RegexOptions.Multiline)]`), :203-224 (the breadth-first walk over `QuotedInclude().Matches(…)`).
+[^workspace-ensure]: Workspace.cs:38-41 (`Ensure`), :43-54 (`List` calls `Ensure()` first), :105-111 (`Write` calls `Ensure()` first), :66-78 (`Resolve`, `Exists`: no side effect).

@@ -101,8 +101,8 @@ void x_parts_describe(uint32_t kind);
 
 /* x_light_count - Number of lights on the vehicle; indices are 0 to count-1.
    Returns the number of lights.
-   Every light emitter of the vehicle, interior fill lights included, ranked by part instance id in
-   the list frozen when the run started.
+   Every light emitter of the vehicle, interior fill lights included, ranked by module instance id
+   (the order the game created them in) in the list frozen when the run started.
    Service 0x5010 SVC_X_LIGHT_COUNT, cost class Light. */
 uint32_t x_light_count(void);
 
@@ -113,7 +113,10 @@ uint32_t x_light_count(void);
    Never rejects the index: an index out of range, or a part that has left the vehicle, reads 0, so
    the PRESENT property can be used to probe. Check PRESENT before trusting another property: 0 is
    also a real value of some (a spot light's TYPE, a SWITCH_GROUP of light 0); X_DEPLOY_STATE reads
-   X_STATE_NONE. A selector of the other getter is rejected by the VM at issue time.
+   X_STATE_NONE. A selector of the other getter is rejected by the VM at issue time. X_LIGHT_LIT is
+   1 while the light is switched on and powered (an interior fill light or a light without a
+   switch: always), whatever the camera shows: an interior fill light is not drawn in the IVA view
+   but still reads 1.
    Service 0x5011 SVC_X_LIGHT_GETI, cost class Light. */
 uint32_t x_light_geti(uint32_t light, uint32_t prop);
 
@@ -132,19 +135,24 @@ float x_light_getf(uint32_t light, uint32_t prop);
    light: light index.
    on: 0 switches off, anything else on.
    On and off are per part: emitters sharing a part switch together (see X_LIGHT_SWITCH_GROUP). A
-   light without a switch (X_LIGHT_HAS_SWITCH 0) is rejected.
+   light without a switch (X_LIGHT_HAS_SWITCH 0) is rejected. X_LIGHT_ON reads the new state from
+   the next frame on. X_LIGHT_LIT follows a switch-off at the same time, but a switch-on one frame
+   later, because it also needs the switched-on-and-powered state that the game's physics step
+   commits.
    Rejected (program log, sys.rejected_requests) when: light index out of range or departed; light
    has no switch.
    Service 0x5013 SVC_X_LIGHT_SET_ON, cost class Light. */
 void x_light_set_on(uint32_t light, uint32_t on);
 
-/* x_light_set_color - Overrides a light's emission colour (linear RGB, each component clamped to
-   0..1).
+/* x_light_set_color - Overrides a light's emission colour (red, green, blue, each component
+   clamped to 0..1).
    light: light index.
-   rgb: linear RGB, each component clamped to 0..1.
+   rgb: red, green, blue, each component clamped to 0..1.
    The first appearance write gives this light a private copy of its template, so other lights of
    the same part type are unaffected. The override lasts until x_light_reset, a reload or the
-   part's destruction, and is not saved.
+   part's destruction, and is not saved; it outlives the program: purr lights reset in the game
+   console restores the stock look. The components are given to the game's light colour as they
+   are, unconverted; the colour space is the game's own and has not been verified.
    Rejected (program log, sys.rejected_requests) when: light index out of range or departed.
    Service 0x5014 SVC_X_LIGHT_SET_COLOR, cost class Light. */
 void x_light_set_color(uint32_t light, vec3 rgb);
@@ -156,7 +164,8 @@ void x_light_set_color(uint32_t light, vec3 rgb);
    outer_rad: outer cone half-angle in radians, clamped to 1e-5..1.5697963.
    The first appearance write gives this light a private copy of its template, so other lights of
    the same part type are unaffected. The override lasts until x_light_reset, a reload or the
-   part's destruction, and is not saved.
+   part's destruction, and is not saved; it outlives the program: purr lights reset in the game
+   console restores the stock look.
    Rejected (program log, sys.rejected_requests) when: light index out of range or departed.
    Service 0x5015 SVC_X_LIGHT_SET_CONE, cost class Light. */
 void x_light_set_cone(uint32_t light, float inner_rad, float outer_rad);
@@ -166,8 +175,8 @@ void x_light_set_cone(uint32_t light, float inner_rad, float outer_rad);
    intensity: unitless, >= 0, clamped to at most 1e6 (stock parts use 0.05..50).
    The first appearance write gives this light a private copy of its template, so other lights of
    the same part type are unaffected. The override lasts until x_light_reset, a reload or the
-   part's destruction, and is not saved. X_LIGHT_STOCK_INTENSITY is the authored value to scale
-   from.
+   part's destruction, and is not saved; it outlives the program: purr lights reset in the game
+   console restores the stock look. X_LIGHT_STOCK_INTENSITY is the authored value to scale from.
    Rejected (program log, sys.rejected_requests) when: light index out of range or departed.
    Service 0x5016 SVC_X_LIGHT_SET_INTENSITY, cost class Light. */
 void x_light_set_intensity(uint32_t light, float intensity);
@@ -177,7 +186,8 @@ void x_light_set_intensity(uint32_t light, float intensity);
    range_m: range in metres, >= 0, clamped to at most 1e6.
    The first appearance write gives this light a private copy of its template, so other lights of
    the same part type are unaffected. The override lasts until x_light_reset, a reload or the
-   part's destruction, and is not saved.
+   part's destruction, and is not saved; it outlives the program: purr lights reset in the game
+   console restores the stock look.
    Rejected (program log, sys.rejected_requests) when: light index out of range or departed.
    Service 0x5017 SVC_X_LIGHT_SET_RANGE, cost class Light. */
 void x_light_set_range(uint32_t light, float range_m);
@@ -198,7 +208,7 @@ void x_lights_set_all(uint32_t on);
 
 /* x_deploy_count - Number of deployables (parts the game shows with Deploy and Retract).
    Returns the number of deployables.
-   Animations with Deploy / Retract buttons and a duration above zero, ranked by part instance id
+   Animations with Deploy / Retract buttons and a duration above zero, ranked by module instance id
    in the list frozen when the run started.
    Service 0x5020 SVC_X_DEPLOY_COUNT, cost class Light. */
 uint32_t x_deploy_count(void);
@@ -229,6 +239,8 @@ float x_deploy_getf(uint32_t index, uint32_t prop);
    index: deployable index.
    deployed: 0 retracts, anything else deploys.
    The animation moves at its authored rate: poll X_DEPLOY_STATE or X_DEPLOY_POSITION.
+   X_DEPLOY_TARGET reads the new goal from the next frame on; the position and state change from
+   the frame after it.
    Rejected (program log, sys.rejected_requests) when: deployable index out of range or departed.
    Service 0x5023 SVC_X_DEPLOY_SET, cost class Light. */
 void x_deploy_set(uint32_t index, uint32_t deployed);
@@ -242,8 +254,8 @@ void x_deploy_toggle(uint32_t index);
 
 /* x_actuator_count - Number of actuators (parts the game shows with a 0..1 slider).
    Returns the number of actuators.
-   Animations without Deploy / Retract buttons, ranked by part instance id in the list frozen when
-   the run started.
+   Animations without Deploy / Retract buttons, ranked by module instance id in the list frozen
+   when the run started.
    Service 0x5030 SVC_X_ACTUATOR_COUNT, cost class Light. */
 uint32_t x_actuator_count(void);
 
@@ -272,8 +284,9 @@ float x_actuator_getf(uint32_t index, uint32_t prop);
 /* x_actuator_set - Drives an actuator toward a position, 0..1 of its travel.
    index: actuator index.
    value: target position, 0..1 of the travel (clamped).
-   The part moves at its authored rate; poll X_ACTUATOR_POSITION. A program that changes the target
-   every tick keeps the part moving and the vehicle off rails.
+   The part moves at its authored rate; poll X_ACTUATOR_POSITION, which changes from the second
+   frame after the call (X_ACTUATOR_TARGET from the next). A program that changes the target every
+   tick keeps the part moving and the vehicle off rails.
    Rejected (program log, sys.rejected_requests) when: actuator index out of range or departed.
    Service 0x5033 SVC_X_ACTUATOR_SET, cost class Light. */
 void x_actuator_set(uint32_t index, float value);

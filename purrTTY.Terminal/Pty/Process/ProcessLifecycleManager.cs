@@ -101,10 +101,11 @@ internal static class ProcessLifecycleManager
     ///     in the format "NAME=VALUE\0NAME2=VALUE2\0\0".
     /// </summary>
     /// <param name="additionalVariables">Additional environment variables to add/override</param>
+    /// <param name="removedVariables">Names removed after the merge (inherited or added alike)</param>
     /// <returns>Pointer to the environment block (must be freed with Marshal.FreeHGlobal)</returns>
-    internal static IntPtr CreateEnvironmentBlock(Dictionary<string, string>? additionalVariables)
+    internal static IntPtr CreateEnvironmentBlock(Dictionary<string, string>? additionalVariables, IReadOnlyCollection<string>? removedVariables = null)
     {
-        if (additionalVariables == null || additionalVariables.Count == 0)
+        if ((additionalVariables == null || additionalVariables.Count == 0) && (removedVariables == null || removedVariables.Count == 0))
         {
             return IntPtr.Zero; // Use parent process environment
         }
@@ -121,11 +122,20 @@ internal static class ProcessLifecycleManager
             }
         }
 
-        foreach (var kvp in additionalVariables)
+        foreach (var kvp in additionalVariables ?? new Dictionary<string, string>())
         {
             if (!string.IsNullOrEmpty(kvp.Key))
             {
                 envVars[kvp.Key] = kvp.Value ?? string.Empty;
+            }
+        }
+
+        // Removed after the merge: an inherited value and a default the options carry alike.
+        foreach (string name in removedVariables ?? Array.Empty<string>())
+        {
+            if (!string.IsNullOrEmpty(name))
+            {
+                envVars.Remove(name);
             }
         }
 
@@ -154,8 +164,13 @@ internal static class ProcessLifecycleManager
         try
         {
             var process = SysProcess.GetProcessById(processInfo.dwProcessId);
-            process.EnableRaisingEvents = true;
+            // Subscribe first: enabling the events registers a wait on the process handle,
+            // which fires at once for a child that has already exited — with the handler
+            // attached only afterwards, that exit would be lost (and the session's exit
+            // latch never set). No explicit HasExited check is needed: the wait registered
+            // here also fires for an already-signalled handle.
             process.Exited += onProcessExited;
+            process.EnableRaisingEvents = true;
             return process;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)

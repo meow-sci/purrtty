@@ -29,7 +29,7 @@ sources:
   - id: kc-front-end
     resource: ksa-decomp:KSA.Kfs.KC/KcFrontEnd.cs
     title: KcFrontEnd (decompiled)
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T21:56:52Z }
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -169,6 +169,13 @@ act on `Target`.[^workbench] Two details matter to callers:
   freezes its I/O layout) when the vehicle has none.[^kfs-integration][^kfs-vehicle-host] Selecting
   the vehicle target is therefore enough to attach a kFS host to the controlled vehicle.
   `ActiveVehicleIdSource` exists so the per-frame toolbar can show the id without doing that.
+  **None of this checks the prototype switch.** No type in `KSA.Kfs.Host.Workbench` reads
+  `KfsPrototype`; the "kfs is off" refusal exists only in the console command, where
+  `KfsConsoleCommands.Execute` tests `verb.NeedsFlag && !On()` before running a verb. Code that
+  calls `Workbench.SelectTarget("vehicle")`, `TargetActiveVehicle()` or `Load("… --vehicle")`
+  directly therefore creates a `KfsVehicleHost` for the controlled vehicle and switches what
+  `kfs load`, `start`, `stop` and `reset` act on **even while the switch is off**. A mod should
+  test `KfsPrototype.Enabled` itself before retargeting on the player's behalf.[^workbench-flag]
 - `Upload` and `Load --vehicle` take the destination from `ActiveVehicle()` at that moment, not from
   `_vehicle`; if the player has switched vehicles, the load goes to the newly controlled one and
   `_vehicle` follows it.[^workbench]
@@ -377,3 +384,4 @@ These exist for the [editor window](/tooling/editor-window.md) and print nothing
 [^kfs-vehicle-host]: KfsVehicleHost.cs — class declaration (`: IVehicleTarget`) :19; `Layout => Frozen.Layout` :67; constructor (frozen controller set :109, bench part :110) :105-118; `For` :139-142.
 [^editor-model]: EditorModel.cs — `Assemble` (background `Task.Run`) :406-427; `Poll` :429-449.
 [^kc-front-end]: KcFrontEnd.cs — `[ModuleInitializer] Register()` :25-29.
+[^workbench-flag]: Workbench.cs:944-971 (`SelectTarget`), :1066-1073 (`TargetActiveVehicle`): no flag test; the only test is KfsConsoleCommands.cs:210. A search of the decompiled `KSA.Kfs.Host.Workbench` folder finds no reference to `KfsPrototype`.

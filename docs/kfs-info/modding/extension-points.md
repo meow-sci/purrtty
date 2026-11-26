@@ -26,7 +26,19 @@ sources:
   - id: system-headers
     resource: ksa-decomp:KSA.Kfs.KC/SystemHeaders.cs
     title: SystemHeaders (decompiled)
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T22:02:02Z }
+  - id: builtin-includes
+    resource: ksa-decomp:KSA.Kfs.KAsm/BuiltinIncludes.cs
+    title: BuiltinIncludes (decompiled)
+  - id: kfs-integration
+    resource: ksa-decomp:KSA.Kfs/KfsIntegration.cs
+    title: KfsIntegration (decompiled)
+  - id: console-commands
+    resource: /tooling/console-commands.md
+    title: kFS console commands
+  - id: dispatch-and-threading
+    resource: /integration/dispatch-and-threading.md
+    title: kFS dispatch and threading
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -40,6 +52,10 @@ by one data-table object. Each entry below says what a mod would add, how, and h
 - **Tested offline** — exercised against the real `KSA.dll` in [the offline harness](/modding/offline-harness.md).[^offline-harness]
 - **Read** — established from the decompiled code, not executed.
 - **Precedent** — done by an existing mod in the running game.
+- **Implemented** — used by purrTTY's kFS extension in this repository (`purrTTY.Kfs`,
+  `purrTTY.Kfs.Lsp`, `purrTTY.GameMod/Kfs`) and covered by its offline tests, which run the real
+  `KSA.dll` outside the game. **None of it has run in the game**; "implemented" is not "verified in
+  game". The section "What an implementation has exercised" says which code and which tests.
 
 Area-specific detail lives in four companion documents:
 [toolchain](/compiler/toolchain-extension-points.md),[^toolchain-extension-points]
@@ -51,20 +67,20 @@ Area-specific detail lives in four companion documents:
 
 | # | Extension | Cost | Evidence | Verdict |
 | --- | --- | --- | --- | --- |
-| 1 | New **services** (program → game, one result cell back) | 3 small Harmony postfixes + data | Tested offline, including a 22-service family | **Use this** |
-| 2 | New **kC headers / builtins / constants** | none (public statics) | Tested offline | Use with 1 |
-| 3 | New **kASM symbols** for services | none (automatic from rows) | Tested offline | Free with 1 |
-| 4 | New **enumerations** as argument domains | data | Read | Use with 1 |
+| 1 | New **services** (program → game, one result cell back) | 3 small Harmony postfixes + data | Tested offline, including a 22-service family; implemented | **Use this** |
+| 2 | New **kC headers / builtins / constants** | none (public statics) | Tested offline; implemented | Use with 1 |
+| 3 | New **kASM symbols** for services | none (automatic from rows) | Tested offline; implemented | Free with 1 |
+| 4 | New **enumerations** as argument domains | data | Tested offline (sub-range domains, E25); implemented | Use with 1 |
 | 5 | New **host-published messages** (game → program, structured) | catalogue row + packer patch + delivery | Read | Possible, heavier |
 | 6 | New **command / sensor fields** (memory-mapped I/O) | layout, header, write-back patches; breaks all images | Read | Avoid |
 | 7 | New **opcodes** | interpreter, loader, both compilers | Read | Not practical |
-| 8 | New **console verbs** | prefix on `KfsConsoleCommands.Execute`, or a separate command | Read | Easy |
-| 9 | Shipping **example programs** | write files, or patch the examples menu | Read | Easy |
-| 10 | Capturing **program output and telemetry** | polling public objects | Read | Easy, no patch |
-| 11 | Driving the **workbench** programmatically | public API | Tested offline (build/load/start) | Easy, no patch |
+| 8 | New **console verbs** | prefix on `KfsConsoleCommands.Execute`, or a separate command | Read; a separate command is implemented (its game registration is compiled, not executed) | Easy |
+| 9 | Shipping **example programs** | write files, or patch the examples menu | `Workspace.Write` tested offline (E11); implemented | Easy |
+| 10 | Capturing **program output and telemetry** | polling public objects | Read; log, snapshot and trace polling implemented and tested offline against real `HostComputer`s; the output tee's game side is compiled, not executed | Easy, no patch (one optional patch to avoid doubled errors) |
+| 11 | Driving the **workbench** programmatically | public API | Tested offline (build/load/start); running verb lines through `KfsConsoleCommands.Execute` is implemented (compiled, not executed) | Easy, no patch |
 | 12 | Extending the **editor / reference UI** | mostly automatic; postfix `DrawMenuBar` for more | Read | Optional |
 | 13 | Replacing the **kC front end** | `Compiler.KcFrontEnd` is settable | Read | Exotic |
-| 14 | A **language server** on the game's compiler | public compiler, tables and AST types | Tested offline (diagnostics, hover, completion with Neovim) | Feasible — see [language-tooling surface](/modding/language-tooling-surface.md) |
+| 14 | A **language server** on the game's compiler | public compiler, tables and AST types | Tested offline (diagnostics, hover, completion with Neovim); implemented, standalone and as an in-game host | Feasible — see [language-tooling surface](/modding/language-tooling-surface.md) |
 
 # 1 — Services
 
@@ -111,9 +127,16 @@ into the workspace.
 `<kfs.kinc>` and `<vehicle.kinc>` are computed on every assembly from the tables and the layout:
 `SVC_*` from each service row's `symbol`, `MSG_*` and struct types from the message catalogue,
 `sensors.*` / `commands.*` from the layout. A mod-added row is therefore usable as
-`SYSCALL SVC_…` with no further work. The `KFS_*` enumeration constants come from
+`SYSCALL SVC_…` with no further work.[^builtin-includes] The `KFS_*` enumeration constants come from
 `CatalogueEnums.All`, which is hard-coded to seven groups; a postfix on that public static method
 could add more. See [kASM](/compiler/kasm-assembly-language.md).
+
+So a mod's symbols end up in two places. The **service ids** (`SVC_<SYMBOL>`) are in the
+generated `<kfs.kinc>`, because the game builds that include from the augmented service rows on
+every assembly. The mod's own **constants** — selector values, enumeration names — are not, and a
+mod supplies them as a `.kinc` file of `.equ` lines that the program includes with
+`.include "name.kinc"`. A kASM program that uses a mod service needs both includes; the mod's
+file must not define the `SVC_*` names again.
 
 # 4 — Enumerations
 
@@ -172,6 +195,11 @@ register a separate command with the game's console (the route purrTTY's `GameCo
 already rides), or prefix the public `KfsConsoleCommands.Execute(string)` to intercept new verbs.
 See [console commands](/tooling/console-commands.md).
 
+A separate command needs care about its **owner object**: the console replaces a command
+registered again under the same owner, removes commands only per owner, and its `help` throws when
+two owners hold the same name — which a reloaded mod produces if it registers under a new owner
+each time.[^console-commands]
+
 # 9 — Example programs
 
 `Workspace.Write(path, text)` and `Workbench.Edit(path)` are public, so a mod can drop files into
@@ -184,7 +212,7 @@ behind a read-only interface; extending the menu needs a postfix. See
 
 | What | Where | How to read |
 | --- | --- | --- |
-| `kfs …` command replies | `KfsIntegration.Output` (public settable `TextWriter`) | wrap it; note `KfsIntegration.Error` also writes to a non-default writer |
+| `kfs …` command replies | `KfsIntegration.Output` (public settable `TextWriter`) | wrap it, then read `KfsIntegration.Workbench` once: the workbench copies `Output` only when that getter runs. `KfsIntegration.Error` writes its line to a non-default writer **in addition** to logging it, and the console shows log errors itself, so a wrapper that forwards everything prints each `kfs` error twice[^kfs-integration] |
 | Program log (`kfs_logf`) and host events | `computer.Console` (`ConsoleLog`) | poll `Version`, then `CopyTail`; no event exists |
 | Traces, watches, bus samples | `computer.Traces`, `Watches`, `Bus` | public read models |
 | Machine state | `computer.Snapshot` | immutable, safe from the UI thread |
@@ -224,6 +252,37 @@ re-installed afterwards. Useful only for source-to-source experiments.
 | Postfix on `KfsIntegration.BeforeInputEvents` | **main, sync window** | every frame, even paused or flag off | all game mutation |
 | StarMap `[StarMapAfterGui]` / ImGui windows | main, **UI phase (dispatches in flight)** | every drawn frame | UI only |
 
+What the sync-window hook writes is not all visible at the same time. A **field** of a live object
+(a switch flag, an animation goal, a light template) is read by the dispatches of the job started
+in the same frame; **committed module state** computed from it (an animation's position, whether a
+consumer is active) is produced by that job and committed at the start of the following frame, so
+a program reads it one frame later still. And although `BeforeInputEvents` itself runs every
+frame, the stock body — including the pruning of dead hosts — runs only while the kFS switch is
+on.[^dispatch-and-threading][^kfs-integration]
+
+# What an implementation has exercised
+
+purrTTY's kFS extension uses entries 1–4, 8–11 and 14. This table says, for each mechanism, where
+the code is and how far it has been exercised. "Offline" means the repository's test suite, which
+loads the unmodified `KSA.dll` and runs the game's own compiler, VM and host classes in a test
+process (see [the offline harness](/modding/offline-harness.md)). The last column is the same in
+every row on purpose.
+
+| Mechanism | purrTTY code (repository-relative) | Exercised offline | In the game |
+| --- | --- | --- | --- |
+| Table augmentation, published by assigning `KfsIntegration._tables` (with the `LoadEmbedded` postfix as fallback) | `purrTTY.Kfs/Tables/TableAugmenter.cs`, `TablesPublisher.cs` | yes: the game's loader validates the rows; both publication paths | not run |
+| kC header and builtin registration; removal at unload | `purrTTY.Kfs/Tables/SystemHeaderRegistration.cs` | yes | not run |
+| `VehicleComputer.ApplyRequest` and `ISyscallHost.IssueResult` postfixes | `purrTTY.Kfs/Patches/` | yes: every service through the real VM on a `FakeVehicle` computer | not run |
+| `HostComputer.ApplyRequest` postfix for the bench | `purrTTY.Kfs/Patches/BenchApplyRequestPatch.cs` | yes, on a `BenchMachine` | not run; the target is a one-line virtual that may be inlined |
+| `KfsIntegration.BeforeInputEvents` postfix | `purrTTY.Kfs/Patches/BeforeInputEventsPatch.cs`, `Game/MainThreadPump.cs` | the pump logic yes, over simulated hosts; the postfix is applied but nothing calls the patched method offline | not run |
+| Host discovery through `KfsVehicleHost.AllHosts`; reads and writes of `LightModule`, `PowerConsumer`, `KeyframeAnimationModule` | `purrTTY.Kfs/Game/HostDirectory.cs`, `GameHostSource.cs`, `KsaVehicleParts.cs` | no (needs live vehicles); only the pure rules in `KsaPartRules.cs` and the template cloning in `LightOverrides.cs` | not run |
+| A separate console command (`TerminalInterface.RegisterCommand`, `[TerminalAction]`) | `purrTTY.Kfs/Console/`, `Game/KsaConsoleHost.cs` | the command and its verbs yes, against a fake console; the game registration no | not run |
+| Example programs through `Workspace.Write` | `purrTTY.Kfs/Examples/` | yes: every example built as the workbench builds a folder and run on a simulated vehicle | not run |
+| Output tee on `KfsIntegration.Output`; verb lines through `KfsConsoleCommands.Execute`; prefix and finalizer on `KfsIntegration.Error` | `purrTTY.Kfs.Lsp/InGame/OutputTee.cs`, `purrTTY.GameMod/Kfs/KsaKfsGameSide.cs`, `KfsErrorEchoPatch.cs` | the tee and the queue yes, over a fake game side; the game calls no | not run; `Error` is small enough to be inlined |
+| Program log, snapshot and loaded image read from another thread (`ConsoleLog.Version` / `CopyTail`, `HostComputer.Snapshot`, `LoadedBytes`) | `purrTTY.Kfs.Lsp/Live/HostComputerLive.cs`, `Features/LiveFeed.cs` | yes, against real `HostComputer` objects | not run |
+| A language server on `Compiler.CompileOnThisThread`, `Assembler`, `Lexer`, the tables and `BuiltinIncludes` | `purrTTY.Kfs.Lsp/`, `purrTTY.Kfs/Runtime/ProjectResolver.cs`, `ProjectCompiler.cs` | yes, including a headless Neovim | the standalone server needs no game; the in-game host is not run |
+
+
 # Modding notes
 
 - Start from entry 1; it covers commands and scalar read-back with three patches on stable
@@ -239,3 +298,7 @@ re-installed afterwards. Useful only for source-to-source experiments.
 [^tooling-extension-points]: Workbench, console, editor and reference window.
 [^game-tables-loader]: Loader, validation and consumers of the tables.
 [^system-headers]: SystemHeaders.cs:8–41.
+[^builtin-includes]: BuiltinIncludes.cs:43-46 (`kfs.kinc`: `Constants[item.Symbol] = item.Id` for every non-reserved row of `tables.ServicesData.Services`), :33 (constructor, run for every `.include <…>`).
+[^kfs-integration]: KfsIntegration.cs:91 (`Output`), :118 (the `Workbench` getter assigns `_workbench.Out = Output` on every read), :128-135 (`Error`: logs, then writes to `Output` unless it is the private `ConsoleWindowWriter`), :158-176 (`BeforeInputEvents`: the whole body is inside `if (KfsPrototype.Enabled)`, `ReleaseDead()` at :163).
+[^console-commands]: "Registering a separate command: the owner matters", with the lines of `TerminalInterface`.
+[^dispatch-and-threading]: "What a dispatch reads: live fields and committed state".

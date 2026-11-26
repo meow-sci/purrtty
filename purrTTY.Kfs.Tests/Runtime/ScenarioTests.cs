@@ -121,13 +121,14 @@ public sealed class ScenarioTests : RuntimeFixture
         Assert.That(v.LogText.Where(t => t.StartsWith("deploy k=", StringComparison.Ordinal)), Is.EqualTo(new[]
         {
             "deploy k=0 state=2 pos=0.00",    // X_STATE_RETRACTED
-            "deploy k=2 state=3 pos=0.05",    // X_STATE_DEPLOYING
-            "deploy k=21 state=1 pos=1.00",   // X_STATE_DEPLOYED
+            "deploy k=3 state=3 pos=0.05",    // X_STATE_DEPLOYING: stepped in frame 3, after frame 2's pump
+            "deploy k=22 state=1 pos=1.00",   // X_STATE_DEPLOYED
         }), v.Dump);
 
-        // The command of tick 1 is applied at 0.1 s and the 2 s animation arrives at exactly 2.1 s.
+        // The command of tick 1 is applied at 0.2 s (frame 2's pump, after its step) and the 2 s
+        // animation arrives at exactly 2.2 s.
         var applied = v.Parts.Applied.Single();
-        Assert.That(applied.TimeS, Is.EqualTo(0.1).Within(1e-9));
+        Assert.That(applied.TimeS, Is.EqualTo(0.2).Within(1e-9));
         Assert.That(v.Parts.DeployHistory.Select(h => (h.Index, h.State)),
             Is.EqualTo(new[] { (0, DeployState.Deploying), (0, DeployState.Deployed) }));
         Assert.That(v.Parts.DeployHistory[^1].TimeS - applied.TimeS, Is.EqualTo(2.0).Within(1e-9));
@@ -146,12 +147,15 @@ public sealed class ScenarioTests : RuntimeFixture
                 x_actuator_set(0u, cmd);
             """, "float cmd;\nfloat ph;\n"));
 
+        // Seen before each dispatch: the step of this frame ran with the goal the previous frame's
+        // pump set, and must have reached it.
         double maxLag = 0;
+        double? previousGoal = null;
         v.Run(8.0, 0.1, s =>
         {
-            if (s.FrameCount < 2) return;
             SimAnimation a = s.Parts.Actuator(0);
-            maxLag = Math.Max(maxLag, Math.Abs(a.PositionS - a.GoalS));
+            if (previousGoal is double g) maxLag = Math.Max(maxLag, Math.Abs(a.PositionS - g));
+            previousGoal = a.GoalS;
         });
 
         static double Triangle(int k) { double ph = k % 40 / 20.0; return ph < 1 ? ph : 2 - ph; }
@@ -162,8 +166,8 @@ public sealed class ScenarioTests : RuntimeFixture
         Assert.That(rows, Has.Count.EqualTo(16), v.Dump);
         Assert.That(rows[0], Is.EqualTo((0, 0.0)));
         foreach (var (k, pos) in rows.Skip(1))
-            Assert.That(pos, Is.EqualTo(Triangle(k - 1)).Within(0.0015), $"position read in tick {k} is the command of tick {k - 1}");
-        Assert.That(maxLag, Is.LessThan(1e-9), "the wave's slope (0.5/s) is below the slew rate (1/s): each goal is reached within its frame");
+            Assert.That(pos, Is.EqualTo(Triangle(k - 2)).Within(0.0015), $"position read in tick {k} is the command of tick {k - 2} (applied by frame {k - 1}'s pump, stepped in frame {k})");
+        Assert.That(maxLag, Is.LessThan(1e-9), "the wave's slope (0.5/s) is below the slew rate (1/s): each goal is reached by the next step");
     }
 
     /// <summary>

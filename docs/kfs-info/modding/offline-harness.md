@@ -29,7 +29,13 @@ sources:
   - id: compat-5949
     resource: ../../ksa-5949-compatibility.md
     title: purrTTY KSA 5949 compatibility review (offline Harmony probe)
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T22:02:02Z }
+  - id: dispatch-and-threading
+    resource: /integration/dispatch-and-threading.md
+    title: kFS dispatch and threading
+  - id: compiler
+    resource: ksa-decomp:KSA.Kfs.Compiler/Compiler.cs
+    title: Compiler (decompiled)
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 verified: { by: process:kfs-offline-spike, at: 2026-11-25T22:38:23Z }
 status: stable
 ksa_build: "2026.11.25.5949"
@@ -297,7 +303,7 @@ E25–E27 from spike 06 and E22–E24 from spike 05.
 | E13 | Does a whole service family work? | Yes. Spike 06 defined 22 services (ids `0x5000–0x5033`: bookkeeping, lights, deployables, actuators) and their enumerations from one definition list, generated the rows, the enum entries and a 22-prototype header, and ran kC and kASM programs calling every one against a simulated parts back end: in its final form 76 checks passed, none failed. The augmented tables reported 42 services. |
 | E14 | What may a mod header contain? | Function bodies (`static`, `static inline`, plain), anonymous and named `enum`s and `#include <vecmat.h>` all compile. But an unused `static`/inline helper raises `KC-W006 … never used` in every program that includes the header, and a non-static body included from two `.c` files is `KC-E016`. Use `#define`s and prototypes only. Including a prototype-only header adds **0 bytes of code** (28 bytes of debug info). |
 | E15 | Do new `enums.json` keys disturb anything? | No. They are usable at once as `enum:<key>` domains (an unknown key fails the load with `domain 'enum:…' doesn't fit type 'u32'`). `kfs.h`, `vehicle.h`, `vehicle.kinc` and the kASM enum constants are unchanged, and a stock program compiles byte-identically. kASM does **not** get the new constants (`KA-E003 unknown symbol`); it gets only the `SVC_*` symbols. |
-| E16 | When is a write readable? | With commands applied once per frame before the dispatch (the game's order), a value set in tick *k* is read back in the **first tick of the next dispatch**: *k+1* at one tick per frame, later when several ticks share a frame; never in the same tick. |
+| E16 | When is a write readable? | With commands applied once per frame before the dispatch (the game's order), a value set in tick *k* is read back in the **first tick of the next dispatch**: *k+1* at one tick per frame, later when several ticks share a frame; never in the same tick. This holds for what the spike modelled — values that change the moment a command is applied. Committed module state follows one frame later; see "After the spikes". |
 | E17 | What does a call cost? | On the Bench processor at 50 Hz (budget 20,000 cycles), measured cycles equal the compile report's WCET: 22–25 cycles for a Light-class call with up to two scalar arguments, 55 with a `vec3`, 40 for Medium. The binding limit is the VM's 256 service calls per tick (`kfs_logf` counts): the 257th onward are dropped with `dropped N service request(s)`. |
 | E18 | Result-bearing calls and the request queue | The VM queues a request for result-bearing calls as well. An unclaimed getter is therefore rejected "no vehicle to act on" **after** having returned its (zero) result — on the bench every mod call, getters included, is rejected that way. A mod must claim every id in its block. |
 | E19 | Which definition mistakes throw instead of diagnosing? | All of these escape `Compiler.Compile` as `InvalidOperationException`: prototype cell count ≠ row cell count (`<name>: 1 cells for 2 (kC §10.2 binding)`); a struct result; a prototype returning a value for a row with no result (`operand stack below the floor…`); a `void` prototype for a row with a result (`RET 0 with 1 cells…`). Silent: a `float` parameter against a `u32` cell compiles and passes float bits. |
@@ -310,13 +316,65 @@ E25–E27 from spike 06 and E22–E24 from spike 05.
 | E23 | Diagnostic positions | A diagnostic is a point: 1-based line, 1-based column counted in UTF-16 code units after CRLF→LF normalisation (a tab is 1, a non-BMP character 2); no end or length; line 0 / column 0 means "no position"; a diagnostic inside a header names it as `<kfs.h>:102:6`. Ranges derived from the token at that position mapped correctly in UTF-8, UTF-16 and UTF-32 client encodings. |
 | E24 | Compile latency and concurrency | First compile in a process 80–95 ms (kFS start-up ≈ 190 ms); warm compiles 0.2–2 ms for small files, ≈ 19 ms median (≤ 46 ms) for the largest stock examples. 400 compiles of 12 files on 8 threads, five times, matched serial results; up to 7 overlapping compiles of one document caused no error. A compile can still throw (E19), and one that hits the 30 s limit leaves its thread running. The compiler recovers and reports several errors per pass: 100 errors plus a "too many errors" marker; warnings are not capped. |
 
+# After the spikes: the harness as a test runtime
+
+The experiments above are the spikes, and `verified` in the frontmatter covers exactly those runs.
+What follows is not part of them: it is what building a complete extension on this harness added,
+taken from purrTTY's own code and test suite in this repository (`purrTTY.Kfs.Testing`, the
+library form of the harness; `purrTTY.Kfs.Tests` and `purrTTY.Kfs.Tools.Tests`). It ran offline
+only, like everything else here.
+
+**What became reusable.** `KsaAssemblyResolver` is Step 1 as a class; `KfsRuntime` installs an
+extension into the test process once (Harmony patches and `SystemHeaders` are process-wide, so one
+runtime per process); `SimVehicle` wraps a `FakeVehicle`'s `VehicleComputer` with simulated time,
+scripted telemetry, decoded stock requests and readable globals. The repository's
+`docs/build-and-test.md` describes how to write a test with them.
+
+**The order of a simulated frame matters, and E16 hid half of it.** A harness that only calls
+`Dispatch` has no notion of the game's frame. One that simulates parts must decide when they move
+relative to the program's ticks. The game's order — read from `Program.PrepareFrame` and
+`PhysicsBubble`, see [dispatch and threading](/integration/dispatch-and-threading.md) — is: commit
+the last job's results; run the main-thread hook; start the next job, in which the program's ticks
+run **before** the module update.[^dispatch-and-threading] A simulated frame that matches it is
+
+```text
+step the simulated parts     what the last job computed, from the goals and switches as they were
+apply queued commands        the main-thread hook: live fields change
+dispatch                     the ticks that are due; all of them see the same part state
+```
+
+purrTTY's first simulator applied commands, then stepped the parts, then dispatched. Its tests
+passed, and its programs saw an animation start moving one frame earlier than the game's order
+implies: a model can be self-consistent and still wrong. The order above was adopted after the frame order had
+been traced in the decompiled sources (`purrTTY.Kfs.Testing/SimVehicle.cs`,
+`purrTTY.Kfs.Tests/Runtime/FrameOrderTests.cs`). The same trace showed an asymmetry
+that a simple "committed state lags by a frame" model misses, and the simulator now reproduces
+it: the game reads a light that was just switched off as not lit immediately, and one that was
+just switched on as lit a frame later. `Unverified:` all of this in the running game.
+
+**Compiling in a harness.** `Compiler.Compile` starts a new thread with a 16 MiB stack for every
+call and joins it for the time limit; `Compiler.CompileOnThisThread` runs on the caller's thread
+with no limit.[^compiler] A harness that compiles often — a language server, a test suite — is
+better served by one long-lived thread of its own with that stack size and `CompileOnThisThread`.
+`KcFrontEnd.Register()` is the game assembly's module initialiser and is also called by every
+`new Workbench(…)`. `Inferred:` a harness therefore does not need to call it itself — a module
+initialiser runs before any other code of its assembly — and calling it again only assigns the
+same factory.
+
+**Two things every test program needs.** `#include <kfs.h>`: without it even `uint32_t` is
+unknown, because the fixed-width types are typedefs of `<stdint.h>`, which `<kfs.h>` includes. And
+`#pragma kfs claim ALLOCATION` before any write to the command block: without it the build fails
+with `KC-E544` (see [kC builtins](/language/kc-builtins-and-intrinsics.md)).[^system-headers-stdint]
+
 # What the harness cannot show
 
 - Anything about real vehicles: `KfsVehicleHost`, `KfsServices`, `KfsControllerSet` and
   `KfsHostSampler` need a live `Vehicle`. The fake vehicle has no parts, lights or animations.
 - Threading. The harness is single-threaded; in the game the dispatch runs on solver threads while
   the UI runs on the main thread — see [dispatch and threading](/integration/dispatch-and-threading.md).
-- Whether the JIT inlines a patched method at some call site in the running game.
+- Whether the JIT inlines a patched method at some call site in the running game. Offline every
+  patched method is called by test code compiled after the patch was applied; in the game the
+  callers may have been compiled first.
 - Loader timing: when StarMap lets a mod patch relative to the first use of `KfsIntegration.Tables`.
 - Rendering and simulation effects of changing a light or an animation. Spike 06's lights and
   animations are an in-memory model with the documented clamps and slew rate, not the game's.
@@ -330,6 +388,13 @@ E25–E27 from spike 06 and E22–E24 from spike 05.
   build already uses (`KSAFolder`, see `Directory.Build.props`).
 - Harmony patches applied in a test process are process-wide; unpatch in teardown and do not run
   such fixtures in parallel.
+- Under `dotnet test` the resolver cannot be installed early enough for everything: the test
+  framework reflects over the test assembly before any of its code runs. Game types may therefore
+  appear only inside method bodies and in the signatures of helper methods — not as field or
+  property types, base types, test-method parameters or attribute arguments — and a type in a test
+  assembly cannot implement an interface that has game-typed members. A violation makes the whole
+  test assembly fail to load, which a quiet test run reports as "no tests". Put fakes that
+  implement game interfaces into a separate library the tests reference.
 - Because every load of a fresh `GameTables` re-parses and re-validates the JSON, a table-shape
   change in a game update shows up here as a failing test rather than as a broken kFS in game.
 
@@ -341,3 +406,6 @@ E25–E27 from spike 06 and E22–E24 from spike 05.
 [^workbench]: Workbench.cs:70–80 (`Workspace`, `ActiveVehicle`), :364 (constructor), :659 (`Build`), :739 (`Load`), :944 (`SelectTarget`), :973 (`Start`), :1168 (`Frame`); IVehicleTarget.cs:5–14.
 [^kfs-integration]: KfsIntegration.cs:85–89.
 [^compat-5949]: docs/ksa-5949-compatibility.md — "Only a scratch copy of IL-only `KSA.dll` had its PE machine flag changed from x64 to arm64."
+[^dispatch-and-threading]: "The call chain" and "What a dispatch reads: live fields and committed state".
+[^compiler]: Compiler.cs:20 (`COMPILE_THREAD_STACK_BYTES = 16777216`), :26-59 (`Compile`: `new Thread` :34, name `kFS compile` :46, `Join(input.Options.TimeLimitMs)` :48), :61 (`CompileOnThisThread`); KcFrontEnd.cs:25-29 (`[ModuleInitializer] Register`); Workbench.cs:367.
+[^system-headers-stdint]: SystemHeaders.cs:10 (`stdint.h`: `typedef unsigned int uint32_t;`), :20 (`kfs.h` begins `#pragma once` / `#include <stdint.h>`).

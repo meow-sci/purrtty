@@ -94,11 +94,19 @@ public sealed class ResolverConfigurationTests
             }
         }
 
-        // The packaged mod, when a dist directory was built in this environment.
+        // The packaged mod, when a dist directory was built in this environment: no game assembly,
+        // the kFS extension shipped, and neither the test runtime nor any test assembly with it.
         string? dist = Environment.GetEnvironmentVariable("PURRTTY_DIST_DIR");
-        if (!string.IsNullOrWhiteSpace(dist) && Directory.Exists(Path.Combine(dist, "purrTTY")))
+        string? mod = string.IsNullOrWhiteSpace(dist) ? null : Path.Combine(dist, "purrTTY");
+        if (mod is not null && Directory.Exists(mod))
         {
-            offenders.AddRange(GameAssembliesIn(Path.Combine(dist, "purrTTY"), recursive: true));
+            offenders.AddRange(GameAssembliesIn(mod, recursive: true));
+            Assert.That(File.Exists(Path.Combine(mod, "purrTTY.Kfs.dll")), Is.True, "the mod ships the kFS extension");
+            var testOnly = new[] { "purrTTY.Kfs.Testing.dll", "*.Tests.dll", "nunit*.dll", "Microsoft.TestPlatform*.dll" }
+                .SelectMany(pattern => Directory.EnumerateFiles(mod, pattern, SearchOption.AllDirectories))
+                .Select(Path.GetFileName)
+                .ToList();
+            Assert.That(testOnly, Is.Empty, "no test runtime or test assembly in the mod");
         }
 
         Assert.That(offenders, Is.Empty, "game assemblies must be resolved at run time, never copied");

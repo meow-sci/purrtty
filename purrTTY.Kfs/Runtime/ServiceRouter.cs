@@ -191,17 +191,17 @@ public static class ServiceRouter
         uint index = Arg(request.Args, 0);
         if (sets.Slot(kind, index) is not { } slot)
         {
-            Reject(computer, binding, request, PartsText.OutOfRange(kind, index, sets.Count(kind)));
+            if (!RejectedSilently(computer, binding)) Reject(computer, binding, request, PartsText.OutOfRange(kind, index, sets.Count(kind)));
             return null;
         }
         if (!parts.IsPresent(slot))
         {
-            Reject(computer, binding, request, PartsText.Departed(slot));
+            if (!RejectedSilently(computer, binding)) Reject(computer, binding, request, PartsText.Departed(slot));
             return null;
         }
         if (requireSwitch && slot is LightSlot light && !parts.HasSwitch(light))
         {
-            Reject(computer, binding, request, PartsText.NoSwitch(light));
+            if (!RejectedSilently(computer, binding)) Reject(computer, binding, request, PartsText.NoSwitch(light));
             return null;
         }
         return slot;
@@ -223,6 +223,21 @@ public static class ServiceRouter
     {
         binding.CountRejected();
         computer.RejectService(request, reason);
+    }
+
+    /// <summary>
+    /// Counts a rejection without its text when the host's event limiter would drop that text
+    /// anyway (<c>HostComputer.RejectByHost</c>: count, then the event only if
+    /// <c>ConsoleLog.EventAllowed</c>), so a program hammering a bad index formats nothing per call
+    /// on the solver thread — as <see cref="Patches.BenchApplyRequestPatch"/> does. True when it
+    /// did (the caller then skips <see cref="Reject"/>); false: the caller rejects with the text.
+    /// </summary>
+    private static bool RejectedSilently(VehicleComputer computer, VehicleBinding binding)
+    {
+        if (computer.Console.EventAllowed(computer.LastK, computer.TickHz)) return false;
+        binding.CountRejected();
+        computer.Machine.CountRejectedRequest();
+        return true;
     }
 
     private static uint Arg(ReadOnlySpan<uint> args, int i) => (uint)i < (uint)args.Length ? args[i] : 0u;

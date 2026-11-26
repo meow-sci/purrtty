@@ -2,12 +2,60 @@
 
 | | |
 | --- | --- |
-| Status | Milestone M1 (tasks F1, A1, A2, A3, B1) implemented and tested **offline**, and corrected after its code review: on 2026-11-25 the solution suite passed 643 tests with 2 platform skips (260 of them in `purrTTY.Kfs.Tests`), Debug and Release, macOS arm64. Nothing has run in the game; the extension is not wired into `purrTTY.GameMod` (A4/A5 are next). Where the code differs from this text: §8.6. |
+| Status | Tasks F1, A1–A5, B1, B2, C1–C4 and D1–D3 are implemented, integrated into `purrTTY.GameMod`, independently reviewed and corrected. **Nothing has been run in the game.** Details: the "Status" section below; what must be checked in the game: §10. |
 | Branch | `feature/explore-kfs` |
 | KSA build researched | 2026.11.25.5949 |
 | Reference | [`docs/kfs-info/`](../docs/kfs-info/index.md) (OKF bundle), spikes in [`plans/investigations/kfs-spikes/`](investigations/kfs-spikes/README.md) |
 | Written | 2026-11-25 |
 | Reviewed | Checked independently against the decompiled game, the purrTTY sources and the spike code; its 37 findings (12 errors, 6 unsupported claims, 11 inconsistencies, 8 gaps) are incorporated |
+
+## Status (2026-11-26)
+
+**Nothing described here has been run in the game.** Everything below was built and tested
+**offline**: the tests load the player's own `KSA.dll` in an ordinary .NET process and run the
+game's real kFS compiler, assembler, virtual machine and host layer against simulated parts. The
+code that only exists inside the game (the list at the end of this section) was compiled against
+the game assemblies and audited member by member against the decompiled sources of build
+2026.11.25.5949, and no test executes it. §10 is the checklist that closes this gap; until its
+first items pass, treat every in-game behaviour in this document as designed, not observed.
+
+| Task | State | What exists |
+| --- | --- | --- |
+| F1, A1, A2, A3, B1 (milestone M1) | done, offline | scaffolding and the assembly resolver; catalogue, emitter and table augmentation; runtime core and the two host hooks; installer; the test runtime (`KfsRuntime`, `SimVehicle`). Notes: §8.6 |
+| A4 — game back end and wiring | code complete, **not run in the game** | `purrTTY.Kfs/Game/`, the `BeforeInputEvents` pump patch, install from `purrTTY.GameMod/Patcher.cs`, `kfs.toml` |
+| A5 — `purr` console command, examples, menu | code complete, **not run in the game** | `purrTTY.Kfs/Console/`, `purrTTY.Kfs/Examples/`, `purrTTY.GameMod/Kfs/KfsMenu.cs` |
+| B2 — project resolver and `purr-kfs` | done, offline | `ProjectResolver`, `ProjectCompiler`, `purrTTY.Kfs.Cli` (`check`, `run`, `lsp`, `header`, `kinc`, `services`) |
+| C1, C2 — language-server core, builds, diagnostics, standalone host | done, offline | `purrTTY.Kfs.Lsp` (`Protocol/`, `Documents/`, `Build/`), `purr-kfs lsp` |
+| C3 — hover and completion | done, offline | `purrTTY.Kfs.Lsp/Index/`, `Features/` |
+| C4 — the in-game server | code complete, **not run in the game** | `purrTTY.Kfs.Lsp/InGame/`, `Live/`; `purrTTY.GameMod/Kfs/KfsLspService.cs`, `KsaKfsGameSide.cs`, `KfsErrorEchoPatch.cs` |
+| D1 — terminal exit handling (T1, T2 of §7.3) | done, offline | `purrTTY.Terminal/Pty/`, `Sessions/`, `purrTTY.Display/Ghostty/SessionExitPolicy.cs` |
+| D2 — Neovim runtime files | done; run against a headless Neovim 0.12.6 only | `purrTTY.GameMod/nvim/` |
+| D3 — launcher, menu, `purr nvim` | code complete, **not run in the game** | `purrTTY.Kfs/Runtime/NeovimLaunchPlan.cs`, `purrTTY.GameMod/Kfs/KfsNeovimLauncher.cs` |
+
+Where the code differs from the text of the sections: §8.6 (milestone M1) and §8.7 (the later tasks).
+The sections themselves were corrected wherever they contradicted the code.
+
+**Deliberately not built** (outside the agreed scope; their sections remain as design):
+
+| Not built | Section |
+| --- | --- |
+| B3 — scenario files and `purr-kfs test` | §5.6, §5.8 |
+| C5, C6 — document symbols, cost lenses, inlay hints, navigation | §6.6 |
+| D4–D8 — terminal polish; in particular terminal row **T3** (honour `PATHEXT`, run `.cmd`/`.bat` shims through `cmd.exe /c`) | §7.3 |
+
+**Tests.** The last full run of the suite (after both fix passes and the final cleanup, Debug and
+Release, on macOS arm64) reported
+**1,008 passed, 6 skipped (platform-specific tests), 0 failed** in six test projects:
+`purrTTY.Kfs.Tests` 393, `purrTTY.Kfs.Tools.Tests` 207, `purrTTY.Terminal.Tests` 141 (+ 6 skipped),
+`purrTTY.CustomShellContract.Tests` 197, `purrTTY.CustomShells.Tests` 38, `purrTTY.Display.Tests` 32.
+
+**Compiled but not executed by any test** (game-only code; the first things §10 exercises): the
+game-facing members of `KsaVehicleParts`, `GameHostSource` and `KsaConsoleHost`
+(`purrTTY.Kfs/Game/`), and everything in `purrTTY.GameMod/Kfs/` — `KsaKfsGameSide`,
+`KfsLspService`, `KfsErrorEchoPatch`, `KfsNeovimLauncher`, `KfsMenu`, `KfsConfig` (`purrTTY.GameMod`
+has no test project). The rules they apply (`KsaPartRules`, `LightOverrides`, `MainThreadPump`,
+`NeovimLaunchPlan`, `InGameLanguageHost`, `LspServiceCore`) are separate types that the offline
+tests do execute.
 
 ## 0. How to read this plan
 
@@ -19,8 +67,10 @@
   - **C** — a **language server** for kC and kASM built on the game's real compiler;
   - **D** — **Neovim, with that language server attached, opened from in-game through purrTTY**.
 - **§8** is the task breakdown: every coding task is sized and briefed for one delegated coding
-  agent, in dependency order, with its acceptance test.
-- **§9–§11** are risks, the in-game validation checklist, and the decisions still open.
+  agent, in dependency order, with its acceptance test and its state; §8.6 and §8.7 list where the
+  code differs from the text.
+- **§9–§11** are risks, the in-game validation checklist (the master list of what a player must
+  still check), and the decisions taken and still open.
 
 Vocabulary follows the bundle's [glossary](../docs/kfs-info/overview/glossary.md). Claims about
 the game cite the bundle document that establishes them rather than repeating the evidence.
@@ -157,17 +207,22 @@ way the tests do. Neovim connects to whichever is available.
 
 | Project | Kind | References | Ships in the mod? | Workstream |
 | --- | --- | --- | --- | --- |
-| `purrTTY.Kfs` | library | `KSA.dll` and the Brutal assemblies it needs (compile-only), `Lib.Harmony`, `purrTTY.Logging` | yes | A |
+| `purrTTY.Kfs` | library | `KSA.dll`, `Brutal.Logging` and `Brutal.ImGui.Abstractions` (compile-only; the last for the console's `[TerminalAction]` attribute), `Lib.Harmony`, `purrTTY.Logging` | yes | A |
 | `purrTTY.Kfs.Testing` | library | `purrTTY.Kfs`, `KSA.dll` (compile-only) | no | B |
 | `purrTTY.Kfs.Tests` | NUnit | `purrTTY.Kfs`, `purrTTY.Kfs.Testing` | no | A, B |
-| `purrTTY.Kfs.Lsp` | library | `purrTTY.Kfs`, `KSA.dll` (compile-only) | yes | C |
-| `purrTTY.Kfs.Lsp.Tests` | NUnit | `purrTTY.Kfs.Lsp`, `purrTTY.Kfs.Testing` | no | C |
-| `purrTTY.Kfs.Cli` (`purr-kfs`) | console app | `purrTTY.Kfs.Testing`, `purrTTY.Kfs.Lsp` | optional download | B, C |
+| `purrTTY.Kfs.Lsp` | library | `purrTTY.Kfs`, `purrTTY.Logging`, `KSA.dll` and `Brutal.Logging` (compile-only); no NuGet package | yes | C |
+| `purrTTY.Kfs.Tools.Tests` | NUnit | `purrTTY.Kfs`, `purrTTY.Kfs.Testing`, `purrTTY.Kfs.Lsp`, `purrTTY.Kfs.Cli` | no | B, C, D |
+| `purrTTY.Kfs.Cli` (assembly and command `purr-kfs`) | console app | `purrTTY.Kfs`, `purrTTY.Kfs.Testing`, `purrTTY.Kfs.Lsp` | optional download | B, C |
 | `purrTTY.GameMod` (existing) | mod entry | + `purrTTY.Kfs`, `purrTTY.Kfs.Lsp` | yes | A, C, D |
 | `nvim/` runtime files (Lua) | not .NET | — | yes | D |
 
+The tests of the command-line tool, the language server and the Neovim runtime files share one
+project, `purrTTY.Kfs.Tools.Tests`; there is no `purrTTY.Kfs.Lsp.Tests`.
+
 `StandaloneLanguageHost` lives in the CLI project — the only one that references both the
-language-server library and the test runtime. `ProjectResolver` and `NeovimLaunchPlan` live in
+language-server library and the test runtime. `InGameLanguageHost` lives in the language-server
+library (`purrTTY.Kfs.Lsp/InGame/`), with its few game calls behind an interface the mod
+implements (§6.1), so that it is tested offline. `ProjectResolver` and `NeovimLaunchPlan` live in
 `purrTTY.Kfs` so that the CLI, the server and the mod share one implementation of each.
 
 Conventions for the new projects follow the existing ones: `net10.0`, nullable, warnings as
@@ -295,7 +350,7 @@ Units and ranges:
 
 | Quantity | Unit / range | Handler behaviour |
 | --- | --- | --- |
-| colour | linear RGB, each component nominally 0–1 | clamped to [0, 1] |
+| colour | RGB, each component nominally 0–1, passed to the game's light colour unconverted. The colour space is the game's own and is **unverified** (R22, checklist V29); the header says exactly that | clamped to [0, 1] |
 | cone angles | **half-angles in radians**; outer in [1e-5, 1.5697963] | outer clamped to that band; inner clamped to [0, outer]; ignored for point lights |
 | intensity | unitless, ≥ 0 (stock parts use 0.05–50) | clamped to [0, 1e6] (`PartMath.MaxIntensity`, decision D19) |
 | range | metres, ≥ 0 | clamped to [0, 1e6 m] (`PartMath.MaxRangeM`, decision D19) |
@@ -338,8 +393,8 @@ void run(void)
 | **Parts that leave** | After staging or undocking the slot stays, `…_geti(i, PRESENT)` reads 0, other reads return 0, and writes are rejected with an event. |
 | **Parts that arrive** | Docked-on parts have no index until the program rescans. `x_parts_info(X_PARTS_DIRTY)` is 1 when the vehicle's module counts differ from the frozen lists. |
 | **One switch, several lights** | On/off is per part: emitters sharing a part (and an interior that inherits its switch) switch together. `X_LIGHT_SWITCH_GROUP` returns the lowest index sharing the switch. A light with no switch reads `HAS_SWITCH` 0, `ON` 1, and `x_light_set_on` on it is rejected. |
-| **Appearance is per light** | The first colour/cone/intensity/range write gives that light a private copy of its template; other lights of the same part type are unaffected. `x_light_reset` restores the stock template. Overrides last until reset, reload or the part's destruction — they are not saved. (Switch states and animation goals, by contrast, are part of the game's own save.) |
-| **Read-back timing** | Reads are live. Writes are applied at the next frame boundary: a value written in tick *k* is read back from the first tick of the next dispatch — tick *k+1* at ordinary frame rates, later when several ticks run per frame (measured in spike 06) — never in the same tick. `LIT` additionally needs one physics step and electrical power. |
+| **Appearance is per light** | The first colour/cone/intensity/range write gives that light a private copy of its template; other lights of the same part type are unaffected. `x_light_reset` restores the stock template. Overrides last until reset, reload or the part's destruction — they are not saved, and they are **not** reset when the program stops or a new run starts (decision D5); the console command `purr lights reset [all]` and the menu entry kFS › Reset light overrides restore the stock look by hand. (Switch states and animation goals, by contrast, are part of the game's own save.) |
+| **Read-back timing** | A write is never visible in the tick that issued it. The game's frame order is: commit the last physics job → the pump applies queued commands → the next job starts, and inside it the program's ticks run **before** the parts are stepped (§4.12). So two kinds of value come back at different times. *Live fields* — a light's switch (`X_LIGHT_ON`), an animation's goal (`…_TARGET`, `X_DEPLOY_COMMANDED`), a light's colour, cone, intensity and range — read the new value from the first tick of the next frame: tick *k+1* at ordinary frame rates, later when several ticks run per frame. *Committed state* — `X_LIGHT_LIT`, `…_POSITION`, `X_DEPLOY_STATE` — is what the last finished physics job produced, so it follows **one frame later still**, and every tick of one frame reads the same committed values (at time warp a program sees a position move in steps of one frame). `…_MOVING` compares the committed position with the live goal, so it turns 1 together with the goal. `LIT` additionally needs electrical power, and is asymmetric in the game: switching **on** shows `LIT` 1 one frame later (it waits for the committed power state), switching **off** shows `LIT` 0 at once, because the game's test (`Part.IsLightSwitchedOff`) answers "off" from the switch field alone. A light without a switch always reads `LIT` 1. All of this, the asymmetry included, is reproduced in the simulator and pinned by `purrTTY.Kfs.Tests/Runtime/FrameOrderTests.cs`. In the game it is checklist item V7. |
 | **Animations move at their own speed** | A target is a goal; position slews toward it at the animation's authored rate. Poll `POSITION` or `STATE`. A program that changes the target every tick keeps the part moving and the vehicle off rails. |
 | **Budget** | Measured on the Bench processor: 22–25 cycles for a call with up to two scalar arguments, 55 for `x_light_set_color`, 40 for the two Medium calls. The binding limit is the VM's **256 service calls per tick**, `kfs_logf` included; calls beyond it are dropped with an event. |
 | **Bench** | There is no vehicle: results are 0 and every call — getters too, since the VM queues a request for them as well — is rejected "no vehicle to act on" (optional patch 4 of §4.6 softens this). |
@@ -348,22 +403,32 @@ void run(void)
 
 ### 4.3 Files
 
+As built:
+
 ```text
 purrTTY.Kfs/
   purrTTY.Kfs.csproj
-  KfsExtension.cs              public entry: Install(Harmony), Uninstall(), Status
-  KfsExtensionStatus.cs        what applied, what did not, why
+  KfsExtension.cs              public entry: Install(Harmony, options, gameServices), Uninstall(), Status; the patch registry
+  KfsExtensionOptions.cs       Enabled, DisabledOptionalPatches
+  KfsExtensionStatus.cs        what applied, what did not, why; counters; the one log line; Describe() for `purr status`
+  IKfsGameServices.cs          the seam between the installer and game-only code: Name, Prepare, Attach, Detach, Console, SystemHeadersInUse
+  KfsBuildInfo.cs, KfsLog.cs   the id block and Owns(id); log-once
   Catalog/
     ServiceDef.cs              record: Id, Name, Kind, Params[], Result, CostClass, Summary, HostChecks, Doc
     ParamDef.cs                record: Name, CType, CellTypes[], Domain
     EnumDef.cs                 record: Key, Prefix, Values[] (with reserved fillers)
-    PurrCatalog.cs             THE list of services and enums (the only place ids appear)
+    ServiceCatalog.cs          a catalogue value (services + enumerations)
+    XCatalog.cs                THE list of services and enums (ids in `Svc`; the only place ids appear)
+    Selectors.cs               the selector and state enumerations shared with C#
     CatalogEmitter.cs          → services JSON rows, enums JSON entries, purrtty.h, purrtty.kinc, builtin names, markdown
     CatalogSelfCheck.cs        cell types and counts, grouping, sub-ranges, id block, duplicate names; parses the emitted header back
   Tables/
-    TableAugmenter.cs          GameTables Build(Func<string, Stream?> stockOpen) — pure, no statics
+    TableAugmenter.cs          builds the augmented GameTables from the stock streams — pure, no statics
     TablesPublisher.cs         assigns KfsIntegration._tables, or installs the LoadEmbedded fallback
+    SystemHeaderRegistration.cs  the one mechanism that adds and removes <purrtty.h> and the builtin names
+    StockEditorProbe.cs        "is the stock editor building now?" without creating the workbench (§4.5, uninstall)
   Patches/
+    KfsPatch.cs                one registry entry: name, target, required?, resolve, apply, remove
     ApplyRequestPatch.cs       postfix  VehicleComputer.ApplyRequest
     IssueResultPatch.cs        postfix  VehicleComputer : ISyscallHost.IssueResult
     BeforeInputEventsPatch.cs  postfix  KfsIntegration.BeforeInputEvents
@@ -371,30 +436,43 @@ purrTTY.Kfs/
     LoadEmbeddedFallbackPatch.cs  postfix  GameTables.LoadEmbedded         (only if the field is not found)
   Runtime/
     IVehicleParts.cs           the abstraction of §3.2
+    VehiclePartsBase.cs        everything a back end shares: list publication, checks, derived properties, clamps, Apply
     PartSets.cs                immutable frozen lists (slots) + descriptors + generation
     PartCommand.cs             readonly struct: Service, Slot (object reference), U, A, B, C
-    VehicleBinding.cs          per computer: parts, command queue, event throttle
-    PartsRegistry.cs           VehicleComputer → VehicleBinding; creation under one lock
+    VehicleBinding.cs          per computer: parts, command queue (a ring), the run, event throttle, counters
+    PartsRegistry.cs           VehicleComputer → VehicleBinding; creation under one lock; Open/Close
     BindingPump.cs             drain-and-apply for one binding — shared by the game pump and the test runtime
     ServiceRouter.cs           Answer(...) and Accept(...)
-    PartMath.cs                pure clamps and conversions (unit-tested)
-    ProjectResolver.cs         which files make up a project, with unsaved-buffer overlays (used by B2 and C2)
-    NeovimLaunchPlan.cs        executable, argv, env, cwd as plain strings (used by D3; no terminal types)
+    PartMath.cs, PartsText.cs  pure clamps and conversions (unit-tested); the texts of events and rejections
+    ProjectResolver.cs         which files make up a project, with unsaved-buffer overlays (B2, C2)
+    ProjectCompiler.cs         compiles or assembles a resolved project as the workbench would (B2, C2)
+    NeovimLaunchPlan.cs        executable, argv, environment, cwd as plain strings (D3; no terminal types)
   Game/
-    KsaVehicleParts.cs         IVehicleParts over a live Vehicle
-    LightOps.cs                effective switch, private template, colour, cone, intensity, range, reset
-    AnimationOps.cs            goal writes, state reads
-    LightOverrides.cs          LightModule → (original template, private template)
+    KsaGameServices.cs         IKfsGameServices for the game: host directory, pump, dispatch fallback, light restore
+    KsaVehicleParts.cs         IVehicleParts over a live Vehicle: collection, live checks, raw reads and writes
+    KsaPartRules.cs            the decisions KsaVehicleParts makes, as pure functions (effective switch, states, keys)
+    LightOverrides.cs          LightModule → (original template, private template); RestoreAll
     HostDirectory.cs           reads KfsVehicleHost.AllHosts under its lock
+    GameHostSource.cs          the pump's view of the game: the live hosts (IsAlive), parts factory, ownership
     MainThreadPump.cs          once per frame on the main thread: discover hosts, call BindingPump, prune
-  Console/
-    PurrConsole.cs             the `purr` console command and its verbs
+    KsaConsoleHost.cs          the game console, controlled vehicle and workspace for the `purr` command
+  Console/                     (namespace purrTTY.Kfs.Commands)
+    PurrConsole.cs             the `purr` console command: registration, dispatch, ASCII output
+    PurrVerbRegistry.cs        the verb table; Add(name, help, handler, needsExtension) → IDisposable
+    PurrBuiltinVerbs.cs        help, status, parts, lights, examples, header, kinc, services
     PartsListing.cs            the index-table formatter
-  Examples/                    embedded .c / .kasm resources, one folder per example
+    ConsoleText.cs             ASCII stand-ins for typographic characters
+    IKfsConsoleHost.cs         what the command needs from the game (console, vehicle, workspace)
+  Examples/                    (namespace purrTTY.Kfs.ExamplePrograms)
+    ExampleCatalog.cs          the list; writes the folders through the console host
+    x_*/…                      embedded .c / .kasm resources, one folder per example
 purrTTY.GameMod/
-  Patcher.cs                   + KfsExtension.Install / Uninstall
+  Patcher.cs                   InstallKfs (KfsExtension.Install with KsaGameServices.Create()), the standing `purr`
+                               registration, KfsExtension.Uninstall() before UnpatchAll
+  TerminalMod.cs               starts and pumps the language server and the Neovim launcher (§6, §7)
+  TerminalMenus.cs             + the "kFS" submenu hook (DrawKfsMenu)
   Kfs/KfsConfig.cs             <config>/.purrTTY/kfs.toml (own file; see §7.5)
-  TerminalMenus.cs             + "kFS" submenu (status; Workstream D entries)
+  Kfs/KfsMenu.cs               the entries of the kFS submenu
 ```
 
 ### 4.4 The catalogue and its emitter
@@ -453,8 +531,11 @@ value made the game's reader fail with `UInt16 cannot be converted to Int32` in 
 the whole augmentation); no unknown keys (the reader rejects them); enum filler entries
 (`reserved8`…) get no `#define`.
 
-For kASM, whose `<kfs.kinc>` gains the `SVC_X_*` symbols automatically but not the selector
-constants, the emitter also produces `purrtty.kinc` (`.equ X_LIGHT_ON, 2` lines).
+For kASM, whose `<kfs.kinc>` gains the `SVC_X_*` symbols automatically (the game generates that
+include from the service rows on every assembly) but not the selector constants, the emitter also
+produces `purrtty.kinc` (`.equ X_LIGHT_ON, 2` lines). **`purrtty.kinc` holds only the `X_*`
+constants; the `SVC_X_*` symbols are never in it** — a kASM program needs `.include <kfs.kinc>`
+for the service ids and `.include "purrtty.kinc"` for the selectors.
 `purr examples` writes it next to the kASM example, and a pure-kASM project picks it up with
 `.include "purrtty.kinc"` (verified through the game's `Workbench.Build` in spike 06). The
 alternative — a postfix on the `BuiltinIncludes(GameTables, IoLayout, string)` constructor that
@@ -463,14 +544,21 @@ a constructor that runs for every assembly; it is decision D14.
 
 ### 4.5 Install sequence
 
-`KfsExtension.Install(Harmony harmony)` — called from `Patcher.patch()` after the terminal's own
-patches, inside its own `try`/`catch`:
+`KfsExtension.Install(Harmony harmony, KfsExtensionOptions? options, IKfsGameServices? gameServices)`
+— called from `Patcher.patch()` (`InstallKfs`) after the terminal's own patches, inside its own
+`try`/`catch`, with the options read from `kfs.toml` and `KsaGameServices.Create()`. The game
+services are everything that exists only in the running game (host discovery, the per-frame pump,
+the dispatch-thread fallback, the console); the offline test runtime passes none and binds its
+simulated vehicles itself. The extension shares the terminal's Harmony id (`purrTTY`); a failed
+install is logged and leaves the terminal working.
 
 1. Return immediately if the extension is switched off (`kfs.toml`, default on) or already
    installed.
 2. Run `CatalogSelfCheck`. Failure → status `Disabled: catalogue`, stop.
 3. Resolve every **required** patch target (§4.6) with `AccessTools`. Any `null` → status
-   `Disabled: target <name> not found`, stop.
+   `Disabled: target <name> not found`, stop. Then ask the game services to prepare
+   (`IKfsGameServices.Prepare`: in the game, find `KfsVehicleHost.AllHosts`); a reason refuses the
+   install the same way, before anything has changed.
 4. **Dry run the tables**: `TableAugmenter.Build(stock streams)` through the public
    `GameTables.Load(open, origin)`. This runs the game's own validation over the mod rows now, at
    install, instead of at the player's first `kfs` command. An exception → status
@@ -492,14 +580,35 @@ patches, inside its own `try`/`catch`:
    and stop. (Tables published in step 5 stay: rows without hooks only reject.)
 7. Install the header: `SystemHeaders.Files["purrtty.h"] = text` and add every builtin name.
 8. Apply the optional bench patch; a failure is logged and ignored.
-9. Register the `purr` console command (§4.13).
-10. Log one line: `purrTTY kFS extension: active — 22 services 0x5000–0x5033, 3 hooks (+1 optional)`,
-    or the disabled reason.
+9. Register the `purr` console command (§4.13) when the game services bring a console. A failure
+   to register is reported in the status and never undoes the install — the purrTTY menu still
+   runs the verbs.
+10. Attach the game services (`IKfsGameServices.Attach`: the pump becomes the one the
+    `BeforeInputEvents` postfix runs, and its fallback binds from dispatch threads); an exception
+    here undoes the whole install. Then, as the very last step, open the parts registry so that
+    bindings may be created, and log one line:
+    `purrTTY kFS extension: active — 22 services 0x5000–0x5033, 3 hooks (+1 optional), tables published, game back end, purr command`
+    (the tables word is `published`, `reused` or `published through the LoadEmbedded fallback`;
+    the line ends `, no purr command (<reason>)` when step 9 failed), or
+    `purrTTY kFS extension: disabled — <reason>`.
 
-`Uninstall()` (from `Patcher.unload()`): unpatch, remove the header and builtin names, restore
-every private light template still alive, clear the registry. The augmented tables stay published
-for the life of the process — with the hooks gone their rows simply reject, and a later `Install`
-in the same process recognises them (step 5, second row).
+`Uninstall()` (from `Patcher.unload()`, before `UnpatchAll`): remove the console command the
+install registered, detach the game services (the pump stops; every private light template still
+alive is restored), remove the patches (only its own), remove the header and builtin names, close
+and clear the registry. The augmented tables stay published for the life of the process — with
+the hooks gone their rows simply reject, and a later `Install` in the same process recognises them
+(step 5, second row).
+
+**The header is not removed while a compile may be running.** `SystemHeaders.Files` and
+`SystemHeaders.Builtins` are a plain `Dictionary` and `HashSet` that the game's compiler reads on
+whatever thread compiles — the stock kFS editor builds on a thread-pool thread — so changing them
+under a running compile could corrupt them. At uninstall the header is therefore **left
+registered** (one status and log line, `<purrtty.h> left registered: <why>`) when one of the
+language server's compiles is in flight or the stock editor is building
+(`IKfsGameServices.SystemHeadersInUse()`; the default probe, `Tables/StockEditorProbe.cs`, reads
+the private `KfsIntegration._workbench` without creating it and checks `Editor.Building`). The
+next install takes the leftover registration over. The mod's unload order makes the first case
+rare: the language server stops, and joins its compile thread, before `Patcher.unload()` runs.
 
 Consequences for tests: install tests reset `_tables` to `null` by reflection in their own set-up;
 a "stock kFS" for comparison is built with `GameTables.Load` over the stock streams and passed
@@ -522,36 +631,54 @@ the spikes (P6). Patch 4 was exercised in spike 06 (it fired only for `BenchMach
 the JIT may devirtualise and inline, and losing it only costs the nicer message. Console commands
 need no patch (§4.13).
 
-Bodies, in full:
+One more kFS method is patched, outside this table and outside `purrTTY.Kfs`: the language
+server's optional `KfsErrorEchoPatch` (a prefix and a finalizer on `KSA.Kfs.KfsIntegration.Error`,
+in `purrTTY.GameMod/Kfs/`, applied with the terminal's own optional patches; §6.7, R17). That
+makes six kFS patch targets in all for an upgrade review: the five above and `Error`.
+
+Bodies, as built (`Patches/ApplyRequestPatch.cs`, `IssueResultPatch.cs`, `BeforeInputEventsPatch.cs`):
 
 ```csharp
 // 1
 static void Postfix(VehicleComputer __instance, ServiceRequest request, ref bool __result)
 {
-    if (__result || !PurrCatalog.Owns(request.Id)) return;
-    try { ServiceRouter.Accept(__instance, request); }
-    catch (Exception e) { KfsLog.Once("accept", e); }
-    __result = true;                                   // ours either way: never "no vehicle to act on"
+    bool claimed = false;
+    try
+    {
+        if (__result || request is null || !KfsBuildInfo.Owns(request.Id)) return;
+        __result = claimed = true;                     // ours either way: never "no vehicle to act on"
+        ServiceRouter.Accept(__instance, request);
+    }
+    catch (Exception e)
+    {
+        KfsLog.Once("accept hook", e);
+        if (claimed) ServiceRouter.RejectAfterFault(__instance, null, request);   // rejected "internal error", never dropped silently
+    }
 }
 
 // 2
 static void Postfix(VehicleComputer __instance, ushort service, ReadOnlySpan<uint> args, Span<uint> results)
 {
-    if (results.Length == 0 || !PurrCatalog.Owns(service)) return;
-    try { results[0] = ServiceRouter.Answer(__instance, service, args); }
-    catch (Exception e) { KfsLog.Once("answer", e); results[0] = 0u; }
+    try
+    {
+        if (results.Length == 0 || !KfsBuildInfo.Owns(service)) return;
+        results[0] = ServiceRouter.Answer(__instance, service, args);
+    }
+    catch (Exception e) { KfsLog.Once("answer hook", e); if (results.Length != 0) results[0] = 0u; }
 }
 
 // 3
 static void Postfix()
 {
-    try { MainThreadPump.Run(); }                      // the stock body is a no-op while the flag is off; ours still prunes
-    catch (Exception e) { KfsLog.Once("pump", e); }
+    try { Interlocked.Increment(ref _calls); MainThreadPump.Run(); }   // the stock body is a no-op while the flag is off; ours still prunes
+    catch (Exception e) { KfsLog.Once("pump hook", e); }
 }
 ```
 
-`PurrCatalog.Owns(id)` is `(uint)(id - 0x5000) <= 0xFF`. `KfsLog.Once(key, e)` logs the first
-occurrence per key and counts the rest.
+`KfsBuildInfo.Owns(id)` tests the id block `0x5000–0x50FF`. `KfsLog.Once(key, e)` logs the first
+occurrence per key and counts the rest. The patches are listed in one registry,
+`KfsExtension.Patches` (name, target, required or optional, resolve, apply, remove), which is what
+the installer walks.
 
 ### 4.7 Registry and binding
 
@@ -567,36 +694,40 @@ static class PartsRegistry
 - A `ConditionalWeakTable<VehicleComputer, VehicleBinding>` for lookup, plus a strong list of live
   bindings the pump maintains. **All creation goes through one lock**, because a binding can be
   requested from three places at once — the pump (main, solver idle), `purr parts` (main, UI
-  phase) and `Find` (dispatch) — and must be created, and its `ImageLoaded` chain installed,
-  exactly once.
-- In the game, `MainThreadPump` binds every host in `HostDirectory.Snapshot()` it has not seen to
-  a `KsaVehicleParts(host.Vehicle)`. (`HostDirectory` copies `KfsVehicleHost.AllHosts` under that
-  list's own lock; the list is `internal static`, reached once by reflection.)
+  phase) and `Find` (dispatch) — and must be created exactly once.
+- In the game, `MainThreadPump` binds every **live** host it has not seen to a
+  `KsaVehicleParts(host.Vehicle)`. It sees the game through `GameHostSource`: `HostDirectory`
+  copies `KfsVehicleHost.AllHosts` under that list's own lock (the list is `internal static`,
+  reached once by reflection), and the source keeps only the hosts whose `IsAlive` is true.
 - A host can be created and have a program loaded and ticked within one frame, before the pump has
   seen it. `Find` therefore falls back, on the dispatch thread, to `HostDirectory` to locate the
-  host whose `Computer` is this computer and binds it there. Stock kFS itself builds its controller
-  sets on the dispatch thread when the layout changes.
-- When a binding is created it chains `computer.ImageLoaded` (a settable `Action?` the host already
-  uses): the previous delegate runs first, then `binding.Parts.Rebuild()`. `ImageLoaded` fires on
-  the dispatch thread at the end of a successful load, before the first tick, so every program
-  starts from fresh lists.
-- Removal: the game's own `ReleaseDead()` has already dropped dead hosts from `AllHosts` by the
-  time the postfix runs, so the pump **prunes bindings whose host is absent from the snapshot**
-  (their queued commands are discarded, as stock discards main-thread work of a dead host). The
-  weak table needs no explicit removal.
+  live host whose `Computer` is this computer and binds it there (`MainThreadPump.BindFromDispatch`,
+  installed as `PartsRegistry.Fallback`). Stock kFS itself builds its controller sets on the
+  dispatch thread when the layout changes.
+- Lists belong to a **run**, not to an image: `VehicleBinding.SyncRun` notices a new run by the
+  computer's `TickGrid` and rebuilds the lists then (§8.6, "Runs, not images"). Binding touches
+  nothing of the computer; `computer.ImageLoaded` is not chained.
+- Removal: **the game's own `ReleaseDead()` does not always run before the postfix.** It is inside
+  `if (KfsPrototype.Enabled)` in `KfsIntegration.BeforeInputEvents`, so while the kFS switch is off
+  a dead host stays in `AllHosts`. The pump therefore does not rely on it: `GameHostSource` filters
+  by `IsAlive` (vehicle not disposed, in the current star system, still pointing at this host), and
+  the pump **prunes every binding it owns whose host was not among the live ones this frame**
+  (their queued commands are discarded, as stock discards main-thread work of a dead host). Only
+  bindings made for game hosts are pruned (`IPumpHostSource.Owns`). The weak table needs no
+  explicit removal.
 
 `VehicleBinding`:
 
 ```csharp
 sealed class VehicleBinding
 {
+    public const int QueueLimit = 4096;
     public IVehicleParts Parts { get; }
-    readonly object _gate = new();
-    List<PartCommand> _pending = new(), _spare = new();
-    public void Enqueue(in PartCommand c);        // dispatch: lock, add; drop-oldest above 4096 with one event
-    public List<PartCommand> Take();              // main: lock, swap lists
+    PartCommand[] _ring;                          // a ring buffer under a lock, grown by doubling up to QueueLimit
+    public void Enqueue(in PartCommand c);        // dispatch: O(1); when QueueLimit commands wait, the oldest is overwritten (one event per drain)
+    public List<PartCommand> Take();              // main: copy the ring in order into the spare list
     public void Recycle(List<PartCommand> l);     // main: clear and keep as spare
-    public bool ShouldReport(int key, long tick); // rate limit for mod-originated events
+    public bool ShouldReport(BindingEvent kind, ulong k, int tickHz);   // rate limit for mod-originated events, per run second
 }
 ```
 
@@ -706,13 +837,20 @@ static PowerConsumer? EffectiveSwitch(Vehicle vehicle, LightModule m)
 {
     if (m.Template.DisableInIva) return null;
     PowerConsumer? sw = m.Parent.FullPart.LightSwitch;
-    return sw != null && ReferenceEquals(sw.Parent.Tree, vehicle.Parts) ? sw : null;   // confirm the member path in A4
+    return sw != null && ReferenceEquals(sw.Parent.Tree, vehicle.Parts) ? sw : null;
 }
 ```
 
+As built the rule is the pure function `KsaPartRules.EffectiveSwitch`, called by
+`KsaVehicleParts` with the member path above (confirmed against the decompiled `Part`,
+`PowerConsumer` and `LightModule`); there is no `LightOps.cs` or `AnimationOps.cs` — the raw reads
+and writes are in `KsaVehicleParts`, the decisions in `KsaPartRules`, and everything shared with
+the simulated back end in `Runtime/VehiclePartsBase.cs`.
+
 `HAS_SWITCH` = effective switch is not null; `ON` = its `LightIsActive` (1 when there is none);
 `LIT` = `m.IsActive`; `x_light_set_on` is rejected when there is none. A switch on another
-vehicle is never written.
+vehicle is never written. `LIT` says whether the light emits, not whether the camera shows it: an
+interior fill light (`DisableInIva`) reads 1 even in the IVA view, where the game does not draw it.
 
 `LightOverrides.EnsurePrivate(LightModule m)`:
 
@@ -731,6 +869,13 @@ Reads (`LightGetI` / `LightGetF`) are single field reads through `m.Template` an
 What the game saves and what it does not: the switch state is part of the stock save (as the
 simulated "active" flag, so a commanded-on but unpowered light reloads off); template values are
 never saved, so appearance overrides revert on reload.
+
+When overrides end (decision D5): a program's `x_light_reset`; the player's `purr lights reset`
+(the controlled vehicle) or `purr lights reset all` (every vehicle), also in the menu as
+kFS › Reset light overrides; and `LightOverrides.RestoreAll()` when the extension is uninstalled
+(mod unload). **Nothing resets them automatically** when a program stops, traps, is reloaded or a
+new run starts: a light keeps the look it was given, like any other hardware. `purr parts` marks
+such lights `overridden` and says how to restore them.
 
 ### 4.11 Game back end — animations
 
@@ -758,17 +903,44 @@ Two pieces, so that the part every test exercises is the part the game runs:
 - `Game/MainThreadPump.Run()`, once per frame from patch 3 — discovery and pruning around it:
 
 ```text
-hosts = HostDirectory.Snapshot()                 // copy of AllHosts under its lock; already pruned by the game
-for each host in hosts, ordered by Vehicle.Id:   // same order stock uses
-    binding = PartsRegistry.Find(host.Computer) ?? bind new KsaVehicleParts(host.Vehicle)
+hosts = GameHostSource.Snapshot()                // copy of AllHosts under its lock, then only hosts with IsAlive (§4.7)
+for each host in hosts, ordered by Vehicle.Id:   // ordinal, the order stock uses
+    binding = PartsRegistry.TryGet(host.Computer) ?? bind new KsaVehicleParts(host.Vehicle)
     mark binding seen
     BindingPump.DrainAndApply(binding)
-drop every live binding not seen this frame      // its host is gone; queued commands are discarded
+drop every binding of a game host not seen this frame   // its host is gone; queued commands are discarded
 ```
+
+`MainThreadPump` is an instance over an `IPumpHostSource` (the game's is `GameHostSource`; tests
+drive the same pump with `SimHostSource`), and the static `MainThreadPump.Run()` runs the active
+one. A host whose parts cannot be built, or whose drain throws, is skipped for that frame and
+logged once; `RunFrame` itself never throws.
 
 It runs every frame, including while paused and while the kFS flag is off (so pruning still
 happens); with no hosts it is one lock and an empty loop. With a host and no purr calls: one lock,
 one small array copy and one lookup.
+
+**Where the pump sits in the game's frame** (read from the decompiled `Program.PrepareFrame`,
+`Universe` and `PhysicsBubble`; see
+[dispatch and threading](../docs/kfs-info/integration/dispatch-and-threading.md)):
+
+```text
+main thread   VehicleSolver.Wait()                       the previous physics job has finished
+              Universe.ApplyVehicleSolvers()             its results are committed to the live vehicles
+              KfsIntegration.BeforeInputEvents()         stock kFS main-thread work, then THE PUMP
+              InputEvents.ApplyInputEvents()             requested decouple, dock and undock happen here
+              Universe.ExecuteNextVehicleSolvers(…)      the next job starts
+solver thread   per vehicle: the kFS dispatch (the program's ticks), THEN the module update that steps the parts
+```
+
+So a command a program issues in one frame is applied by the next frame's pump, and the ticks that
+follow see the new switch, goal or appearance at once (they are fields of live objects) but still
+the old committed state (`LIT`, `POSITION`, `STATE`), which the job they run in has not produced
+yet (§4.2, "Read-back timing"). Structure changes — staging, docking, undocking, a part destroyed
+— all happen on the main thread in this same solver-idle window, either in `ApplyVehicleSolvers`
+before the pump (contact docking, destruction, part failure) or in `ApplyInputEvents` after it
+(decouple, dock and undock requested by the player or a program), never while a dispatch runs.
+The simulator runs its frame in the same order (§5.4).
 
 Failures found at apply time (a part that left between accept and apply) are reported to the
 program with `host.Computer.Enqueue(c => ((VehicleComputer)c).Event(text))`, which runs on the
@@ -783,26 +955,63 @@ Indices mean nothing to a player without a listing. Three ways, all from one for
    (`terminal.RegisterCommand(delegate, owner)` on a method carrying
    `[TerminalAction("purr", "<help>", ArgParseMode.Unparsed)]`). No patch, its own `purr help`,
    and it works whether or not the kFS flag is on. `purr parts` prints, for the controlled
-   vehicle,
+   vehicle (an illustration in the format of `PartsListing`: column widths follow the longest
+   name, and the console shows the text in ASCII, see below),
 
    ```text
-   vehicle "Explorer 1" — parts as a program loaded now would see them (generation 2)
-   lights
-     0  Spotlight Mk1            spot   switch group 0   on   lit
-     1  Spotlight Mk1            spot   switch group 0   on   lit
-     2  Cabin (interior)         point  no switch
-   deployables
-     0  Solar Array XL           retracted   8.0 s   drives a solar panel
-   actuators
-     0  Cargo Bay 2m             0.00 → 0.00   6.0 s
+   vehicle "Explorer 1" — parts as its running program sees them (generation 2)
+   lights (3): type, switch, on/off, lit/dark
+       0  Spotlight Mk1     spot   switch group 0   on   lit
+       1  Spotlight Mk1     spot   switch group 0   off  dark  overridden
+       2  Cabin (interior)  point  no switch             lit
+     overridden: a program's colour, cone, intensity or range, kept after it stops; purr lights reset restores the stock look
+   deployables (1): state, position, travel time
+       0  Solar Array XL  retracted      0%    8.0 s  drives a solar panel
+   actuators (1): position → target, travel time
+       0  Cargo Bay 2m  0.25 → 0.75    6.0 s
    ```
 
-   When the vehicle has a host, the listing is the host's frozen sets (what the running program
-   sees); otherwise it is a preview. Other verbs: `purr parts lights|deploy|actuators`,
-   `purr status` (the install status line and counters), `purr examples` (§4.14),
-   `purr header` (prints `purrtty.h`), and in Workstreams C/D `purr lsp` and `purr nvim`.
+   The heading says which lists are shown: those of the running program, those the vehicle's kFS
+   computer holds (`…; a program started now gets fresh lists`), or — for a vehicle without a
+   computer — a preview (`parts as a program started now would see them`). A slot whose part has
+   left reads `not present`, and a line under the heading says when the vehicle has changed since
+   the lists were built.
+
+   The verbs, as built (`purr` alone is `purr help`):
+
+   | Verb | Does | Needs the extension active? |
+   | --- | --- | --- |
+   | `purr help` | lists the verbs, and says whether the extension is active | no |
+   | `purr status` | the status line, hooks, tables, back end, console, and the counters (requests accepted / rejected / answered, commands applied / failed / discarded / dropped, bench claimed / rejected, pump frames, logged failures) | no |
+   | `purr parts [lights \| deploy \| actuators]` | the index tables above | yes |
+   | `purr lights reset [all]` | restores the stock look of every overridden light of the controlled vehicle, or with `all` of every vehicle (§4.10) | yes |
+   | `purr examples [--force]` | writes the example programs into the workspace (§4.14) | yes |
+   | `purr header` | prints `<purrtty.h>` | no |
+   | `purr kinc` | prints `purrtty.kinc` | no |
+   | `purr services` | one line per `x_` service: id, prototype, summary | no |
+   | `purr lsp [token \| restart]` | the language server: address, clients, workspace, target; its token; restart it (§6.7, §7.5). Added by the mod's `KfsLspService` | no |
+   | `purr nvim [file]` | opens a workspace file, or the workspace, in Neovim (§7.2). Added by the mod's `KfsNeovimLauncher` | no |
+
+   A verb that needs the extension answers
+   `purr <verb>: the purrTTY kFS extension is not active (<status>); purr status says more` when
+   it is not. Other code adds verbs through
+   `PurrConsole.Verbs.Add(name, help, handler, needsExtension)`, which returns an `IDisposable`
+   to remove the verb again; a handler receives a `PurrContext` (`Verb`, `Args`, `Words`, `Print`,
+   `Host`, `ExtensionActive`).
+
+   **The command exists for as long as the mod is loaded**, whether or not the extension
+   installed: `Patcher` registers it itself after the install attempt (`PurrConsole.Register`, the
+   "standing" registration) and removes it at unload, so with `enabled = false` in `kfs.toml`
+   `purr status`, `purr lsp` and `purr nvim` still work. The command is filed under one
+   process-wide owner object (kept in `AppDomain` data, `KsaConsoleHost.SharedOwner`), because
+   the game's console replaces a command registered again under the same owner but its `help`
+   throws when two owners hold the same name.
+
    Output goes through `KfsIntegration.Print`, so it lands wherever `kfs` output lands, including
-   purrTTY's game-console shell.
+   purrTTY's game-console shell. **It is ASCII by default** (`PurrConsole.AsciiOutput`,
+   `ConsoleText.ToAscii`: `—` becomes `-`, `→` becomes `->`, `…` becomes `...`, and so on),
+   because whether the console's font has those characters cannot be checked from the mod; part
+   names, which are the game's own text, are passed through unchanged.
 2. **From a program:** `x_parts_describe(X_KIND_ALL)` writes the same table to the program
    log.
 3. **Reference window:** the Services page lists the mod rows with their summaries automatically,
@@ -813,25 +1022,34 @@ Indices mean nothing to a player without a listing. Three ways, all from one for
 `purr examples` writes the examples into the workspace through the public `Workspace.Write` (never
 automatically, like the stock examples). **Each example is its own folder**, one level deep: a
 workspace folder is one project, so two programs in one folder would be compiled together and
-collide.
+collide. A file that already exists is kept and reported (`kept <path> (exists; purr examples
+--force overwrites it)`); `purr examples --force` overwrites. Line ends are `\r\n`, like the
+game's own examples. The command ends with how to run one:
+`kfs on; kfs load x_blink/blink.c --vehicle; kfs start`.
 
 | Folder / file | Shows |
 | --- | --- |
-| `x_blink/blink.c` | counts, has-switch check, on/off |
-| `x_light_show/light_show.c` | colour wheel, cone breathing, intensity ramp, reset on a flag |
-| `x_deploy/deploy_when_safe.c` | subscribe `MSG_FLIGHT_DATA`; deploy solar arrays above the atmosphere, retract below |
-| `x_actuator/actuator_sweep.c` | triangle wave on an actuator, read-back of position |
+| `x_blink/blink.c` | counts, `PRESENT` and has-switch checks, switch groups, on/off once a second |
+| `x_light_show/light_show.c` | colour wheel, breathing cone and intensity ramp on the spot lights; `kfs poke stop 1` ends the show and resets every light once (`kfs poke stop 0` starts it again) |
+| `x_deploy/deploy_when_safe.c` | subscribes `MSG_FLIGHT_DATA` (its `in_atmosphere` field; needs `#include <vehicle.h>`); deploys the solar arrays above the atmosphere, retracts them below; `LINKS` |
+| `x_actuator/actuator_sweep.c` | triangle wave on actuator 0, read-back of position at each turn |
 | `x_parts/parts_list.c` | `x_parts_describe`, generation and dirty handling, rescan |
-| `x_blink_kasm/blink.kasm` + `x_blink_kasm/purrtty.kinc` | the kASM spelling, with the constants include |
+| `x_blink_kasm/blink.kasm` + `x_blink_kasm/purrtty.kinc` | `x_blink` in kASM; `purrtty.kinc` is generated from the catalogue when the examples are written, never stored |
 
-Each is also a test input (§4.16).
+The sources are embedded resources of `purrTTY.Kfs` (`Examples/<folder>/…`, listed by
+`ExampleCatalog`). Each is also a test input (§4.16, `ExampleProgramTests`).
 
 ### 4.15 Status and logging
 
-`KfsExtensionStatus` records: active or the disabled reason; hooks applied; services and id range;
-counters (requests accepted, rejected, answered; commands applied; apply failures; pump
-exceptions; queue high-water mark). `purr status` and the purrTTY menu show it. Logging goes
-through `purrTTY.Logging` at most once per distinct failure.
+`KfsExtensionStatus` records: active or the disabled reason; hooks applied (required, optional,
+and optional ones skipped with the reason); how the tables were published; services and id range;
+the game back end; whether the `purr` command is registered; and counters — vehicles bound,
+requests accepted, rejected and answered, commands applied, failed, discarded and dropped, router
+faults, bench requests claimed and rejected, pump frames, logged failures. `purr status` prints
+all of it (`KfsExtensionStatus.Describe()`); the purrTTY menu shows the one-line summary. A
+non-zero `pump frames` is the evidence that the `BeforeInputEvents` hook fires, and non-zero
+`accepted` and `answered` that the two host hooks do (§10, V2). Logging goes through
+`purrTTY.Logging` at most once per distinct failure.
 
 ### 4.16 Tests (all offline, in `purrTTY.Kfs.Tests`)
 
@@ -856,9 +1074,19 @@ through `purrTTY.Logging` at most once per distinct failure.
 | `Uninstall_Restores` | header, builtins and patches are gone |
 | `PartMath_*` | clamps, cone ordering, fraction conversions |
 
-What these cannot cover — `KsaVehicleParts`, `LightOps`, `AnimationOps`, `HostDirectory`, the pump
-against real hosts — is deliberately thin, mirrors code two existing mods run in game, and is
-covered by the in-game checklist (§10).
+The later tasks added, in the same project: `KsaPartRulesTests` and `LightOverridesTests` (the
+game back end's decisions and the template cloning, without a vehicle), `Runtime/MainThreadPumpTests`
+(the game's pump over simulated hosts: discovery, order, pruning, the dispatch fallback),
+`Runtime/FrameOrderTests` (§4.2 read-back timing), `PartsListingTests`, `PurrConsoleTests` and
+`Runtime/PurrCommandTests` (the command, its registration states and every verb),
+`Runtime/ExampleProgramTests` (every shipped example, built as its own folder project and run to
+its documented end state), and `Installer/HeaderInUseTests` (the header is left registered while
+a compile runs, §4.5).
+
+What these cannot cover — the game-facing members of `KsaVehicleParts`, `GameHostSource`,
+`HostDirectory` against the real host list, `KsaConsoleHost`, the pump against real hosts — is
+deliberately thin, mirrors code two existing mods run in game, and is covered by the in-game
+checklist (§10).
 
 ### 4.17 If services turn out not to be enough
 
@@ -958,7 +1186,7 @@ public sealed class SimVehicle
 
     public LoadResult Load(byte[] image);
     public void Start();
-    public void Run(double seconds, double frameDt = 1.0 / 60.0);   // per frame: pump, parts.Step, dispatch
+    public void Run(double seconds, double frameDt = 1.0 / 60.0);   // per frame: parts.Step, pump, dispatch
     public void Frame(double frameDt);                               // one frame, for step-wise tests
 
     public IReadOnlyList<LogLine> Log { get; }                       // kfs_logf lines and host events
@@ -976,10 +1204,20 @@ public sealed record SimVehicleSpec
 }
 ```
 
-One simulated frame, mirroring the game's order (§2.1): **pump** (`BindingPump.DrainAndApply`, the
-same code the game's pump calls, applying queued commands to `SimVehicleParts`) → **step the parts** by `frameDt` (animations slew
-toward their goals; lit follows on and powered) → **dispatch** (`Fake.Dispatch(timeNs, sample)`),
-which runs the ticks that are due. Requests the stock switch accepts are taken with
+One simulated frame, mirroring the game's order (§4.12): **step the parts** by `frameDt`
+(`SimVehicleParts.Step`: the physics job that ran since the last dispatch, with the goals and
+switches as they were before this frame's pump — animations slew toward their goals; lit follows
+on and powered; the game commits these results at the start of the frame) → **pump**
+(`BindingPump.DrainAndApply`, the same code the game's pump calls, applying queued commands to
+the live fields of `SimVehicleParts`) → **dispatch** (`VehicleComputer.Dispatch(timeNs, sample)`),
+which runs the ticks that are due, all of them seeing the same part state. The first dispatching
+frame after a start dispatches at the start time without stepping. This is **step → pump →
+dispatch**; the first version of the simulator ran pump → step → dispatch, which made a program
+see committed state (`LIT`, `POSITION`, `STATE`) one frame earlier than the game shows it, and
+was corrected after the frame order was traced in the decompiled sources
+(`purrTTY.Kfs.Tests/Runtime/FrameOrderTests.cs`). `LIT` follows the game's own expression — the
+live switch and the committed power state — so a light switched **off** reads not lit at once
+and one switched **on** reads lit a frame later (§4.2). Requests the stock switch accepts are taken with
 `TakeServiceRequests()` and recorded; `stage` is acknowledged with `StageApplied()` so programs
 that stage do not stall (spike observation E12).
 
@@ -1015,19 +1253,22 @@ when the build fails, loads and starts. Time is simulated, so tests never sleep.
 `purr-kfs` (`purrTTY.Kfs.Cli`), a framework-dependent .NET tool — for machines that have a .NET 10
 runtime; the game itself is self-contained and does not provide one.
 
-| Command | Does |
-| --- | --- |
-| `purr-kfs check <file> [--vehicle <spec>] [--json]` | Build a kC or kASM project exactly as the workbench would (folder = project; root file = own project); print diagnostics; exit code 1 on errors. |
-| `purr-kfs run <file> --vehicle <spec> [--for 10s] [--frame 60] [--log] [--state]` | Build, load onto a simulated vehicle, run, print the program log and the final state of lights and animations. |
-| `purr-kfs test <scenario.toml>…` | Run scenario files: a vehicle spec, a program, a duration, optional scripted telemetry, and expectations on parts, logged lines and stock requests. Output in TAP; non-zero exit on failure. |
-| `purr-kfs header` | Print `purrtty.h`. |
-| `purr-kfs services [--markdown]` | Print the catalogue as a reference table. |
-| `purr-kfs lsp --stdio \| --listen <addr>` | The language server, standalone (Workstream C). |
+| Command | Does | State |
+| --- | --- | --- |
+| `purr-kfs check <file> [--workspace <dir>] [--json]` + vehicle flags | Build a kC or kASM project exactly as the workbench would (folder = project; root file = own project); print each diagnostic as `file:line:col: severity code: message` with its hint on a second line, then a one-line summary. `--json` prints one JSON document instead (diagnostics, sizes, per-task WCET). Writes nothing to the workspace. | built (B2) |
+| `purr-kfs run <file> [--workspace <dir>] [--for 10s] [--frame 60] [--log] [--requests] [--state]` + vehicle flags | Build, load onto a simulated vehicle, run for a simulated duration, print the program log, the decoded stock requests and the final state of the machine, lights and animations (all three when none is asked for). | built (B2) |
+| `purr-kfs lsp (--stdio \| --listen <host>:<port>)` | The language server, standalone (Workstream C; options in §7.6). | built (C2) |
+| `purr-kfs header`, `purr-kfs kinc` | Print `<purrtty.h>` / `purrtty.kinc`. | built (B2) |
+| `purr-kfs services [--markdown]` | Print the catalogue as a text table, or as the full markdown reference. | built (B2) |
+| `purr-kfs test <scenario.toml>…` | Run scenario files: a vehicle spec, a program, a duration, optional scripted telemetry, and expectations on parts, logged lines and stock requests. Output in TAP; non-zero exit on failure. | **not built** (B3) |
 
-All commands take `--ksa <dir>` or `KSA_DLL_DIR`. A vehicle spec is a small TOML file (the
-repository already uses Tomlyn) or shorthand flags (`--lights 4 --deployables 1 --actuators 1`).
+`check`, `run` and `lsp` need the game's assemblies: `--ksa <dir>` or `KSA_DLL_DIR`. Exit codes:
+0 success, 1 build errors or a trapped program, 2 a usage or environment problem. The simulated
+vehicle is described by flags — `--lights <n>`, `--deployables <n>` (2 s each), `--actuators <n>`
+(1 s each), `--thrusters <n>` (default 1), `--engines <n>`, `--gimbals <n>`; a TOML vehicle
+description belongs to the scenario files and was not built.
 
-Scenario files are the player-facing form of unit tests:
+Scenario files (task B3, **not built**) would be the player-facing form of unit tests:
 
 ```toml
 program = "blink.c"
@@ -1056,19 +1297,26 @@ purrTTY.Kfs.Testing/
   BuildResult.cs                Ok, Image, Diagnostics (file, line, column, code, severity, message, hint)
   SimVehicle.cs, SimVehicleSpec.cs
   SimVehicleParts.cs            IVehicleParts in memory
-  SimTelemetry.cs               helpers to build HostSample / flight data for scripted flights
-  Scenario/ScenarioFile.cs, ScenarioRunner.cs
-purrTTY.Kfs.Cli/
-  purrTTY.Kfs.Cli.csproj        <ToolCommandName>purr-kfs</ToolCommandName>
-  Program.cs                    resolver first, then command dispatch
-  Commands/Check.cs, Run.cs, Test.cs, Header.cs, Services.cs, Lsp.cs
-  StandaloneLanguageHost.cs, LayoutFromVehicleHeader.cs   (the language server's host outside the game)
+  SimTelemetry.cs, TelemetrySampler.cs   scripted navigation and flight data
+  SimHostSource.cs              simulated hosts for the game's MainThreadPump (A4 tests)
+  SimConsoleHost.cs             an in-memory console, vehicle and workspace for the `purr` command (A5 tests)
+  ProjectBuilder.cs             ProjectResolver + ProjectCompiler over a runtime: what `purr-kfs check` and the tests build with (B2)
+  FaultyVehicleParts.cs, DecoyTablesField.cs, …   fault injection and installer seams
+purrTTY.Kfs.Cli/                (assembly name purr-kfs)
+  purrTTY.Kfs.Cli.csproj        <PackAsTool>, <ToolCommandName>purr-kfs</ToolCommandName>
+  Program.cs                    resolver first, then command dispatch (no game types)
+  CliApp.cs, CliOptions.cs, HelpText.cs
+  Commands/CheckCommand.cs, RunCommand.cs, LspCommand.cs, CatalogCommands.cs (header, kinc, services), BuildOutput.cs
+  Commands/StandaloneLanguageHost.cs   the language server's host outside the game (layout flags, vehicle.h, default)
 purrTTY.Kfs.Tests/
   purrTTY.Kfs.Tests.csproj      stamps KSAFolder as assembly metadata
   ModuleInit.cs                 [ModuleInitializer]: the resolver
-  Setup.cs                      [SetUpFixture]: KfsRuntime
+  Runtime/RuntimeSetUp.cs       [SetUpFixture]: the one KfsRuntime of namespace …Tests.Runtime
   …                             the tests of §4.16 and §5.8
+purrTTY.Kfs.Tools.Tests/        the CLI, the language server and the Neovim runtime files (§6.9, §7.7)
 ```
+
+Not built: `Scenario/ScenarioFile.cs`, `ScenarioRunner.cs` and `Commands/Test.cs` (task B3).
 
 ### 5.8 Tests of the runtime itself
 
@@ -1081,8 +1329,13 @@ purrTTY.Kfs.Tests/
 | `Rescan_Renumbers_And_Bumps_Generation` | after adding parts and `x_parts_rescan()` |
 | `Stock_Requests_Are_Recorded` | a stock example's `kfs_stage`/`kfs_set_throttle` calls appear in `StockRequests` and the program does not stall |
 | `Scripted_Telemetry_Reaches_Program` | a program subscribed to `MSG_FLIGHT_DATA` sees the scripted altitude |
-| `Scenario_Files_Run` | the sample scenarios pass and a deliberately failing one fails with a useful message |
+| `Scenario_Files_Run` | the sample scenarios pass and a deliberately failing one fails with a useful message — **not built** (B3) |
 | `Cli_Check_Exit_Codes` | 0 on a clean build, 1 with diagnostics in `file:line:col: severity code: message` form |
+
+The test names actually used for the M1 rows are in §8.6. The read-back row is now
+`Runtime/FrameOrderTests.cs` in `purrTTY.Kfs.Tests`; the command-line rows (`check`, `run`, usage
+and exit codes) are in `purrTTY.Kfs.Tools.Tests` (`Runtime/CliCheckTests.cs`, `Runtime/CliRunTests.cs`,
+`Usage/CliUsageTests.cs`), which runs the tool in process through `CliApp.Run`.
 
 ## 6. Workstream C — a language server for kC and kASM
 
@@ -1108,7 +1361,8 @@ minimal version end to end against a headless Neovim.
       event Action TargetChanged;                      // re-diagnose open documents
       bool CanControlVehicle { get; }
       Task<CommandResult> RunVerb(string verb, CancellationToken ct);   // `kfs <verb>` on the right thread, output captured
-      ILiveProgram? Live { get; }                      // snapshot, log tail, traces; null when there is no vehicle
+      ILiveProgram? Live { get; }                      // snapshot, log tail, traces; null when there is none (always, outside the game)
+      string? Token { get; }                           // what `initialize` must carry; null = no check (stdio)
   }
   ```
 
@@ -1116,12 +1370,19 @@ minimal version end to end against a headless Neovim.
 
   | Host | Where | Tables | Target layout | Vehicle commands | Live data |
   | --- | --- | --- | --- | --- | --- |
-  | `InGameLanguageHost` | `purrTTY.GameMod`, inside the game | `KfsIntegration.Tables` | the workbench target: the controlled vehicle's layout, or the bench | yes | yes |
-  | `StandaloneLanguageHost` | `purr-kfs lsp` | built by `KfsRuntime` from the player's `KSA.dll` | reconstructed from the workspace's `vehicle.h`, else a layout file, else the bench | no (or onto a simulated vehicle) | simulated |
+  | `InGameLanguageHost` | the library, `purrTTY.Kfs.Lsp/InGame/` — **not** `purrTTY.GameMod` — so that it is tested offline. Its only game calls go through the five-member interface `IKfsGameSide` (`WorkspaceRoot`, `RefreshTarget`, `RefreshLive`, `ExecuteKfs`, `ExecutePurr`), implemented by `purrTTY.GameMod/Kfs/KsaKfsGameSide.cs` | `KfsIntegration.Tables` (the augmented tables when the extension is active, the stock ones when it is not) | the workbench target: the targeted vehicle's layout, or the bench | yes | yes: the workbench target's computer (the vehicle when one is targeted, else the bench) |
+  | `StandaloneLanguageHost` | `purrTTY.Kfs.Cli/Commands/`, behind `purr-kfs lsp` | built by `KfsRuntime` from the player's `KSA.dll` | in this order: the layout flags (`--thrusters`, `--engines`, `--gimbals`); the layout recorded in the workspace-root `vehicle.h` (banner and fingerprint verified; the file is watched); the default of `purr-kfs check` (one thruster, bench processor) | **no**: every `kfs.*` command is refused except `kfs.manual`, which is answered from the tables | none (`Live` is null) |
 
 - Transports: `KfsLspListener`, a small loopback TCP accept loop in the library, is used by both
-  hosts; the CLI adds stdio. In the game, `KfsLspService` (in `purrTTY.GameMod`) owns the
-  listener's lifetime, the configuration and the server info file.
+  hosts; the CLI adds stdio. In the game the lifetime is split in two: `LspServiceCore` (library,
+  `InGame/`, tested offline) owns the listener, the per-start token, the server info file and a
+  one-line status; `KfsLspService` (in `purrTTY.GameMod`) owns the configuration, the output tee,
+  the live feed, the `purr lsp` verb and the per-frame call.
+- **One connection, one of everything.** Each connection gets its own `KfsLanguageServer`,
+  document store and build scheduler (with its own compile thread, started lazily at the first
+  build, so a connection that never authenticates costs none). Nothing is shared between clients
+  except the host, the indexes of §6.5 and the process-wide count of retired compile threads
+  (§6.3).
 
 ### 6.2 Protocol behaviour
 
@@ -1130,13 +1391,41 @@ minimal version end to end against a headless Neovim.
 | Position encoding | Offer and prefer `utf-16`; convert when the client forces `utf-8` or `utf-32`. | kFS columns are 1-based UTF-16 code units (tab = 1); spike 05 passed all three encodings. |
 | Text sync | Full-document sync at first; incremental later if profiling asks for it. | Sources are small (the stock editor caps a buffer at 262,144 bytes). |
 | Clients | Several at once; `exit` closes one connection and never the process. | The server lives in the game. |
-| Authentication | `initialize` must carry `initializationOptions.token`; otherwise the server answers with an error and closes. | R12. |
-| Lifetime | Starts when the extension installs, stops at unload; writes and removes the server info file (§7.6). | — |
-| Logging | Method names and timings at debug level through `purrTTY.Logging`; never to stdout in stdio mode. | Spike 05. |
+| Authentication | `initialize` must carry `initializationOptions.token`; a wrong or missing token is answered with error `-32803` and the connection is closed. On a host with a token, any other request before a successful `initialize` gets `-32002` and the connection is closed as well; after `shutdown`, requests get `-32600`. The token is 32 bytes from the cryptographic random generator as base64url, new at every start, never logged. Over stdio there is no token (the peer started the process). | R12. |
+| Lifetime | **Independent of the extension.** The server starts when the mod has loaded (`TerminalMod.OnFullyLoaded`, right after `Patcher.patch()`), whether or not the kFS extension installed and whether or not the game's kFS prototype switch is on — diagnostics are then computed against whatever tables the game has (stock ones without the extension, where `<purrtty.h>` is unknown, exactly as it is to the game's own compiler). Only `lsp_enabled = false` in `kfs.toml` keeps it off. Starting creates no folder and no file in the workspace. It stops at unload, **before** Harmony unpatching and the extension's uninstall; it writes and removes the server info file (§7.6). A port that cannot be opened leaves the mod working, with the reason in `purr lsp` and the menu. | A player who switched the extension off still gets an editor. |
+| Limits | The server listens on a loopback socket inside the game process, so every resource a peer can consume is bounded — table below. | Independent review: an unauthenticated peer could exhaust threads or kill the process. |
+| Logging | One status line at start (`purrTTY kFS LSP: listening on 127.0.0.1:<port>, workspace <root> …`); method names and timings at debug level through `purrTTY.Logging`; never to stdout in stdio mode. | Spike 05. |
+
+Limits and hardening, as built (each is an option with this default):
+
+| Limit | Value | Where |
+| --- | --- | --- |
+| Connections at once | 8 | `KfsLspListenerLimits.MaxConnections` |
+| Connections not yet authenticated | 2 (further ones are refused) | `KfsLspListenerLimits.MaxUnauthenticated` |
+| Time allowed for a successful `initialize` | 5 s | `KfsLspListenerLimits.InitializeTimeout` |
+| Send timeout | 10 s | `KfsLspListenerLimits.SendTimeout` |
+| Back-off after a failed accept | 100 ms, doubling to 1 s | `KfsLspListenerLimits.AcceptBackoff`, `MaxAcceptBackoff` |
+| Message size before authentication | 64 KiB (a larger one closes the connection) | `KfsLanguageServerOptions.MaxPreAuthMessageBytes` |
+| Message size after authentication | 16 MiB (a larger one is skipped) | `KfsLanguageServerOptions.MaxMessageBytes` |
+| Bytes queued for a peer that does not read | 16 MiB (then the connection is cut off) | `KfsLanguageServerOptions.MaxQueuedBytes` |
+| Header block | 2 KiB, 4 lines, 1 KiB per line; only `Content-Length` and `Content-Type` are accepted, so an HTTP request is closed at once | `JsonRpcOptions` |
+| `kfs` commands waiting for the game's main thread | 8 (further ones are refused, "the game is busy") | `InGameHostOptions.MaxPendingVerbs` |
+| `kfs` commands run per frame | at least one; more only while the frame's 4 ms budget lasts | `InGameHostOptions.VerbBudgetPerFrame` |
+| Wait for a frame to run a command | 10 s; a command that has not started by then fails and never runs later | `InGameHostOptions.VerbTimeout` |
+| Compile time | 10 s, then the compile thread is retired (§6.3) | `BuildSchedulerOptions.CompileTimeLimit` |
+| Retired compile threads still running | 2, process-wide (then builds are refused until one ends) | `BuildSchedulerOptions.MaxRetiredThreads` |
+| Wait for the server's threads at stop | 500 ms | `LspServiceOptions.StopTimeout` |
+| Overlay text (an unsaved buffer) | 4 MiB, the game's own source limit, refused with the game's message | `ProjectResolver.MaxSourceBytes` |
+
+No exception can leave a thread or timer the library starts (`LspThreads.Start` catches
+everything; a thread that cannot be started costs that connection only). Left open, deliberately:
+the number of open documents per authenticated connection is not capped, and the text an output
+capture holds is bounded only by what a command prints.
 
 ### 6.3 Builds
 
-One **build scheduler** owns all compiling:
+One **build scheduler** per connection owns all compiling for that client (`Build/BuildScheduler.cs`;
+the compile itself is `ProjectCompiler` in `purrTTY.Kfs`, shared with `purr-kfs check`):
 
 1. A change marks the document's *project* dirty and (re)starts a 120 ms debounce.
 2. When it fires, the scheduler assembles the input **itself** (`ProjectResolver`), following the
@@ -1150,24 +1439,37 @@ One **build scheduler** owns all compiling:
    - a root `.kasm` → itself; a root header alone is not a project (no diagnostics, by design);
    - **every open buffer** in the set overrides the file on disk (the workbench's overlay handles
      exactly one file).
+
+   The resolver reproduces the game's rules exactly, quirks included, because a tool that finds
+   more files than the game would build a different program: the game scans quoted includes with
+   a multiline regular expression that also matches inside block comments and inactive `#if`
+   blocks and misses an **indented** include directly after another include line; the resolver's
+   hand-written scans (linear in the text, where the regular expressions were quadratic on runs
+   of blank lines) are tested to find exactly the same names
+   (`purrTTY.Kfs.Tools.Tests/Projects/IncludeScanTests.cs`). Reads are bounded: a file or buffer
+   over the game's 4 MiB source limit is refused with the game's message, a FIFO or device reads
+   as empty, and a path that leaves the workspace is refused.
 3. kC is compiled with the public `Compiler.CompileOnThisThread(new CompileInput { Files, Part,
    Game, Layout, ProjectName })` **on the scheduler's own thread** — one long-lived, below-normal
-   priority thread with a 16 MiB stack (the front end's nesting limit assumes that stack).
+   priority thread with a 16 MiB stack (the front end's nesting limit assumes that stack), started
+   lazily at the first build.
    `Compiler.Compile` is deliberately not used: it starts a new 16 MiB normal-priority thread per
    call and, on timeout, abandons it still running.
    Pure kASM is assembled as the workbench does it:
    `new Assembler(tables, part, layout) { ProjectFiles = name => overlay-or-disk text }.Assemble(the .kasm sources)`;
    without `ProjectFiles` a quoted `.include "purrtty.kinc"` cannot be resolved.
 4. One compile runs at a time; a newer request for the same project replaces the queued one; a
-   finished result is published only if it is for the latest version of every buffer it used.
+   finished result is published only if it is for the latest version of every buffer it used, and
+   never for a document that was closed while its build ran.
 5. Every compile is wrapped in `try`/`catch`: the game's compiler can throw on unusual input
    (spikes 05 and 06 reproduced several cases); an exception becomes a single diagnostic with code
    `KFS-LSP` on the first line and the server carries on.
 6. **Watchdog.** A compile cannot be cancelled. If one runs longer than 10 s the scheduler
    publishes a `KFS-LSP` "compile did not finish" diagnostic, retires that thread (it is left to
-   finish or not) and starts a fresh one — at most twice per session; after that the scheduler
-   refuses further compiles until a retired thread ends, and says so. This bounds what stock leaves
-   unbounded.
+   finish or not) and starts a fresh one. At most two retired threads may still be running **in
+   the whole process** (`BuildSchedulerOptions.MaxRetiredThreads`, counted by `LspThreads.Retired`
+   across every connection); beyond that the scheduler refuses further compiles until one ends,
+   and says so. This bounds what stock leaves unbounded.
 
 Measured cost (spike 05): 0.2–2 ms for small files, about 19 ms for the largest stock example,
 80–95 ms for the first compile in a process.
@@ -1175,8 +1477,11 @@ Measured cost (spike 05): 0.2–2 ms for small files, about 19 ms for the larges
 Thread-safety (read from the code, and stress-tested in spike 05 — 400 compiles of 12 files on 8
 threads, five times, matching serial results): concurrent compiles against **one** tables instance
 are safe — the stock editor already compiles on a pool thread while `kfs build` compiles on the
-main thread — and all mutation of `SystemHeaders` and the tables happens once at install, before
-any compile. The scheduler still compiles serially to bound its cost inside the game.
+main thread. What is **not** safe is changing `SystemHeaders.Files`, `SystemHeaders.Builtins` or
+the tables while any compile runs: they are plain collections read without a lock on the compiling
+thread. The install changes them once, before the server exists; the only later change is the
+uninstall's removal of `<purrtty.h>`, which is skipped while a compile is counted as running
+(`SystemHeaderReaders`, §4.5). Each scheduler compiles serially to bound its cost inside the game.
 
 ### 6.4 Diagnostics
 
@@ -1186,11 +1491,13 @@ any compile. The scheduler still compiles serially to bound its cost inside the 
 | --- | --- |
 | `Severity.Error` / `Warning` | 1 / 2 |
 | `Code` (`KC-E003`, `KA-W711`) | `code`; `codeDescription` is not available — the manual page (rule sentence, range, languages) is served through hover on the code and a `kfs.manual` command |
-| `Message` + `Hint` | `message` (hint on a second line); a hint ending "at file:line" becomes `relatedInformation` |
-| `File` | a **name**, not a path. Mapped to a URI through the project's file map. `<kfs.h>`, `<vehicle.h>`, `<purrtty.h>`, `<math.c>`, `X.kasm.h`, `<predefined>` are virtual: the diagnostic is anchored on the `#include` line that pulled the header in, with the original location in the message and, once virtual documents exist (§6.6), as related information |
+| `Message` + `Hint` | `message`, with the hint on a second line as `hint: …`; a hint ending "at file:line" also becomes `relatedInformation` (workspace files only). `source` is `kfs`; `K?-W006` (never used) carries the `Unnecessary` tag |
+| `File` | a **name**, not a path. Mapped to a URI through the project's file map. `<kfs.h>`, `<vehicle.h>`, `<purrtty.h>`, `<math.c>`, `X.kasm.h`, `<predefined>` are virtual: the diagnostic is anchored on the `#include` line that pulled the header in, with the original location in the message (virtual documents, §6.6, were not built) |
 | `Line`, `Col` (1-based) | `line-1`, `character` = `Col-1` converted to the negotiated encoding |
 | no end position | kC: lex the line with the game's public `Lexer` (it throws `LexException` on malformed text — catch it) and take the width of the token at that column; fall back to the identifier or one character. kASM: the column is always 1 — use the trimmed line |
-| `(project, 0, 0)` "no position" (no task declared, limits) | first line of the project's main file |
+| `(project, 0, 0)` "no position" (no task declared, limits) | first line of the project's main file: a root project's own file; in a folder `main.c` / `main.kasm` when there is one, else the first `.c` (kC) or `.kasm` (kASM) file, else the first file |
+| a failure of the server itself (the compiler threw, the watchdog fired, builds are suspended) | one diagnostic with code `KFS-LSP` on the main file |
+| a trap of the running program (in-game host, §6.7) | an error diagnostic with code `KFS-TRAP` on the trapping line |
 | macro expansion | reported at the macro-name token (as the compiler does) |
 
 After each build the server publishes diagnostics for **every file of the project**, including
@@ -1215,7 +1522,41 @@ after `#pragma kfs`, after `#include <`, after `commands.`/a message variable an
 mnemonic position); everything else offers identifiers from the indexes above plus the project's
 own functions and globals from the last successful build.
 
+As built (task C3; `Index/` and `Features/`, registered by `StandardFeatures.AddTo`):
+
+- **Hover** answers for: services, stock and `x_*` (the catalogue's documentation for `x_*`);
+  library prototypes, constants and macros of every system header, `<purrtty.h>` included; the
+  names of `<vehicle.h>` for the current target; members of `sys`, `commands`, `sensors` and of a
+  variable the document declares with a known struct type; `#pragma kfs` directives, preprocessor
+  directives and `#include <…>` names; the project's own functions and globals from the last
+  successful build. In kASM: mnemonics (stack effect, and the cost on the target's part),
+  directives, the symbols of `<kfs.kinc>`, `<vehicle.kinc>` and `purrtty.kinc`, and the file's own
+  `.equ`s, data, slots, labels and macros. In both languages a diagnostic code — and any position
+  a current diagnostic covers — shows the game's manual page for that code. Everything else
+  (locals, parameters, keywords, numbers, user macros and typedefs, a member of an expression whose
+  type is not known cheaply) answers nothing rather than a guess.
+- **Completion** is triggered by `.`, `>` (only as the end of `->`), `#`, `<` and `"`; a trigger
+  character that opens none of the contexts gets an empty list. The server filters, answers
+  `isIncomplete: false` and offers no `completionItem/resolve`.
+- **Units are derived, and say so.** The game's tables hold a message field's unit only inside the
+  prose of its `Meaning`; hover therefore derives a unit from the field name's suffix
+  (`altitude_m`, `pulse_s`) and labels it `Unit: … (from the name's suffix)`. No table describes
+  what a command field *means* either — a layout field has a type, an offset and a one-shot flag
+  only.
+- **The diagnostic manual is one line per code.** `DiagnosticManual.Page` gives the rule sentence,
+  severity, range and languages; there is no longer explanation to show.
+- **The static tables are transcribed, not read.** `#pragma kfs` directives, preprocessor
+  directives, kC keywords and kASM directives are not in any game table — the kASM directive names
+  exist only as string literals in the assembler's code — so `Index/StaticTables.cs` lists them by
+  hand, and `syntax/kasm.vim` (§7.4) is checked against the assembler by a test.
+- **The index is cached**, not rebuilt per request: a small most-recently-used cache
+  (`KfsIndexCache`) keyed by the tables, part and layout references, the target's name and a stamp
+  of the header texts in `SystemHeaders.Files`.
+
 ### 6.6 Navigation, symbols and cost lenses
+
+**Not built** (tasks C5 and C6 were outside the agreed scope). The server advertises none of
+these capabilities; the table remains as the design for whoever continues.
 
 | Feature | How | Phase |
 | --- | --- | --- |
@@ -1232,71 +1573,159 @@ buffer no longer builds.
 
 ### 6.7 Commands and live data (in-game host)
 
-`workspace/executeCommand`:
+This is the wire contract between the server and an editor, as implemented
+(`Features/CommandProvider.cs`, `HostFeatures.cs`, `LiveFeed.cs`, `InGame/`). The Neovim runtime
+files (§7.4) are its one client so far.
 
-| Command | Runs | Notes |
+**Commands** (`workspace/executeCommand`). Each is translated into exactly one line of the game's
+own console command and run there; the translation is fixed, so an editor cannot inject a second
+verb (the verb word is the server's, and `KfsConsoleCommands.Execute` splits at the first space
+only).
+
+| Command and arguments | The line that runs | Notes |
 | --- | --- | --- |
-| `kfs.build` | `kfs build <file>` | also writes `vehicle.h` / `vehicle.kinc`, as the stock command does |
-| `kfs.load` | `Workbench.LoadIntoTarget(file)`, after the client saved its buffers | the game builds from disk (or from the stock editor's buffer when the file is open there), never from Neovim's unsaved text; the load is queued and takes effect at the next dispatch — not while paused |
-| `kfs.start`, `kfs.stop`, `kfs.reset` | the same verbs | |
-| `kfs.target` | `kfs target vehicle \| bench` | triggers `TargetChanged` |
-| `kfs.parts` | `purr parts` | the index tables of §4.13 |
-| `kfs.manual` | `kfs manual <code>` | |
-| `kfs.verb` | any `kfs …` line | behind `lsp_allow_vehicle_commands` |
+| `kfs.build [fileUri]` | `kfs build <path>` | also writes `vehicle.h` / `vehicle.kinc`, as the stock command does. `Workbench.Build` takes the whole rest of the line as the file, so a path with spaces works |
+| `kfs.load [fileUri]` | `kfs load <path>`, plus ` --vehicle` when the build target is a vehicle | the game builds from disk (or from the stock editor's buffer when the file is open there), never from the editor's unsaved text, so the client writes its buffers first; the load is queued and takes effect at the vehicle's next dispatch — not while paused. **A path that contains whitespace is refused**: the game's `Workbench.Load` splits its argument string at every space (`--part <name>`, `--vehicle`, else the file), so such a file cannot be loaded by `kfs load` at all, from any front end. Without ` --vehicle` a load onto a vehicle target would retarget the bench, which is why the server adds it |
+| `kfs.start`, `kfs.stop`, `kfs.reset` (no arguments) | `kfs start`, `kfs stop`, `kfs reset` | |
+| `kfs.target ["vehicle" \| "bench"]` | `kfs target vehicle` / `kfs target bench` | the changed target is published to every client before the command's answer is sent, so a `kfs.load` sent next already adds ` --vehicle` |
+| `kfs.manual [code]` | `kfs manual <code>` | one code, such as `KC-E003`. The only command the standalone server answers (from the tables) |
+| `kfs.parts [] \| ["lights" \| "deploy" \| "actuators"]` | `purr parts [kind]` | the index tables of §4.13 |
+| `kfs.verb [line]` | the line (a leading `kfs ` is stripped); one non-empty line | refused unless `lsp_allow_vehicle_commands = true` in `kfs.toml` |
 
-`RunVerb` marshals to the **main thread in the UI phase** (a queue drained from the mod's
+A file argument must lie inside the workspace; malformed arguments are refused and nothing runs.
+
+**The answer** is always `{ "ok": bool, "output": string, "error": string | null }`, never a
+JSON-RPC error. **`ok: true` means "the game ran the line"**, not "the game was happy": the
+game's own failures — a build error, `kfs is off …`, an unknown verb — come back as text in
+`output` with `ok: true`, because the game's wording cannot be parsed reliably (build errors also
+arrive as diagnostics). `ok: false` means the line did not run, and `error` says why: a refusal
+above, the game too busy, no frame within the time limit, the server stopping, or — on the
+standalone server — `kfs.build needs the game: this language server runs outside it (diagnostics,
+hover, completion and kfs.manual only); in KSA, open the file with purr nvim`.
+
+**Where and when a line runs.** `RunVerb` marshals to the **main thread in the UI phase**: a queue
+(`InGame/MainThreadQueue.cs`) drained by `InGameLanguageHost.Frame()` from the top of the mod's
 `[StarMapAfterGui]` hook — where the stock console itself runs commands, and the only place the
-workbench may be touched), calls the public `KfsConsoleCommands.Execute(line)`, and returns what
-was printed during the call. Output is captured by a **standing tee**: when the service starts it
-replaces the public `KfsIntegration.Output` with a writer that forwards to the original and to
-subscribed clients, then reads `KfsIntegration.Workbench` once — the workbench copies `Output`
-only when that getter runs, and prints deferred replies from its per-frame hook, so a temporary
-swap would miss them. One side effect to check in game: with a non-default writer installed,
-`KfsIntegration.Error` writes its line to `Output` as well as to the log.
+workbench may be touched — which calls the public `KfsConsoleCommands.Execute(line)` and returns
+what was printed during the call. A frame runs **at least one line, and more only while the
+frame has spent less than 4 ms on them**, so a burst of slow commands (`kfs build`) costs one of
+them per frame, never all of them in one. At most **8** lines wait; a ninth is refused at once
+("the game is busy"). A line that has not *started* within 10 s (a loading screen) fails and
+never runs later. An identical `kfs build <file>` or `kfs manual <code>` still waiting is joined
+rather than queued twice; nothing else is coalesced. Stopping the server fails everything that
+waits.
 
-Notifications to clients that asked for them:
+**Output capture.** Output is captured by a **standing tee** (`InGame/OutputTee.cs`): when the
+service starts it replaces the public `KfsIntegration.Output` with a writer that forwards to the
+original and to subscribed clients, then reads `KfsIntegration.Workbench` once — the workbench
+copies `Output` only when that getter runs, and prints deferred replies from its per-frame hook,
+so a temporary swap would miss them. At stop the tee is taken out only if `Output` still holds
+it; otherwise it stays as a pass-through. With a non-default writer installed the game's
+`KfsIntegration.Error` writes each error to `Output` **as well as** to the log, and the console
+window shows log errors by itself, so every `kfs` error would appear twice in the console. The
+optional patch `KfsErrorEchoPatch` (a prefix and finalizer on `KfsIntegration.Error`) marks the
+call so the tee passes that line to the editors but not to the console writer; it applies only
+when the writer the tee replaced is the game's own console writer. `purr lsp token` prints inside
+the opposite scope — console only — so the token never reaches an editor's output feed.
 
-| Notification | Content | Source |
+**Capabilities.** `initialize` returns `capabilities.experimental.purrtty`:
+`{ "subscribe": bool, "vehicleCommands": bool, "verb": bool }`. **`subscribe` means "a live feed
+exists here"** — true in the game, false on the standalone server; a `purrtty/subscribe`
+notification is accepted either way and simply never answered where there is no feed.
+`vehicleCommands` false means every command but `kfs.manual` will be refused; `verb` says whether
+`kfs.verb` is allowed.
+
+**Live data.** A client asks with the notification `purrtty/subscribe { "topics": [...] }`
+(`"log"`, `"output"`, `"state"`; the list replaces the previous one, an empty list unsubscribes).
+A timer polls only while some client subscribes to `log` or `state`.
+
+| Notification | Content | Source and rule |
 | --- | --- | --- |
-| `purrtty/kfsLog` | new program-log lines (`kfs_logf` output and host events) | `computer.Console`: poll `Version`, then `CopyTail` — thread-safe |
-| `purrtty/kfsOutput` | `kfs` command output | the `KfsIntegration.Output` tee |
-| `purrtty/kfsState` | computer state, tick, overruns, trap with file and line | `computer.Snapshot` (immutable, published by the dispatch thread) — polled at 5 Hz at most and only while a client subscribes, because reading the property asks the computer to publish a snapshot on every tick |
+| `purrtty/kfsLog { lines }` | new program-log lines (`kfs_logf` output and host events), each formatted by the server as the stock editor's console pane and `kfs state` show them — `[k <tick> t <seconds, 0.00>] <text>` — for example `[k 3 t 0.30] trap DIV_ZERO at 0x34 in task 0 (run, main.c:11): commands held` | `computer.Console`: poll `Version`, then `CopyTail` — thread-safe. **On subscribing to `log`, the server first sends the log's last 100 lines once, as `{ lines, tail: true }`**, then every line added after them |
+| `purrtty/kfsOutput { text }` | what `kfs` and `purr` commands printed | the `KfsIntegration.Output` tee; batched per command and per frame |
+| `purrtty/kfsState` | computer state, tick, overruns, trap with file and line | `computer.Snapshot` (immutable, published by the dispatch thread) — read at most 5 times a second and **only while a client subscribes to `state`**, because reading the property asks the computer to keep publishing a snapshot on every tick. For the same reason a client must not subscribe to `state` merely because it attached: the Neovim files do so after the first `:KfsLoad` or `:KfsStart` that ran, while the log buffer exists, or once the status-line function is used |
 
-A trap with a source location is also published as an error diagnostic on that line until the
-program is restarted.
+The live data comes from the workbench target's computer: the vehicle's when a vehicle is
+targeted, else the bench.
+
+**Trap diagnostics.** A trap with a source location is also published, to the clients subscribed
+to `state`, as an error diagnostic with code `KFS-TRAP` on that line, merged with the build's
+diagnostics; it is cleared when the trap is gone (the program was reset, restarted, reloaded or
+stopped) or the client unsubscribes. The log line of a trap ends `commands held`, and the
+`kfs_logf` lines the program issued in the trapping tick itself never appear: the game discards
+a trapped tick's service requests, the log request among them.
 
 `InGameLanguageHost.CurrentTarget` is refreshed once per frame on the main thread (part, layout
 object and name of the workbench's target, exactly what the stock editor captures before a
-background build) and read by the scheduler as an immutable snapshot.
+background build) and read by the scheduler as an immutable snapshot. A frame in which nothing
+changed reads the workbench once and compares references; it allocates nothing.
 
 ### 6.8 Files
+
+As built:
 
 ```text
 purrTTY.Kfs.Lsp/
   purrTTY.Kfs.Lsp.csproj
-  Protocol/JsonRpcConnection.cs      Content-Length framing, request/response correlation, cancellation
+  Protocol/JsonRpcConnection.cs      Content-Length framing with the header and size limits of §6.2,
+                                     request/response correlation, cancellation, the bounded write queue
   Protocol/LspTypes.cs               the subset of LSP structures used
-  KfsLanguageServer.cs               one per connection: lifecycle, capabilities, dispatch table
-  KfsLspListener.cs                  loopback TCP accept loop; token check
-  IKfsLanguageHost.cs, BuildTarget.cs, ILiveProgram.cs
-  Documents/DocumentStore.cs         URI ↔ workspace path, text, version, line index
+  KfsLanguageServer.cs               one per connection: lifecycle, token check, capabilities, dispatch table
+  KfsLspListener.cs                  loopback TCP accept loop; connection limits and deadlines
+  LspThreads.cs, LspLog.cs           every thread the library starts (catch-all, counters); log sinks
+  LspFeatures.cs                     the feature registry (hover, completion, commands, notifications)
+  IKfsLanguageHost.cs                IKfsLanguageHost, BuildTarget, CommandResult, ILiveProgram
+  KfsLanguageHost.cs                 a plain host: fixed tables and workspace, a replaceable target, no vehicle
+                                     (StandaloneLanguageHost builds on it; tests use it directly)
+  Documents/DocumentStore.cs         open documents: text, version, line index
+  Documents/WorkspaceUris.cs         URI ↔ workspace path (the URI form the client used; real paths through links)
   Documents/PositionMapper.cs        kFS (line, col) ↔ LSP position in three encodings
   Build/BuildScheduler.cs            debounce, own compile thread, latest-wins, exception guard, watchdog
-                                     (file sets come from purrTTY.Kfs's ProjectResolver)
+                                     (file sets come from purrTTY.Kfs's ProjectResolver, the compile from ProjectCompiler)
+  Build/ProjectBuildResult.cs        what one build produced; the main file
   Build/DiagnosticMapper.cs          §6.4
-  Features/HoverProvider.cs, CompletionProvider.cs, SymbolProvider.cs,
-           CostLensProvider.cs, InlayHintProvider.cs, CommandProvider.cs
-  Index/TableIndex.cs                services, opcodes, sysblock, messages, pragmas, directives
+  Index/KfsIndex.cs                  the index and its cache (KfsIndexCache)
+  Index/TableIndex.cs                services, opcodes, sysblock, messages
   Index/HeaderIndex.cs               #define and prototype scanner over header texts
+  Index/TargetIndex.cs               the names that depend on the build target (<vehicle.h>, layout, messages)
+  Index/StaticTables.cs              pragmas, directives and keywords transcribed from the game's parsers
+  Index/IndexEntry.cs, MemberShape.cs
+  Features/StandardFeatures.cs       registers hover and completion
+  Features/HoverProvider.cs, CompletionProvider.cs, CompletionList.cs
+  Features/SourceScan.cs, Words.cs, PositionRequest.cs, ProjectSymbols.cs   the light line scanning of §6.5
+  Features/HostFeatures.cs           registers the commands, purrtty/subscribe and the capability entry
+  Features/CommandProvider.cs        the commands → verb lines (§6.7)
+  Features/LiveFeed.cs               log, output and state feeds; trap diagnostics
+  Live/LiveSource.cs, HostComputerLive.cs   the running program as plain values / over a HostComputer
+  InGame/InGameLanguageHost.cs       IKfsLanguageHost in the game; the IKfsGameSide interface
+  InGame/MainThreadQueue.cs          calls marshalled to the game's main thread (budget, cap, timeout, coalescing)
+  InGame/OutputTee.cs                the standing tee on KfsIntegration.Output
+  InGame/TargetSnapshot.cs           the build target, replaced as a whole
+  InGame/LspServerInfoFile.cs        kfs-lsp.json: write (owner-only), read, delete if still ours
+  InGame/LspServiceCore.cs           listener + token + info file + status, without the game
+  InGame/LspServiceText.cs           the text of `purr lsp` and of the menu line
 purrTTY.GameMod/Kfs/
-  InGameLanguageHost.cs              target snapshot, main-thread verb queue, output tee, log poller
-  KfsLspService.cs                   start/stop with the extension; config; status; server info file
+  KfsLspService.cs                   start/stop with the mod; kfs.toml; the tee; `purr lsp`; the per-frame call
+  KsaKfsGameSide.cs                  IKfsGameSide: the only language-server code that touches the game
+  KfsErrorEchoPatch.cs               optional patch on KfsIntegration.Error (§6.7, R17)
+purrTTY.Kfs.Cli/Commands/
+  LspCommand.cs, StandaloneLanguageHost.cs   `purr-kfs lsp`
 ```
 
-### 6.9 Tests (`purrTTY.Kfs.Lsp.Tests`, offline)
+Not built: `Features/SymbolProvider.cs`, `CostLensProvider.cs`, `InlayHintProvider.cs` (C5, C6).
 
-Driven through in-memory streams against a real `KfsRuntime` and a `StandaloneLanguageHost` on a
-temporary workspace:
+### 6.9 Tests (`purrTTY.Kfs.Tools.Tests`, offline)
+
+The tests are in `purrTTY.Kfs.Tools.Tests` — there is no `purrTTY.Kfs.Lsp.Tests` project — under
+`Lsp/` (framing, documents, position mapping, the main-thread queue, the output tee: no game
+needed) and `Runtime/Lsp/` (everything that compiles: protocol, scheduler, diagnostics, hover,
+completion, host commands, the live feed, the in-game host and service core over a fake game
+side, hardening). They are driven through in-memory streams (`MemoryPipe`, `LspTestClient`)
+against a real `KfsRuntime`; `ServerHarness` gives the scheduler an infinite debounce and a
+`Flush`, so no test waits for a timer. One rule was added to those of §5.2: a type in a test
+assembly cannot implement an interface that has game-typed members (NUnit's reflection over the
+assembly fails), so tests fake the game-free `ILiveSource`, not `ILiveProgram`. The names below
+are the planned ones; the fixtures group them differently.
 
 | Test | Asserts |
 | --- | --- |
@@ -1309,26 +1738,38 @@ temporary workspace:
 | `Compiler_Exception_Becomes_Diagnostic` | the server survives and reports `KFS-LSP` |
 | `Hover_And_Completion_Know_Mod_Services` | `x_light_set_on` documentation; pragma and include contexts |
 | `Kasm_Diagnostics_And_Opcode_Hover` | whole-line ranges; stack effect text |
-| `Cost_Lenses_Match_Compile_Report` | per-task WCET and budget |
+| `Cost_Lenses_Match_Compile_Report` | per-task WCET and budget — **not built** (C5) |
 | `Target_Change_Rediagnoses` | `THRUSTER_COUNT`-dependent code flips between clean and erroring |
 | `Commands_Reach_The_Host` | a fake host records `RunVerb("load x --vehicle")` |
 | `Exit_Closes_Connection_Only` | a second client keeps working |
-| `Neovim_Attaches_Headless` (silently skipped without `nvim`) | the spike-05 scenario, with the shipped runtime files |
+| `Neovim_Attaches_Headless` (silently skipped without `nvim`) | the spike-05 scenario, with the shipped runtime files — `Runtime/Nvim/NeovimTests.cs` and `InGameNeovimTests.cs` (§7.7) |
+
+Added by the hardening pass after the independent review (`Lsp/HardeningUnitTests.cs`,
+`Runtime/Lsp/HardeningTests.cs`, `Runtime/Lsp/CliLspHardeningTests.cs`): the limits of §6.2 hold —
+a tokenless connection that is reset does not take the process down, idle tokenless connections
+do not accumulate threads, and `purr-kfs lsp --stdio` exits with code 1 on a signal. The fix pass
+reported that the reviewer's three reproduction scripts failed against the earlier code and pass
+now, and disclosed that the new tests themselves were not each run against the old code first
+(most use interfaces the old code did not have).
 
 ## 7. Workstream D — Neovim through purrTTY
 
 ### 7.1 What the player gets
 
-1. In the game: purrTTY menu › **kFS** › **Edit in Neovim…** (a list of the workspace's source
-   files, plus "New file…"), or the console command `purr nvim <file>`.
+1. In the game: purrTTY menu › **kFS** › **Edit in Neovim...** (a list of the workspace's source
+   files) or **Open workspace in Neovim**, or the console command `purr nvim [file]`. A new file
+   is started with `purr nvim <name>`; there is no "New file…" menu entry.
 2. A purrTTY terminal opens — a 2D window by default, an in-world terminal on request — whose
    process is the player's own host `nvim`, started in the kFS workspace with the file open.
 3. The buffer is attached to the language server running inside the game: diagnostics as you type
-   against the workbench target's layout (the launcher targets the controlled vehicle), completion and hover for stock and `x_*`
-   services, per-task cost lenses.
-4. `:KfsBuild`, `:KfsLoad`, `:KfsStart`, `:KfsStop`, `:KfsReset` act on the vehicle; `:KfsLog`
-   shows the program's log as it runs; `:KfsParts` shows the index tables.
-5. Quitting Neovim closes the terminal.
+   against the workbench target's layout (the launcher targets the controlled vehicle when the
+   game's kFS prototype is on), completion and hover for stock and `x_*` services. (Per-task cost
+   lenses were planned and not built, §6.6.)
+4. `:KfsBuild`, `:KfsLoad`, `:KfsStart`, `:KfsStop`, `:KfsReset`, `:KfsTarget` act on the
+   workbench target; `:KfsLog` shows the program's log as it runs; `:KfsParts` shows the index
+   tables; `:KfsManual` a diagnostic code's manual page; `:KfsInfo` the connection status.
+5. Quitting Neovim normally closes the terminal; a Neovim that exits with an error keeps its
+   window, so the error can be read.
 
 The kFS workspace is an ordinary folder, so the same Neovim setup also works from a terminal
 outside the game (§7.6).
@@ -1347,56 +1788,152 @@ environment, working directory — unit-testable, no terminal types) and carried
 `KfsNeovimLauncher` in `purrTTY.GameMod/Kfs/`, on the main thread:
 
 ```csharp
-NeovimLaunchPlan plan = NeovimLaunchPlan.For(file, workspaceRoot, nvimRuntimeDir, server, config);
-var o = ProcessLaunchOptions.CreateCustom(plan.Executable, plan.Arguments);
-//   arguments:  --cmd  "lua dofile(vim.env.PURRTTY_KFS_NVIM .. '/purrtty_kfs.lua')"  <file>
+KfsConfig config = KfsConfig.Load();                          // read again at every launch: no restart needed
+NeovimLaunchPlan plan = NeovimLaunchPlan.For(NeovimLaunchRequest.ForThisProcess(
+    workspaceRoot, file, nvimRuntimeDir, server, config.NvimPath, KfsConfig.ConfigRoot()));
+var o = ProcessLaunchOptions.CreateCustom(plan.Executable, [.. plan.Arguments]);
+//   Neovim's arguments, as discrete argv elements (no shell quoting anywhere):
+//     --cmd  "lua dofile(vim.env.PURRTTY_KFS_NVIM .. '/purrtty_kfs.lua')"  --  <file, or the workspace folder>
 o.WorkingDirectory = plan.WorkingDirectory;                  // the workspace root
 foreach (var (k, v) in plan.Environment) o.EnvironmentVariables[k] = v;
-//   PURRTTY_KFS_NVIM  = <mod folder>/nvim          (a path, so spaces and commas are harmless)
-//   PURRTTY_KFS_ROOT  = <workspace root>
-//   PURRTTY_KFS_LSP   = 127.0.0.1:<port>
-//   PURRTTY_KFS_TOKEN = <session token>
-o.CloseOnExit = true;                                        // T1
-KfsIntegration.Workbench.TargetActiveVehicle();              // diagnostics and :KfsLoad then agree on the layout
-TerminalWindow w = controller.OpenWindow(o, Path.GetFileName(file));
-w.TryRename("kFS: " + Path.GetFileName(file));
+foreach (string v in plan.RemovedEnvironment) { o.EnvironmentVariables.Remove(v); o.RemovedEnvironmentVariables.Add(v); }
+o.CloseOnSuccessfulExit = true;                              // T1: close only on exit code 0
+TerminalWindow w = controller.OpenWindow(o, shownName);
+w.TryRename("kFS: " + shownName);                            // or the registry's unique variant when taken
 controller.IsVisible = true;                                 // after OpenWindow: set first, it would spawn a default shell
+w.RequestFocus();
 ```
+
+The argument list always has `--` before the file, so a file name that starts with `-` cannot be
+read as an option. The `--cmd` pair is present only when `<runtime dir>/purrtty_kfs.lua` exists;
+without it Neovim still opens the file, with no kFS support.
+
+Environment of the editor process:
+
+| Variable | Value | Note |
+| --- | --- | --- |
+| `PURRTTY_KFS_NVIM` | `<mod folder>/nvim` | a path in a variable, so spaces and commas are harmless |
+| `PURRTTY_KFS_ROOT` | the workspace root | present in every launch; it is also how a kFS editor terminal is recognised (§7.3, T4) |
+| `PURRTTY_KFS_LSP` | `127.0.0.1:<port>` | only while the mod's language server runs |
+| `PURRTTY_KFS_TOKEN` | the server's token | the runtime files read it at start-up and remove it from Neovim's own environment, so `:terminal`, `:!` and plugins do not inherit it |
+| `PURRTTY_CONFIG_DIR` | the folder that **contains** `.purrTTY/` | so the runtime files find the server info file again after `purr lsp restart` (a new port and token) without guessing (§7.6) |
+| `SHELL` | the player's own shell, as the game process saw it (Unix, when it is an existing absolute path) | the terminal otherwise points `SHELL` at the process it starts, which for the login-shell route below is `/bin/sh`; Neovim takes `'shell'` and `:terminal` from it |
+| `FORCE_COLOR`, `CLICOLOR_FORCE` | **removed** | other purrTTY terminals set them; in an editor they would make programs run through pipes (`:!`, `:make`, linters) write colour codes into the quickfix list. Removal is a new launch option, `ProcessLaunchOptions.RemovedEnvironmentVariables`, honoured by the Unix spawner, the Windows environment block and the custom-shell bridge |
 
 Why the runtime directory travels in an environment variable and is loaded with `dofile`: the
 mod's default folder is under `…/My Games/Kitten Space Agency/mods/`, which contains spaces, and
 `:set runtimepath^=<path>` splits on unescaped spaces and commas. Loading one entry script by
 absolute path also survives plugin managers that reset `runtimepath` during start-up.
 
-Resolving `nvim`, in order:
+Resolving `nvim`, in order (`NeovimLaunchPlan.Resolution`: `ConfiguredPath`, `SearchPath`,
+`LoginShell`, or `None` with an error text):
 
-1. the configured path (`nvim_path` in `kfs.toml`);
-2. the game process's `PATH` (what `CreateCustom` does with a bare name; on Windows it tries
-   `nvim.exe`);
-3. on Unix, the user's login shell: `CreateCustom($SHELL or "/bin/sh", "-lc", "exec \"$@\"", "sh",
-   "nvim", …)` — a game started from Finder or Steam usually lacks the Homebrew and user `bin`
-   directories. **Unverified:** which start-up files a given shell reads with `-lc`; task D3
-   confirms this on macOS (zsh) and Linux (bash) or adds `-i`;
-4. otherwise a message in the menu and the log: "Neovim was not found; set `nvim_path`".
+1. the configured path (`nvim_path` in `kfs.toml`): exactly that file. It must be absolute; if it
+   does not exist, or on Windows names a `.cmd`/`.bat` script, the launch fails with that reason —
+   there is **no** fallback to the steps below;
+2. the game process's `PATH`, absolute directories only: `nvim` on Unix, `nvim.exe` on Windows.
+   The terminal does not honour `PATHEXT` (T3 is open), so a `nvim.cmd` or `nvim.bat` shim (Scoop,
+   some package managers) is reported as found but not launchable, with the advice to set
+   `nvim_path` to the real `nvim.exe`;
+3. on Unix, the player's login shell — a game started from Finder, the Dock or Steam usually lacks
+   the Homebrew and user `bin` directories. The shell is `$SHELL` when that is an existing `sh`,
+   `bash`, `zsh` or `dash`, else `/bin/sh` (the script below is POSIX `sh`; fish, nu or tcsh would
+   not run it). It is started as `<shell> -lc <script> sh nvim <Neovim's arguments>`, where the
+   fixed script is the only shell text in the whole launch:
 
-If the language server is not running (extension disabled, or the port could not be opened) Neovim
-is still launched, without the `PURRTTY_KFS_LSP` variables; the runtime files then try the
-fallbacks of §7.6.
+   ```sh
+   purrtty_nvim=$(command -v "$1" 2>/dev/null)
+   case "$purrtty_nvim" in
+   /*) shift; exec "$purrtty_nvim" "$@" ;;
+   esac
+   printf '%s\n' '<Neovim was not found …>' "(searched by your login (non-interactive) shell: PATH=$PATH)"
+   printf '%s' 'Press Enter to close this terminal. '
+   read -r purrtty_reply
+   exit 127
+   ```
 
-`TargetActiveVehicle()` matters: the workbench's target stays the bench until something selects
-the vehicle, so without it diagnostics would be computed against the bench layout while
-`:KfsLoad` built for the vehicle's.
+   Neovim found as a file is `exec`ed with its arguments untouched. Not found (or only an alias or
+   a function): the script prints why and the `PATH` it searched, **waits for Enter**, and exits
+   127 — so the window does not vanish silently. A login shell that is not interactive reads the
+   profile files, not the rc files: zsh `~/.zprofile`, bash `~/.bash_profile` or `~/.profile`,
+   never `~/.zshrc` or anything behind an interactivity check; a `PATH` set only there is not
+   seen. A profile that `exec`s another program (tmux, another shell) replaces the shell before
+   the script runs: `nvim_path` is the remedy. `-i` was considered and not used. **Unverified in
+   the game:** the route itself was exercised by tests with real shells, not from a game started
+   by Finder or Steam (§10, V52 and V53);
+4. otherwise an error. The menu checks this when it opens (`NeovimLaunchPlan.Problem`): the two
+   Neovim entries are greyed out with the reason under them, and a failed launch leaves
+   `Last launch failed: …` there.
+
+**The window closes only on a successful exit.** `CloseOnSuccessfulExit` closes the terminal when
+Neovim exits with code 0. A Neovim that fails — it crashed at start, a wrapper's target is
+missing, the not-found script's 127 — keeps its window, its final screen and ` (exit N)` in the
+tab label (visible when the window has more than one tab), so the player can read what happened.
+(`CloseOnExit`, which closes on any exit code, exists as well and is what T1 originally
+specified.)
+
+**Which file.** A path is taken relative to the workspace. An existing file or folder opens as it
+is. A name that does not exist must end in `.c`, `.h`, `.kasm` or `.kinc`; it is **not** written
+by the mod — Neovim's first `:w` creates it, and the runtime files' `BufWritePre` creates its
+folder (for kC and kASM files below a workspace root only). An absolute path, a `..`, another
+extension for a new file, or anything else outside the workspace is refused with a message.
+Listing the workspace's files for the menu reads the disk without creating the workspace folder
+(`Workspace.List()` would create it); only a launch creates it.
+
+**In-world.** With `nvim_open_in = "inworld"` the launch is queued and the terminal is created
+from the launcher's pump in `OnAfterUi` (an in-world terminal needs an ImGui frame): a 120×40
+camera billboard with click-to-focus, focused at once. Without the in-world subsystem the launch
+fails with the advice to set `nvim_open_in = "window"`.
+
+If the language server is not running (`lsp_enabled = false`, or the port could not be opened)
+Neovim is still launched, without `PURRTTY_KFS_LSP` and `PURRTTY_KFS_TOKEN`; the runtime files
+then try the fallbacks of §7.6.
+
+**Targeting the vehicle.** The workbench's target stays the bench until something selects the
+vehicle, so without a retarget diagnostics would be computed against the bench layout while
+`:KfsLoad` built for the vehicle's. The launcher therefore calls
+`KfsIntegration.Workbench.TargetActiveVehicle()` — but **only when the game's kFS prototype
+switch is on and a vehicle is controlled**. The call is not harmless: it creates the vehicle's
+`KfsVehicleHost` and switches what `kfs load`, `start`, `stop` and `reset` act on, and the game's
+method does not check the prototype switch itself. With the switch off that choice is left to the
+player. The launch message says which case applied (`; kfs targets <vehicle>`, `; no controlled
+vehicle: diagnostics use the bench layout`, `; the kFS prototype is off: …`).
 
 ### 7.3 Terminal changes this needs
 
-| # | Change | Why | Where |
-| --- | --- | --- | --- |
-| T1 | **Close on exit**: a launch option `CloseOnExit`; when set, the window (or tab, or in-world instance) is closed once its process has exited. | Today nothing reacts to an exit except " (exit N)" in the tab label, and with one tab the tab bar is hidden. | `ProcessLaunchOptions`, `TerminalWindow`, `GhosttyTerminalController` |
-| T2 | **Guard resize after exit**: skip `ProcessManager.Resize` once the process has exited. | Both back ends throw `InvalidOperationException` then; resizing a dead window throws between `ImGui.Begin` and `End`. A latent bug independent of kFS. | `TerminalWindow.cs` (resize call), `InWorldTerminalRenderer.cs` |
-| T3 | **Windows `PATH` lookup honours `PATHEXT`**, and a `.cmd`/`.bat` hit is launched through `cmd.exe /c`. | `nvim` installed through a `.cmd` shim (scoop, some package managers) is missed; and the terminal starts processes with a raw `CreateProcessW`, which cannot run a script directly. | `ShellCommandResolver.FindExecutableInPath`, the Windows process launcher |
-| T4 | **Layouts keep environment variables** (or the kFS launcher is excluded from layout capture). | A captured layout drops `EnvironmentVariables`, so a saved "kFS editor" terminal would relaunch without its server address. Simplest: do not capture kFS-launched terminals; re-create them through the launcher. | `ShellSpec` / `LayoutManager` |
+| # | Change | Why | Where | State |
+| --- | --- | --- | --- | --- |
+| T1 | **Close on exit**: a launch option `CloseOnExit`; when set, the window (or tab, or in-world instance) is closed once its process has exited. | Before, nothing reacted to an exit except " (exit N)" in the tab label, and with one tab the tab bar is hidden. | `ProcessLaunchOptions`, `TerminalSession`, `SessionManager`, `TerminalWindow`, `SessionExitPolicy`, `GhosttyTerminalController`, `InWorldTerminalRenderer` / `InWorldTerminalManager` | **done** (D1), plus the variant `CloseOnSuccessfulExit` (exit code 0 only) the editor uses |
+| T2 | **Guard resize after exit**: a resize when no process is running does nothing. | Both back ends threw `InvalidOperationException` then; resizing a dead window threw between `ImGui.Begin` and `End`. A latent bug independent of kFS. | `IProcessManager.Resize` in each back end, under its state lock | **done** (D1) |
+| T3 | **Windows `PATH` lookup honours `PATHEXT`**, and a `.cmd`/`.bat` hit is launched through `cmd.exe /c`. | `nvim` installed through a `.cmd` shim (scoop, some package managers) is missed; and the terminal starts processes with a raw `CreateProcessW`, which cannot run a script directly. | `ShellCommandResolver.FindExecutableInPath`, the Windows process launcher | **open** (D4). The launcher detects a shim and says it cannot be started (§7.2) |
+| T4 | **Layouts keep environment variables** (or the kFS launcher is excluded from layout capture). | A captured layout drops `EnvironmentVariables`, so a saved "kFS editor" terminal would relaunch without its server address. | `LayoutManager`, `WindowLayoutRecord` | **done by exclusion** (D3): a terminal whose launch environment has `PURRTTY_KFS_ROOT` is left out of a saved layout (`NeovimLaunchPlan.IsKfsEditorEnvironment`); it is re-created through the launcher. A window that is still starting is recognised too (`TerminalWindow.StartLaunchOptions`, `WindowLayoutRecord.LaunchOf`) |
 
-Useful but not blocking (each is its own small task in §8):
+How T1 and T2 work, as built — details that are easy to get wrong when changing them:
+
+- The options are `ProcessLaunchOptions.CloseOnExit` and `CloseOnSuccessfulExit` (both default
+  false, both cloned with the options); `TerminalSession.ShouldCloseAfterExit` decides. In a
+  layout file they are the keys `close_on_exit` and `close_on_successful_exit` of
+  `[terminal.shell]`, written only when true, so older layout files load unchanged.
+- **The exit flag is set only after the process's last output has been drained**
+  (`ProcessExited` is raised after the output pump finished). `IsRunning` turns false earlier and
+  is the wrong signal: closing on it would lose the final screen.
+- `SessionManager.CloseExitedSessions()` runs on the main thread **before `ImGui.Begin`**. It
+  builds one more frame first, so the final output, title and clipboard request are applied, then
+  closes the session through the ordinary `CloseSessionAsync`.
+- When the last tab closes, `SessionExitPolicy` decides and the window calls the same `Close()`
+  as its "x" button; the controller prunes it on the next frame, saves the window geometry if it
+  was the last window, and hides the terminal. A hidden terminal's 4 Hz drain closes exited tabs
+  too, and showing it again prunes windows that closed while hidden.
+- In-world: the renderer closes the session and sets `SessionEnded`; the manager's
+  `PruneRetired` calls `Remove`, which is the normal two-frame deferred GPU teardown.
+- A session that fails to start is never added to the manager; its error text stays on screen.
+- `IProcessManager.Resize` is a no-op before the start, after the exit and after a stop; a failure
+  of the operating system on a live terminal goes to `ProcessError`; after `Dispose` it still
+  throws `ObjectDisposedException`. The Windows back end checks the pseudoconsole handle, not
+  `Process.HasExited`. `TerminalSession.Resize(cols, rows, cellW, cellH)` always resizes the
+  surface and then the PTY, and both front ends call it.
+
+Useful but not blocking (each is its own small task in §8; **none was built**):
 
 | # | Change | Why |
 | --- | --- | --- |
@@ -1404,6 +1941,10 @@ Useful but not blocking (each is its own small task in §8):
 | T6 | Encode Ctrl/Alt with the remaining punctuation (`/ - ; ' , . =`), and Alt-composed characters on non-US layouts. | Common Neovim mappings (`<C-/>`, `<M-.>`) and typing `{ [ |` with Option on some Mac layouts. |
 | T7 | Let the toggle hotkey (F12 by default) pass to a 2D terminal when a modifier is held, or make it configurable per window. | F12 never reaches a 2D terminal's program today. |
 | T8 | OSC 52 read support (clipboard query) in 2D windows; OSC 52 at all in-world. | `"+p` over OSC 52. |
+
+Until those are built, these do not reach a program in a purrTTY terminal: F12 (the toggle
+hotkey), Ctrl or Alt with `/ - ; ' , . =`, Option-composed characters on non-US layouts, focus
+events, and clipboard reads over OSC 52.
 
 What already works for a full-screen editor: truecolor (`COLORTERM=truecolor`, `TERM=xterm-256color`),
 alternate screen, scroll regions, cursor shapes, synchronized output, the kitty keyboard protocol,
@@ -1415,133 +1956,238 @@ a terminal has focus.
 Shipped in the mod folder as `nvim/`. Plain Lua, no plugin manager, no dependency beyond Neovim's
 built-in LSP client.
 
+As built (`purrTTY.GameMod/nvim/`, deployed to `<mod folder>/nvim/`; the reference for a player
+is the shipped `doc/purrtty-kfs.txt`):
+
 ```text
 nvim/
-  purrtty_kfs.lua             the single entry script: adds ./lua to package.path, then require('purrtty_kfs').setup()
-  lua/purrtty_kfs/init.lua    setup(): filetypes, attach autocommand, connection discovery
-  lua/purrtty_kfs/commands.lua
-  lua/purrtty_kfs/log.lua     the :KfsLog buffer
+  purrtty_kfs.lua             the single entry script: finds its Lua modules beside itself, then require('purrtty_kfs').setup()
+  lua/purrtty_kfs/init.lua    setup(): options, workspace roots, filetypes, connection discovery, attach, reconnect, :KfsInfo, status()
+  lua/purrtty_kfs/commands.lua   the :Kfs* commands (workspace/executeCommand) and the kfs://output buffer
+  lua/purrtty_kfs/log.lua     the :KfsLog buffer (kfs://log) and the subscriptions
   lua/purrtty_kfs/buffer.lua  per-buffer options for kc and kasm (set from the FileType callback)
-  syntax/kasm.vim             mnemonics and directives (generated from the opcode table at build time; sourced by path)
+  lua/purrtty_kfs/text.lua    makes every string from the server safe to show
+  syntax/kasm.vim             mnemonics and directives; a checked-in snapshot (see below); sourced by path
   plugin/purrtty_kfs.lua      two lines, for people who install the folder as an ordinary plugin
-  doc/purrtty-kfs.txt
+  doc/purrtty-kfs.txt         the help file
 ```
 
 Design points:
 
 - **Independent of `runtimepath`.** The launcher loads `purrtty_kfs.lua` by absolute path
-  (`--cmd "lua dofile(…)"`), and that script extends `package.path` itself; buffer options are set
-  from Lua and the kASM syntax file is sourced by path, so nothing depends on `ftplugin/` or
-  `syntax/` discovery. The same folder also works as a normal plugin for manual installation.
-- **Own filetypes.** kC files are `*.c`/`*.h`; a normal C language server must not attach to them.
-  `vim.filetype.add` maps `*.c`/`*.h` **under the workspace root** to filetype `kc` and
-  `*.kasm`/`*.kinc` to `kasm`; the buffer set-up uses `syntax=c` for `kc` and registers the C
-  tree-sitter parser for it when present. Files elsewhere are untouched.
-- **Attach.** A `FileType kc,kasm` autocommand calls `vim.lsp.start` with a `cmd` chosen by
+  (`--cmd "lua dofile(…)"`), and that script finds its Lua modules relative to its own location;
+  buffer options are set from Lua and the kASM syntax file is sourced by path, so nothing depends
+  on `ftplugin/` or `syntax/` discovery, and a plugin manager that resets `runtimepath` during
+  start-up does not matter. The same folder also works as a normal plugin for manual
+  installation; both ways may be active at once (`setup()` runs once).
+- **Own filetypes, decided by a function.** kC files are `*.c`/`*.h`; a normal C language server
+  must not attach to them, and ordinary C files must keep filetype `c`. The rule is therefore not
+  a path pattern but a **function**: `vim.filetype.add` registers the pattern `.*%.[cChH]` with
+  priority 1000 (it beats the `.c`/`.h` extension rule) and a callback that answers `kc` only
+  when the file lies below a known workspace root (`root_of(path)`: Windows paths compared
+  case-insensitively with `\` and `/` alike, symbolic links resolved). `*.kasm` and `*.kinc` are
+  `kasm` **everywhere**, in any letter case, because no other filetype owns them; only kASM files
+  below a workspace root are attached to a server. The buffer set-up uses Neovim's C syntax for
+  `kc` and registers the C tree-sitter parser for it.
+- **Workspace roots**, in this order: `$PURRTTY_KFS_ROOT`; the `root` option; the
+  `workspace_root` of every server info file found; the game's default workspace,
+  `<Documents>/My Games/Kitten Space Agency/kfs`, when that folder exists. `~`, environment
+  variables and relative paths in the first two are expanded.
+- **Attach.** A `FileType kc,kasm` autocommand starts `vim.lsp.start` with a `cmd` chosen by
   discovery (§7.6) and `root_dir` = the workspace root, so every buffer in the workspace shares
   one client. Because `--cmd` runs before the file is read, the rules are in place for the first
-  buffer.
+  buffer. Start-up is never blocked: the probe and the server start are asynchronous.
 - **Authentication.** The token goes in `init_options`; the server refuses `initialize` without it.
-- **Commands.** `:Kfs*` commands write modified workspace buffers first (`:wall` restricted to the
-  workspace) — the game's `kfs build` and `kfs load` read the disk, never Neovim's unsaved text —
-  then send `workspace/executeCommand`; results come back as the command's response and as
-  `window/showMessage`.
-- **Log.** The server sends the program log as a custom notification (`purrtty/kfsLog`); the
-  handler appends to a scratch buffer opened by `:KfsLog`.
-- The player's own configuration loads normally; nothing is written to it.
+  The launcher's `PURRTTY_KFS_TOKEN` is moved into Lua state and removed from Neovim's
+  environment at start-up.
+- **Commands.** `:KfsBuild [file]`, `:KfsLoad [file]`, `:KfsStart`, `:KfsStop`, `:KfsReset`,
+  `:KfsTarget vehicle|bench`, `:KfsParts [kind]`, `:KfsManual [code]`, `:KfsVerb {line}`,
+  `:KfsLog`, `:KfsInfo`, `:KfsRestart`. `:KfsBuild`, `:KfsLoad` and `:KfsVerb` first write every
+  modified kC/kASM buffer of the workspace — the game's `kfs build` and `kfs load` read the disk,
+  never Neovim's unsaved text — then send `workspace/executeCommand`. The answer
+  (`{ ok, output, error }`, §6.7) is shown as it is: a short output as a message, a long one in
+  the scratch buffer `kfs://output`; `ok: false` as a warning, never as a Lua error. When a
+  command finishes the `User` event `KfsCommandDone` fires with `data = { command, ok, output,
+  error }`.
+- **Log and state.** `:KfsLog` opens the scratch buffer `kfs://log` and subscribes to the feeds
+  (§6.7): it starts with the program log's last lines, appends new ones, prefixes `kfs` command
+  output with `> ` and marks a trap as `!! trap …`. Deleting the buffer unsubscribes.
+  `require('purrtty_kfs').status()` gives a short string for a status line
+  (`kFS: Running main.c tick 1200`, or the trap). The `state` topic is subscribed only after the
+  first `:KfsLoad` or `:KfsStart` that ran, while the log buffer exists, or once `status()` is
+  used — never merely at attach (§6.7 says why).
+- **Server text is untrusted for display.** `text.lua` puts every string from the server on
+  single lines, without escape sequences or control characters, and cuts very long lines.
+- The player's own configuration loads normally; nothing is written to it and no global option is
+  changed. Everything is namespaced (the augroup `purrtty_kfs`, the client `kfs`, the `Kfs*`
+  commands, the buffers `kfs://log` and `kfs://output`, the filetypes `kc` and `kasm`).
 
-The attach logic. The `vim.lsp.start` / `vim.lsp.rpc.connect` / `vim.filetype.add` calls are the
-ones spike 05 ran against Neovim 0.12.6 on macOS (TCP and stdio; the path rule won over the `.c`
-extension, so C language servers never matched). **Not yet run:** this file layout and the `dofile`
-entry, Windows path separators in the patterns, and start-up under a plugin manager — task D2's
-headless test covers them.
+Options, in `vim.g.purrtty_kfs` or `require('purrtty_kfs').setup({ … })`:
 
-```lua
-local root = vim.env.PURRTTY_KFS_ROOT            -- or the discovered workspace root (§7.6)
-local pat  = vim.pesc((root:gsub('\\', '/')))    -- patterns are matched against forward-slash paths
-vim.filetype.add({ pattern = {
-  [pat .. '/.*%.[ch]']   = 'kc',
-  [pat .. '/.*%.kasm']   = 'kasm',
-  [pat .. '/.*%.kinc']   = 'kasm',
-}})
-
-vim.api.nvim_create_autocmd('FileType', { pattern = { 'kc', 'kasm' }, callback = function(ev)
-  require('purrtty_kfs.buffer').setup(ev.buf)
-  local cmd = require('purrtty_kfs').resolve_cmd()   -- rpc.connect(host, port) | { 'purr-kfs', 'lsp', '--stdio' } | nil
-  if not cmd then return end
-  vim.lsp.start({
-    name = 'kfs',
-    cmd = cmd,
-    root_dir = root,                                  -- one client per (name, root_dir)
-    init_options = { token = vim.env.PURRTTY_KFS_TOKEN },
-  }, { bufnr = ev.buf })
-end })
-```
-
-Connection behaviour the runtime files must handle (all observed in the spike):
-
-| Situation | What Neovim does | What `purrtty_kfs` does |
+| Option | Default | Meaning |
 | --- | --- | --- |
-| Nothing is listening on the port | one warning; the client object exists but never initialises and never retries | probe the port with a short `vim.uv` TCP connect **before** `vim.lsp.start`; if it fails, fall through to the next discovery step |
-| The server goes away (game closed, extension reloaded) | `on_exit`, `LspDetach` for every buffer, diagnostics cleared, no reconnect | an `on_exit` handler starts a low-rate timer that re-runs discovery and re-attaches open `kc`/`kasm` buffers when a server appears |
+| `root` | none | extra workspace folder or folders |
+| `retry_interval_ms` | 3000 | how often to look for a server again |
+| `probe_timeout_ms` | 500 | limit of the TCP probe |
+| `stdio` | true | fall back to `purr-kfs lsp --stdio` |
+| `purr_kfs` | `purr-kfs` | that executable (a name on `PATH`, or a path) |
+| `log_max_lines` | 10000 | lines kept in `kfs://log` |
+| `treesitter` | false | start tree-sitter highlighting in `kc` buffers |
+| `buffer_options` | true | false leaves the `kc`/`kasm` buffer options to the player |
+| `initialize_timeout_ms` | 5000 | how long a new connection may take to answer `initialize` |
+| `max_attempts` | 3 | early ends in a row before an address is dropped |
+
+**`syntax/kasm.vim` is a checked-in snapshot, not a build product.** It is generated from the
+game itself — the mnemonics of its opcode table and the directive names its assembler recognises
+— by `purrTTY.Kfs.Tools.Tests` (`Nvim/KasmSyntax.cs`), and a test (`Runtime/Nvim/KasmSyntaxTests.cs`)
+regenerates it and compares it with the file in the repository; `PURRTTY_UPDATE_SNAPSHOTS=1`
+rewrites the file after a game update. The directive names are in no game table: the assembler
+matches them with `switch` statements and comparisons on string literals, so the generator reads
+them out of the assembler's compiled code. Mnemonics are highlighted only at statement position
+(after an optional label), so a label, an operand or a directive argument spelled like one is not
+mistaken for one. kASM has no character literals, so the syntax defines none.
+
+**Which Neovim.** The files check for Neovim 0.11, the oldest release with every interface they
+use, and give one message and nothing else on anything older. **Only 0.12.6 was actually run**
+(headless, on macOS); 0.11 itself was not.
+
+Connection behaviour, as built:
+
+| Situation | What Neovim does by itself | What `purrtty_kfs` does |
+| --- | --- | --- |
+| Nothing is listening on the port | one warning; the client object exists but never initialises and never retries | probes the address with a short `vim.uv` TCP connect **before** `vim.lsp.start`; if it fails, falls through to the next discovery step |
+| No server was found, or the server goes away (game closed, mod reloaded) | `on_exit`, `LspDetach` for every buffer, diagnostics cleared, no reconnect | looks again every `retry_interval_ms` (3 s) for as long as a `kc`/`kasm` buffer of that workspace is loaded, and attaches all of them when a server appears — for example through a new server info file with a new port and token. Only a connection that had worked is announced as lost |
+| A peer accepts the connection and never answers, or closes before answering | — | given up after `initialize_timeout_ms` without a message; the retry interval doubles each time (up to 16 times), and after `max_attempts` in a row that address is not tried again until its address or token changes or `:KfsRestart` |
+| The server refuses the token | — | reported once; not tried again until `:KfsRestart` (a new info file is picked up by itself) |
+| `purr-kfs` exits with an error | — | not restarted |
+| The game starts while a buffer is attached to the standalone server | — | the buffer stays with it; `:KfsRestart` switches |
 | Several buffers in the workspace | one client, one connection | nothing |
-| Several Neovim processes | one connection each | the server accepts several clients |
+| Several Neovim processes | one connection each | the server accepts several clients (up to the limits of §6.2) |
 
 ### 7.5 Menu, console and config
 
-- `TerminalMenus.DrawMenuContent`: a `kFS` submenu after "Layouts…", shown when the launcher hook
-  is set: **Edit in Neovim…** (workspace file list from `Workbench.Workspace.List()`),
-  **Open workspace in Neovim**, **Status** (extension and server lines), **Copy server address**.
-- Console: `purr nvim [file]` and `purr lsp` (address, connected clients) — verbs of the mod's own
-  `purr` command (§4.13), so no kFS code is patched for them.
-- Optional, later: a button in the stock kFS editor's menu bar through a postfix on the public
-  `KfsEditorWindow.DrawMenuBar`.
-- **Config lives in its own file**, `<config>/.purrTTY/kfs.toml`, owned by `purrTTY.GameMod/Kfs/KfsConfig.cs`
-  (Tomlyn, written through `AtomicFile`). It cannot be a `[kfs]` table in `purrtty.toml`: that file
-  is a typed model re-serialised on save, which would drop a table it does not know, and
-  `purrTTY.Kfs` must not reference the display project that owns it. Keys: `enabled`,
-  `lsp_enabled`, `lsp_port` (0 = pick a free one), `lsp_allow_vehicle_commands`, `nvim_path`,
-  `nvim_open_in` (`window` | `inworld`).
+- **Menu.** `TerminalMenus.DrawMenuContent` draws a `kFS` submenu after "Layouts…" through the
+  hook `TerminalMenus.DrawKfsMenu` (set to `KfsMenu.Draw`). It is shown whether or not the
+  extension installed, so a disabled install shows its reason. Its entries, top to bottom:
+
+  | Entry | Does |
+  | --- | --- |
+  | *(a status line)* | the extension's one-line status |
+  | **List parts in console** | `purr parts` (greyed while the extension is not active) |
+  | **Reset light overrides** | `purr lights reset` (greyed likewise) |
+  | **Write example programs** | `purr examples` (greyed likewise) |
+  | **Extension status in console** | `purr status` |
+  | *(the server line)* | `Language server: 127.0.0.1:<port>, <n> client(s)`, or why it is not running |
+  | **Copy server address** | puts the address on the clipboard (greyed without a server) |
+  | **Language server in console** | `purr lsp` |
+  | **Edit in Neovim...** | a submenu of the workspace's `.c`, `.h`, `.kasm` and `.kinc` files, each running `purr nvim <file>`; the list is re-read when the submenu opens |
+  | **Open workspace in Neovim** | `purr nvim` |
+  | *(problem lines)* | when Neovim cannot be launched, the two entries above are greyed and the reason is shown; after a failed launch, `Last launch failed: …` |
+
+  Every entry calls `PurrConsole.Execute` directly, so the menu works even if registering the
+  console command failed. Every `BeginMenu`/`EndMenu` pair ends in a `finally`, and
+  `DrawMenuContent` catches and logs once: an exception in one entry cannot leave ImGui's menu
+  stack unbalanced.
+- **Console.** `purr nvim [file]` and `purr lsp [token | restart]` are verbs of the mod's own
+  `purr` command (§4.13), so no kFS code is patched for them. `purr lsp` prints the address, the
+  connected clients, the workspace, the build target, which commands an editor may run, the info
+  file and how to get the token; `purr lsp token` prints the token (to the console only);
+  `purr lsp restart` stops and starts the server, reading `kfs.toml` again, with a new port (when
+  `lsp_port` is 0) and a new token.
+- Optional, later (not built): a button in the stock kFS editor's menu bar through a postfix on
+  the public `KfsEditorWindow.DrawMenuBar`.
+- **Config lives in its own file**, `<config>/.purrTTY/kfs.toml`, owned by
+  `purrTTY.GameMod/Kfs/KfsConfig.cs` (Tomlyn; written crash-safely through a temporary file and a
+  rename — the same pattern as the display project's `AtomicFile`, repeated because that class is
+  internal to `purrTTY.Display`). It cannot be a `[kfs]` table in `purrtty.toml`: that file is a
+  typed model re-serialised on save, which would drop a table it does not know, and `purrTTY.Kfs`
+  must not reference the display project that owns it. The file is created with comments on first
+  load; an existing file is never rewritten, so a file from an earlier build does not gain the
+  comments of keys added later.
+
+  | Key | Default | Meaning | Read |
+  | --- | --- | --- | --- |
+  | `enabled` | `true` | install the kFS extension (`x_` services) | at mod load |
+  | `nvim_path` | `""` | absolute path of the `nvim` executable; empty = search (§7.2). On Windows write it as a single-quoted TOML string, so backslashes are literal | at every launch |
+  | `nvim_open_in` | `"window"` | `"window"` or `"inworld"` | at every launch |
+  | `lsp_enabled` | `true` | run the language server | at start and at `purr lsp restart` |
+  | `lsp_port` | `0` | loopback port; 0 picks a free one | at start and at `purr lsp restart` |
+  | `lsp_allow_vehicle_commands` | `false` | allow `kfs.verb`, i.e. any `kfs` line from an editor (§6.7) | at start and at `purr lsp restart` |
+
 - Wiring follows the layouts precedent: `TerminalMod` constructs the launcher with
-  `(_controller, _inWorld)`, exposes a nullable static hook to `TerminalMenus`, and pumps it from
-  `OnAfterUi` (which is also where an in-world terminal must be created).
-- Deployment: `nvim/**` is copied next to the mod DLLs by a new item and `Copy` pair in
-  `purrTTY.GameMod.csproj`'s `CopyCustomContent`, like fonts and themes; the launcher finds it
-  beside its own assembly.
+  `(_controller, _inWorld)`, hands it to `KfsMenu`, and pumps it from `OnAfterUi` (which is also
+  where an in-world terminal must be created). The language server's per-frame call
+  (`KfsLspService.Frame`) is the first thing `OnAfterUi` does, before the check that the terminal
+  initialised: a terminal that failed to come up does not take the server with it.
+- Deployment: `nvim/**` (without `doc/tags`) is copied to `<mod folder>/nvim/` by an item and
+  `Copy` pair in `purrTTY.GameMod.csproj`'s `CopyCustomContent`, like fonts and themes; the
+  launcher finds it beside its own assembly. The mod folder also gains `purrTTY.Kfs.dll` and
+  `purrTTY.Kfs.Lsp.dll`; no game or test assembly is ever copied there.
 
 ### 7.6 Using Neovim outside the game
 
-The runtime files choose a connection in this order:
+When the first `kc` or `kasm` buffer of a workspace opens, the runtime files look for a server in
+this order and use the first that answers; every buffer of that workspace then shares one client:
 
-1. `PURRTTY_KFS_LSP` / `PURRTTY_KFS_TOKEN` in the environment (the in-game launch);
-2. a **server info file**, `<config>/.purrTTY/kfs-lsp.json` — `{ "address", "token", "pid",
-   "ksa_build", "workspace_root" }` — written by the mod when its server starts, rewritten when
-   the workspace is moved (`kfs ws`), deleted when it stops; a stale file (dead pid, refused
-   connection) is ignored. It is **not** in the workspace: anything written there appears in
-   `kfs ls` and the editor's file tree. With the default locations the config folder is the
-   workspace's sibling (`…/Kitten Space Agency/.purrTTY/` beside `…/Kitten Space Agency/kfs/`), which
-   is how the runtime files find it; otherwise `PURRTTY_CONFIG_DIR` names it;
-3. `purr-kfs lsp --stdio` if `purr-kfs` is on `PATH` — the standalone server of Workstreams B/C,
-   which needs a .NET runtime and `KSA_DLL_DIR`, and uses the layout recorded in the workspace's
-   `vehicle.h`;
-4. nothing: the files open as plain `kc`/`kasm` buffers with syntax only.
+1. `PURRTTY_KFS_LSP` with `PURRTTY_KFS_TOKEN` in the environment (the in-game launch), when
+   `PURRTTY_KFS_ROOT` is unset or is this workspace. One exception: when the live server's info
+   file names the **same address with another token** — the server was restarted on a fixed
+   `lsp_port` — the environment is stale and is skipped (`:KfsInfo` says "superseded") instead of
+   being tried and refused;
+2. a **server info file** whose `workspace_root` is this workspace:
+   `<config>/.purrTTY/kfs-lsp.json` — `{ "address", "token", "pid", "ksa_build",
+   "workspace_root" }`, unknown keys ignored — written by the mod when its server starts,
+   rewritten when the workspace is moved (`kfs ws`), deleted when it stops. A file whose `pid` is
+   not running is stale and ignored. It is **not** in the workspace: anything written there
+   appears in `kfs ls` and the editor's file tree. Where it is looked for: only
+   `$PURRTTY_CONFIG_DIR/.purrTTY/kfs-lsp.json` when `PURRTTY_CONFIG_DIR` is set (the variable
+   names the folder that **contains** `.purrTTY`; the mod sets it for every Neovim it starts);
+   otherwise beside every known workspace root (`<root>/../.purrTTY/kfs-lsp.json` — with the
+   default locations `…/Kitten Space Agency/.purrTTY/` is next to `…/Kitten Space Agency/kfs/`)
+   and in `<Documents>/My Games/Kitten Space Agency/.purrTTY/`;
+3. `purr-kfs lsp --stdio --workspace <root>` if `purr-kfs` is on `PATH` (and the `stdio` option
+   is on) — the standalone server of Workstreams B/C, which needs a .NET runtime and
+   `KSA_DLL_DIR`, and uses the layout recorded in the workspace's `vehicle.h`. It offers
+   diagnostics, hover, completion and `kfs.manual` only (§6.7);
+4. nothing: the files open as plain `kc`/`kasm` buffers with syntax only, and one message says so.
+
+A TCP address is probed with a short connect before Neovim's client is started (§7.4).
 
 So a player can keep a Neovim open on a second monitor attached to the running game, and a
-developer can edit and test with no game at all.
+developer can edit and test with no game at all. Outside the game the runtime files are loaded
+with `nvim --cmd "lua dofile('<mod folder>/nvim/purrtty_kfs.lua')"` (or a `dofile` line in
+`init.lua`), or by copying the folder to `…/site/pack/purrtty/start/purrtty_kfs`.
+
+**The server info file** is written owner-only on Unix (mode 0600, set when the temporary file is
+created, so the token is never in a file others could read), is refused when its path would lie
+inside the workspace, and at stop is deleted only when it still parses and both its token and its
+`pid` are this server's — another server's file is left alone.
+
+**The standalone server's token** (`purr-kfs lsp`). Over `--stdio` there is none: the peer started
+the process. A `--listen <host>:<port>` server is **always** token-protected: the token comes from
+`--token <t>` (visible in the process list), `--token-file <file>` (the file's first line) or the
+environment variable `PURR_KFS_LSP_TOKEN`; without any of them one is generated and printed as a
+second line. Standard output then carries exactly `LISTENING <port>` and, when the token was
+generated, `TOKEN <t>`; logs go to standard error. With `--stdio` nothing but the protocol is
+written to standard output, and a termination signal ends the process with exit code 1 even while
+standard input stays open.
 
 The token keeps other users and other machines out; it does not protect against another process
-of the same user, which can read the info file.
+of the same user, which can read the info file (risk R12).
 
 ### 7.7 Tests
 
 | Test | Where | Asserts |
 | --- | --- | --- |
-| `NeovimLaunchPlan_*` | `purrTTY.Kfs.Tests` (the plan is plain strings; `purrTTY.GameMod` has no test project) | argv, env, cwd for each resolution path |
-| `CloseOnExit_Closes_Window` | `purrTTY.Terminal.Tests` (real `/bin/sh -c 'exit 0'`; the Windows twin with `cmd /c exit`) | the session is closed after exit; no resize throw |
-| `Resize_After_Exit_Is_Ignored` | `purrTTY.Terminal.Tests` | no exception |
-| `PathExt_Resolution` | `PtyInputContractTests` (pure logic, every OS) | `.cmd` / `.exe` candidates |
-| `Neovim_Attaches_Headless` | `purrTTY.Kfs.Lsp.Tests`, skipped silently when `nvim` is absent | a headless Neovim with the bundled runtime files attaches to a server on a loopback port, receives a diagnostic for a broken file, and a `:KfsBuild` round trip returns |
-| manual | §10 V16–V23 | in game |
+| `NeovimLaunchPlan_*` | `purrTTY.Kfs.Tests/NeovimLaunchPlanTests.cs` (the plan is plain strings; `purrTTY.GameMod` has no test project) | argv, environment and working directory for each resolution path, in Unix and Windows conventions; the login-shell script run with the real `sh`, `bash`, `zsh` and `dash` (arguments passed exactly; the not-found branch) |
+| `CloseOnExit_*`, `CloseOnSuccessfulExit_*` | `purrTTY.Terminal.Tests/SessionExitTests.cs` | the session is closed after exit (any code / code 0 only), only the exited one, also when hidden and never rendered; a failed process keeps its final screen; a session that failed to start is untouched |
+| the last-tab decision | `purrTTY.Display.Tests/SessionExitPolicyTests.cs` | when the window itself closes |
+| `Resize_After_Exit_Is_Ignored`, `Resize_Before_Start_…`, `Resize_Racing_Exit_Never_Throws` | `purrTTY.Terminal.Tests/UnixProcessManagerTests.cs` and `ConPtyProcessManagerTests.cs` (each set runs on its own platform only and is among the suite's platform skips elsewhere; the totals above come from a macOS run, so the ConPTY set was not part of them) | no exception |
+| layout keys | `purrTTY.Display.Tests/LayoutTomlTests.cs` | `close_on_exit` / `close_on_successful_exit` round-trip; old files load |
+| `PathExt_Resolution` | — | **not built** (T3, task D4) |
+| `Neovim_Attaches_Headless` and the rest of the Neovim tests | `purrTTY.Kfs.Tools.Tests/Runtime/Nvim/NeovimTests.cs` (real language servers on a loopback port, and a scripted one, `Nvim/FakeKfsServer.cs`, for the command and feed contract) and `InGameNeovimTests.cs` (against the real in-game host and service core over a fake game side, `Nvim/InGameStack.cs`); skipped silently when `nvim` is not on `PATH` | a headless Neovim, started exactly as the launcher starts it and with temporary configuration folders, attaches, receives diagnostics, runs the commands, follows the log, reconnects |
+| `Kasm_Syntax_Matches_The_Game` | `purrTTY.Kfs.Tools.Tests/Runtime/Nvim/KasmSyntaxTests.cs` (runs without `nvim`) | the checked-in `syntax/kasm.vim` equals what the game's tables and assembler give |
+| manual | §10 | in game |
 
 ## 8. Task breakdown
 
@@ -1587,15 +2233,17 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 | Milestone | Tasks | Demonstrates | Needs the game? |
 | --- | --- | --- | --- |
 | M1 — the extension works offline — **done** (offline; see §8.6) | F1, A1, A2, A3, B1 | every service compiled by the real compiler, run by the real VM, against simulated parts, in CI | no |
-| M2 — the extension works in the game | A4, A5 | lights and animations driven from a kC program on a real vehicle | yes: V1–V15 |
-| M3 — command-line runtime | B2, B3 | `purr-kfs check / run / test` | no |
-| M4 — language server, standalone | C1, C2, C3 | diagnostics, hover, completion in any LSP client via `purr-kfs lsp` | no |
-| M5 — Neovim from in-game | C4, D1, D2, D3 | the full editing loop inside the game | yes: V16–V23 |
-| M6 — depth | C5, C6, D4–D8 | symbols, cost lenses, navigation, terminal polish | partly |
+| M2 — the extension works in the game — **code complete, not run in the game** (§8.7) | A4, A5 | lights and animations driven from a kC program on a real vehicle | yes: §10.1–§10.4 and §10.8 (V1–V15, V24–V34, V51) |
+| M3 — command-line runtime — **`check` and `run` done; `test` not built** | B2, B3 | `purr-kfs check / run / test` | no |
+| M4 — language server, standalone — **done** (offline) | C1, C2, C3 | diagnostics, hover, completion in any LSP client via `purr-kfs lsp` | no |
+| M5 — Neovim from in-game — **code complete, not run in the game** | C4, D1, D2, D3 | the full editing loop inside the game | yes: §10.5–§10.9 (V16–V23, V35–V50, V52–V54) |
+| M6 — depth — **not built** | C5, C6, D4–D8 | symbols, cost lenses, navigation, terminal polish | partly |
 
 ### 8.4 Tasks
 
 #### F1 — Scaffolding and the assembly resolver
+
+**State: done** (M1; notes in §8.6).
 
 - **Create** `purrTTY.Kfs`, `purrTTY.Kfs.Testing`, `purrTTY.Kfs.Tests` per §3.4 and add them to
   `purrtty.slnx`; game references `Private=false` from `$(KSAFolder)`; `Lib.Harmony` 2.4.2 with
@@ -1615,6 +2263,8 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### A1 — Catalogue, emitter, self-check, table augmentation
 
+**State: done** (M1; notes in §8.6).
+
 - **Create** `Catalog/*`, `Tables/TableAugmenter.cs` (§4.4, §4.5 step 4).
 - **Port from** spike 06 (`ServiceCatalog.cs`, `KfsInstall.cs`), which already implements the
   single-enumeration-per-kind selector scheme of §4.1.
@@ -1625,6 +2275,8 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 - **Done when:** the game's loader accepts the emitted tables and the snapshots are committed.
 
 #### A2 — Runtime core and the two host hooks
+
+**State: done** (M1; notes in §8.6).
 
 - **Create** `Runtime/*` except `ProjectResolver` and `NeovimLaunchPlan`,
   `Patches/ApplyRequestPatch.cs`, `Patches/IssueResultPatch.cs`; in `purrTTY.Kfs.Testing`:
@@ -1643,6 +2295,8 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### A3 — Install, uninstall, status, bench
 
+**State: done** (M1; notes in §8.6).
+
 - **Create** `KfsExtension`, `KfsExtensionStatus`, `Tables/TablesPublisher.cs`,
   `Patches/LoadEmbeddedFallbackPatch.cs`, `Patches/BenchApplyRequestPatch.cs`; make
   `KfsRuntime.Start` use `KfsExtension.Install`. The install set is "every patch registered so
@@ -1658,6 +2312,9 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### A4 — Game back end and wiring *(not offline-testable)*
 
+**State: code complete, reviewed against the decompiled game, not run in the game** (notes in §8.7).
+In game: §10.1–§10.3, §10.8.
+
 - **Create** `Game/*`, `Patches/BeforeInputEventsPatch.cs`, `purrTTY.GameMod/Kfs/KfsConfig.cs`;
   call `KfsExtension.Install/Uninstall` from `purrTTY.GameMod/Patcher.cs`.
 - **Spec:** §4.7, §4.8, §4.10–§4.12, §7.5 (config file); game facts in
@@ -1667,9 +2324,11 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
   [dispatch and threading](../docs/kfs-info/integration/dispatch-and-threading.md).
 - **Tests:** only what is pure (clamps, switch-group computation over a fake list, config
   round-trip). A reviewer checks every game member used against the decompiled sources.
-- **Done when:** it builds, the offline suite is still green, and V1–V15 are handed over.
+- **Done when:** it builds, the offline suite is still green, and the items of §10.1–§10.3 and §10.8 are handed over.
 
 #### A5 — Console command, examples, documentation
+
+**State: code complete, not run in the game** (notes in §8.7). In game: V4, V25–V28, V30, V33, V34.
 
 - **Create** `Console/*`, `Examples/*`; register `purr` at install; the purrTTY menu's kFS status
   entry.
@@ -1682,11 +2341,15 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### B1 — The full test runtime
 
+**State: done** (M1; notes in §8.6). Its frame order was corrected later (§5.4, §8.7).
+
 - **Extend** `KfsRuntime` / `SimVehicle` to §5.3–§5.5: scripted telemetry, stock-request recording
   with `StageApplied`, `ReadGlobal`, detach/attach, pause.
 - **Tests:** §5.8 except the scenario and CLI rows.
 
 #### B2 — `purr-kfs` command line
+
+**State: done, offline** (notes in §8.7). The tool package as a release asset (decision D12) is not set up.
 
 - **Create** `Runtime/ProjectResolver.cs` in `purrTTY.Kfs` (§6.3 step 2 — the one implementation
   the CLI and the language server share) and `purrTTY.Kfs.Cli` with `check`, `run`, `header`,
@@ -1698,19 +2361,25 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### B3 — Scenario files
 
+**State: not built** (outside the agreed scope).
+
 - **Create** `Scenario/*`, `purr-kfs test`. Tomlyn is already used by the repository; add it to
   this project.
 - **Tests:** `Scenario_Files_Run`; documentation with two worked scenarios.
 
 #### C1 — LSP protocol core
 
-- **Create** `purrTTY.Kfs.Lsp` protocol and document layers (§6.1–§6.2, §6.8) and
-  `purrTTY.Kfs.Lsp.Tests`.
+**State: done, offline** (notes in §8.7).
+
+- **Create** `purrTTY.Kfs.Lsp` protocol and document layers (§6.1–§6.2, §6.8) and its tests (as
+  built: in `purrTTY.Kfs.Tools.Tests`, §6.9).
 - **Port from** spike 05 (`Session.cs`, position mapping).
 - **Tests:** `Initialize_Negotiates_Utf16_And_Requires_Token`, framing fuzz (split headers, large
   bodies), `Exit_Closes_Connection_Only`, position round-trips in three encodings.
 
 #### C2 — Builds and diagnostics, standalone host
+
+**State: done, offline** (notes in §8.7).
 
 - **Create** `Build/*` in `purrTTY.Kfs.Lsp`; `StandaloneLanguageHost` and the `lsp` command in
   `purrTTY.Kfs.Cli` (§6.3, §6.4).
@@ -1722,22 +2391,30 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### C3 — Hover and completion
 
+**State: done, offline** (notes in §8.7).
+
 - **Create** `Index/*`, `Features/HoverProvider.cs`, `CompletionProvider.cs` (§6.5).
 - **Tests:** `Hover_And_Completion_Know_Mod_Services`, pragma/include/member contexts, opcode hover.
 
 #### C4 — The in-game server
 
+**State: code complete, hardened after an independent review, not run in the game** (notes in §8.7).
+
 - **Create** `KfsLspListener` use in `purrTTY.GameMod/Kfs/KfsLspService.cs`,
   `InGameLanguageHost.cs`; commands and notifications (§6.7); config keys; the server info file
   (§7.6); `purr lsp`.
 - **Tests:** against a fake host (`Commands_Reach_The_Host`, `Target_Change_Rediagnoses`, token
-  refusal, info-file lifecycle including a workspace move). In game: V16, V19, V20, V22.
+  refusal, info-file lifecycle including a workspace move). In game: §10.6 (V16, V19, V22, V38–V42) and V20.
 
 #### C5 — Symbols, cost lenses, inlay hints
+
+**State: not built** (outside the agreed scope).
 
 - §6.6 phase 2. **Tests:** `Cost_Lenses_Match_Compile_Report`, symbol ranges.
 
 #### C6 — Navigation
+
+**State: not built** (outside the agreed scope).
 
 - §6.6 phase 3: own `KcFrontEnd.Lower` run, position index, definition/references/hover types/
   signature help, virtual header copies. **First step is a spike** (delegated like the others):
@@ -1747,11 +2424,15 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### D1 — Terminal: exit handling
 
+**State: done, offline** (notes in §8.7). In game: §10.5.
+
 - T1 and T2 of §7.3 in `purrTTY.Terminal` / `purrTTY.Display`.
 - **Tests:** `CloseOnExit_Closes_Window`, `Resize_After_Exit_Is_Ignored` (Unix and Windows twins,
   condition-waits only).
 
 #### D2 — Neovim runtime files
+
+**State: done; run only against a headless Neovim 0.12.6** (notes in §8.7).
 
 - **Create** `purrTTY.GameMod/nvim/**` (§7.4) and the `CopyCustomContent` entries.
 - **Port from** spike 05 (`nvim/*.lua`).
@@ -1762,18 +2443,24 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 
 #### D3 — Launcher, menu, console
 
+**State: code complete, not run in the game** (notes in §8.7).
+
 - **Create** `Runtime/NeovimLaunchPlan.cs` in `purrTTY.Kfs`; `purrTTY.GameMod/Kfs/KfsNeovimLauncher.cs`;
   the `kFS` submenu; `purr nvim`; config keys (§7.2, §7.5).
 - **Tests:** `NeovimLaunchPlan_*` in `purrTTY.Kfs.Tests` (argv, environment and working directory
   for each resolution path, on Unix and Windows conventions). Confirm the login-shell fallback on
-  macOS and Linux. In game: V17, V18, V21, V23.
+  macOS and Linux. In game: §10.7 (V17, V18, V20, V23, V43–V50), V21, V36, V37 and V52–V54.
 
 #### D4 — Path and layout details
+
+**State: T3 not built; T4 done within D3** by leaving kFS editor terminals out of saved layouts (§7.3).
 
 - T3 and T4 of §7.3. **Tests:** `PathExt_Resolution`, and a launch through a `.cmd` shim on the
   Windows leg.
 
 #### D5, D6, D7, D8 — Terminal polish (optional, independent)
+
+**State: not built.**
 
 - D5: T5 focus reporting. D6: T6 remaining Ctrl/Alt chords and Alt-composed characters. D7: T7
   toggle-hotkey pass-through. D8: T8 OSC 52 read. Each with encoder-level tests in
@@ -1849,7 +2536,7 @@ authoritative. Read this before A4.
     and `Accept` and `BindingPump.DrainAndApply` call it first; without a new run it is one reference
     compare. A new run rebuilds the lists and clears the limiter, which counts the run's own seconds
     (`k / tick_hz`, `k` restarting at 0), so a run can never be mistaken for an earlier one.
-    **`ImageLoaded` is no longer chained** (§4.7's last-but-one bullet is superseded): binding touches
+    **`ImageLoaded` is no longer chained** (§4.7 now says so): binding touches
     nothing of the computer, so re-binding cannot grow a delegate chain and the game's host keeps its
     slot. In `SimVehicle` the run's lists are frozen by the first frame's pump after a start: a test
     that wants a part to leave *during* a run detaches it after the first `Frame`.
@@ -1886,74 +2573,455 @@ authoritative. Read this before A4.
     (120 bytes, the VM's request), a getter 24–32 bytes more (the VM's result cell); the router and
     the hooks add nothing.
 
+### 8.7 Implementation notes from the later tasks (A4, A5, B2, C1–C4, D1–D3)
+
+Where the code of these tasks differs from the plan as it was written, and why. The sections
+above were corrected where they said something else; this list is the record of what changed, for
+someone comparing with an older copy or with the spikes. The code and its XML documentation are
+authoritative.
+
+- **A4 — game back end.**
+  - *A seam the plan did not have.* `IKfsGameServices` (`Name`, `Prepare`, `Attach`, `Detach`,
+    optional `Console`, `SystemHeadersInUse`) separates the installer from everything that exists
+    only in the running game; `Game/KsaGameServices.cs` implements it. `new KsaGameServices()` has
+    no console — so the offline tests never touch the game's `Program` — and
+    `KsaGameServices.Create()` adds `KsaConsoleHost`. *Why:* the installer and its all-or-nothing
+    rule stay testable offline, and the test runtime installs with no game services at all.
+  - *The pump patch is required in every install*, the offline one included (its target exists
+    in `KSA.dll`, and with no active pump the postfix does nothing): three required hooks plus one
+    optional, not "two until A4".
+  - *`ReleaseDead` is not relied on* (§4.7): it runs only while the kFS switch is on, so
+    `GameHostSource` filters by `KfsVehicleHost.IsAlive` and the pump prunes what it did not see.
+    `MainThreadPump` became an instance over `IPumpHostSource`, so the tests drive the real pump
+    with `SimHostSource`.
+  - *No `LightOps.cs` or `AnimationOps.cs`.* The decisions are pure functions in `KsaPartRules`
+    (tested), the shared behaviour is `Runtime/VehiclePartsBase.cs`, and `KsaVehicleParts` holds
+    only the raw game reads and writes.
+  - *Config.* `KfsConfig` writes atomically with its own temporary-file-and-rename, because the
+    display project's `AtomicFile` is internal. It has no test (`purrTTY.GameMod` has no test
+    project); the plan's "config round-trip" test was not written.
+  - *Checked against the decompiled game by the reviewer:* the patch targets, the pump's place in
+    `Program.PrepareFrame`, the light and animation members. The same facts, with their lines, are
+    in the bundle ([dispatch and threading](../docs/kfs-info/integration/dispatch-and-threading.md),
+    [light module](../docs/kfs-info/game-targets/light-module.md),
+    [keyframe animation module](../docs/kfs-info/game-targets/keyframe-animation-module.md)).
+- **A5 — `purr`, examples, menu.**
+  - *Namespaces.* The folder `Console/` is namespace `purrTTY.Kfs.Commands` (a namespace
+    `purrTTY.Kfs.Console` would shadow `System.Console` in the whole project) and `Examples/` is
+    `purrTTY.Kfs.ExamplePrograms` (`…Examples` would shadow the game's `Examples` type).
+  - *More verbs than planned:* `lights reset [all]`, `kinc`, `services`; the registry
+    (`PurrVerbRegistry`) lets the mod add `lsp` and `nvim` without `purrTTY.Kfs` knowing them.
+  - *The command outlives the extension.* The mod registers `purr` itself ("standing"
+    registration) so it exists with `enabled = false`; the installer's step 9 and that registration
+    recognise each other's, so there is never a second `purr`. A failed registration never fails
+    the install.
+  - *One owner per process*, kept in `AppDomain` data, because the game's `help` throws on the
+    same name under two owners (§4.13). *ASCII output by default* (decision D26).
+  - *Light overrides are not reset automatically* (decision D5 confirmed); `purr lights reset` and
+    a menu entry were added instead.
+  - *The menu is its own file,* `purrTTY.GameMod/Kfs/KfsMenu.cs`, behind the hook
+    `TerminalMenus.DrawKfsMenu`.
+  - *Test helpers added:* `SimConsoleHost`, `SimVehicle.WriteGlobal<T>`, and `LoadKasm` over a
+    dictionary of files (a folder project). Offline `KfsIntegration.Print` goes to the game
+    log, so tests pass their own writer.
+  - *Not written:* the "bundle document describing the shipped extension". The bundle documents
+    the game and how a mod can extend it; this plan describes the extension.
+- **B2 — project resolver and `purr-kfs`.**
+  - `Runtime/ProjectResolver.cs` decides the file set and `Runtime/ProjectCompiler.cs` compiles
+    it as the workbench would; `purrTTY.Kfs.Testing/ProjectBuilder.cs` joins them to a runtime.
+    `purrTTY.Kfs.Tools.Tests/Runtime/ProjectParityTests.cs` checks both against the game's own
+    `Workspace.ProjectOf` and `Workbench.BuildText` on a real folder.
+  - The resolver refuses what the game would read but a tool should not: a path that leaves the
+    workspace, a file over the 4 MiB limit, a FIFO or device. It keeps the game's include-scan
+    quirks on purpose (§6.3).
+  - Commands as built: `check`, `run`, `lsp`, `header`, `kinc`, `services [--markdown]`. The
+    simulated vehicle is given by flags; there is no vehicle TOML file (it belongs to B3). The
+    project packs as a .NET tool; publishing it as a release asset (decision D12) is not wired into CI.
+- **C1, C2 — language-server core.**
+  - *Tests live in `purrTTY.Kfs.Tools.Tests`*, not a `purrTTY.Kfs.Lsp.Tests` project (§6.9).
+  - *Error codes:* a refused token `-32803` and close; a request before `initialize` `-32002`;
+    after `shutdown` `-32600`. Diagnostics of the server itself carry code `KFS-LSP`. A hint is
+    appended to the message as `\nhint: …`.
+  - *One scheduler per connection* (decision D24), debounce 120 ms, compile limit 10 s, a 16 MiB
+    below-normal thread started lazily, the public `Compiler.CompileOnThisThread`.
+  - *Diagnostics for a file that belongs to several open projects are the union* of every
+    project's diagnostics for it, and are published under the URI form the client used
+    (`WorkspaceUris` resolves links such as `/var` on macOS).
+  - *Standalone target:* layout flags, else the workspace-root `vehicle.h` (banner and
+    fingerprint verified, watched), else one thruster on the bench processor — no "layout file".
+  - *What a file needs to compile at all* (learned from the tests' fixtures): `#include <kfs.h>`
+    — `uint32_t` is a typedef of `<stdint.h>`, which `<kfs.h>` includes, not a keyword — and
+    `#pragma kfs claim ALLOCATION` before any write to the command block (`KC-E544`).
+- **C3 — hover and completion.** As §6.5. Deviations from its table: no per-argument hover data
+  beyond the row's prose; units are derived from name suffixes and labelled as derived; the static
+  vocabularies are transcribed in `Index/StaticTables.cs`; the index is cached
+  (`KfsIndexCache`). The kASM `SVC_X_*` symbols are offered from `<kfs.kinc>`, where the game puts
+  them — `purrtty.kinc` holds only the `X_*` constants (§4.4).
+- **C4 — in-game server.**
+  - *`InGameLanguageHost` is in the library* (`purrTTY.Kfs.Lsp/InGame/`), not in
+    `purrTTY.GameMod` as §6.8 first said, with the game behind `IKfsGameSide`
+    (`KsaKfsGameSide.cs`); likewise `LspServiceCore`. *Why:* the queue, the tee, the info file and
+    the limits are all testable without the game.
+  - *The server starts regardless of the extension* and of the prototype switch (§6.2), not
+    "when the extension installs".
+  - *The wire contract* is §6.7 as rewritten: fixed verb lines; `kfs.load` refuses a path with
+    whitespace; `ok` means "ran"; `subscribe` means "a live feed exists"; the log tail on
+    subscribing; `KFS-TRAP`; at least one verb per frame within 4 ms; at most 8 waiting.
+  - *R17 was real and is patched:* `KfsErrorEchoPatch` (§6.7).
+  - *Hardening after the independent review* — every limit in §6.2, the header and framing
+    rules, `LspThreads` — because the first version could be brought down, or made to leak
+    threads, by a local peer that never authenticated.
+  - *A new rule for test code* (§6.9): fake `ILiveSource`, never an interface with game-typed
+    members.
+- **D1 — terminal exit handling.**
+  - *Two options, not one:* `CloseOnExit` and, added in the fix pass, `CloseOnSuccessfulExit`
+    (decision D23) — the editor must not vanish when it fails to start.
+  - *The resize guard is in the back ends* (`IProcessManager.Resize` is a no-op with no process),
+    not at the two call sites the plan named, so every caller is covered; `TerminalSession.Resize`
+    is the one entry both front ends use.
+  - *The exit signal is the drained exit*, not `IsRunning` (§7.3). `SessionExitPolicy` (new,
+    `purrTTY.Display/Ghostty/`) holds the last-tab decision so it is testable without ImGui.
+  - Also fixed on the way: on Windows the `Exited` handler is attached before
+    `EnableRaisingEvents` is set (a process that exited in between was never reported).
+- **D2 — Neovim runtime files.**
+  - *The filetype rule is a function*, not the path patterns of the first draft: patterns cannot
+    compare Windows paths case-insensitively or follow links, and the set of roots is not known
+    when the rule is registered. `*.kasm`/`*.kinc` are `kasm` everywhere.
+  - *`syntax/kasm.vim` is a checked-in snapshot* refreshed by a test, not generated at build time:
+    the mod's build must not need the game's assembler, and the directive list exists only in the
+    assembler's code.
+  - *More than the plan listed:* `text.lua` (server text made safe to display), `:KfsTarget`,
+    `:KfsManual`, `:KfsVerb`, `:KfsInfo`, `:KfsRestart`, `status()`, the options of §7.4, the
+    reconnect rules of §7.4, the token removed from Neovim's environment.
+  - *Only Neovim 0.12.6 was run*; the files gate at 0.11.
+- **D3 — launcher.**
+  - `NeovimLaunchPlan.For(NeovimLaunchRequest)` (with `ForThisProcess`) instead of a five-argument
+    call; the result carries `Resolution`, `Executable`, `Arguments`, `NeovimArguments`,
+    `Environment`, `RemovedEnvironment`, `WorkingDirectory`, `UsesRuntimeFiles`, `Description`,
+    `Error`.
+  - *Changed from the plan's sketch:* `--` before the file; `PURRTTY_CONFIG_DIR` and `SHELL`
+    passed, `FORCE_COLOR` and `CLICOLOR_FORCE` removed; a configured `nvim_path` that is wrong is
+    an error, not a fallback; the login-shell script waits for Enter when Neovim is not found
+    instead of `exec "$@"` failing in a window that closes; `$SHELL` is used only when it is an
+    `sh`-compatible shell; `-i` is not used.
+  - *`TargetActiveVehicle()` is conditional* (decision D27): only with the prototype switch on
+    and a controlled vehicle.
+  - *A new file is not written by the mod* and listing the workspace does not create its folder;
+    only a launch creates the workspace folder.
+  - *No "New file…" menu entry;* the menu checks whether Neovim can be launched when it opens and
+    shows the reason.
+  - *T4 by exclusion:* kFS editor terminals are left out of saved layouts.
+- **Integration and fix passes — changes to M1 code.**
+  - *The simulator's frame order* is step → pump → dispatch (§5.4); it was pump → step → dispatch.
+  - *`X_PARTS_GENERATION` continues* per computer when a vehicle is bound again
+    (`VehiclePartsBase.ContinueAfter`), so a program never sees the generation go backwards.
+  - *The pending-command queue is a ring buffer* (§4.7): `Enqueue` runs on the solver thread,
+    many times a frame at time warp, and must be O(1).
+  - *`ServiceRouter` asks the host's event limiter first* (`ConsoleLog.EventAllowed`) and formats
+    a rejection text only when the line would be written; the rejection is counted either way.
+  - *Catalogue wording:* lists are ranked by the **module's** instance id; `X_LIGHT_LIT` reads 1
+    for an interior light whatever the camera shows. The snapshots and the shipped header text
+    were regenerated.
+  - *Menus:* every `BeginMenu`/`EndMenu` pair of `TerminalMenus`, `KfsMenu`, `ThemeDialog`,
+    `LayoutManagerUI` and `InWorldManagerUI` ends in a `finally`. The pairs in `TerminalWindow.cs`
+    and `InWorldTerminalRenderer.cs` were left as they were.
+
 ## 9. Risks
+
+State after the implementation: no risk below has been observed or ruled out in the game, because
+nothing has run there. "Built" in the last column means the mitigation exists and is tested
+offline; R18–R23 were added by the implementation and its reviews.
 
 | # | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- | --- |
 | R1 | A game update reshapes a patch target, the service-row schema or the header mechanism. kFS is a prototype and will change. | High over time | Extension stops working | All-or-nothing install with a logged reason (§4.5); offline tests run against each new `KSA.dll` and fail first; `upgrade-ksa` checklist gains the kFS items in [risks and compatibility](../docs/kfs-info/modding/risks-and-compatibility.md). |
 | R2 | A stock update claims an id in `0x5000–0x50FF`. | Low | Tables rejected at the dry run → extension disabled, kFS intact | The dry run (§4.5 step 4) turns it into a log line; moving the block is a one-constant change, and images are rebuilt from source on every load anyway. |
 | R3 | Stock kFS gains lights/animation control itself. | Plausible | Duplicate features | Keep the mod's names prefixed (`x_`), retire them when stock covers the feature. |
-| R4 | A patched method is inlined at its call site under the game's runtime, so a hook silently never fires. | Low for the chosen targets (large bodies, virtual/interface dispatch) | A service is rejected or returns 0 | `purr status` reports per-hook call counters; in-game checklist item V2. |
-| R5 | Patches are applied after another mod (or the game) has already built the tables. | Low | Extension disabled for the session | Detected (§4.5 step 5) and reported. Nothing in the game reads the tables before mods load, so this takes another mod; the remedy would be to publish the tables from a `[StarMapBeforeMain]` hook (**unverified** — not tried). |
+| R4 | A patched method is inlined at its call site under the game's runtime, so a hook silently never fires. | Low for the three required targets (large bodies, virtual/interface dispatch); see R18 for the small ones | A service is rejected or returns 0 | Built: `purr status` shows `pump frames`, `accepted` and `answered`; in-game checklist item V2 is the test. |
+| R5 | Patches are applied after another mod (or the game) has already built the tables. | Low | Extension disabled for the session | Detected (§4.5 step 5) and reported. Nothing in the game reads the tables before mods load, so this takes another mod; the remedy would be to publish the tables from a `[StarMapBeforeMain]` hook (**unverified** — not tried). Checklist V1. |
 | R6 | A mod exception inside a dispatch faults the player's flight computer. | Would be severe | Loss of control mid-flight | Every patch body is `try`/`catch`; tests inject faults into the router and assert the computer keeps running. |
-| R7 | Reading live modules from the dispatch thread races a main-thread writer (another mod, the part window). | Low | A stale or torn read of one value for one tick | Reads are single fields; nothing is cached; if in-game testing shows trouble, switch `KsaVehicleParts` reads to a per-frame snapshot built in the pump (the interface does not change). |
+| R7 | Reading live modules from the dispatch thread races a main-thread writer (another mod, the part window); and the part lists are collected on the dispatch thread at a run's first service call. | Low | A stale or torn read of one value for one tick; at worst an exception that rejects one request | Reads are single fields and bounds-checked span reads; nothing is cached; a back-end exception rejects the request instead of faulting the computer. The lists rest on the reading that the part tree is restructured only in the solver-idle window (checklist V31, V32). If in-game testing shows trouble, switch `KsaVehicleParts` reads to a per-frame snapshot built in the pump (the interface does not change). |
 | R8 | Light template cloning conflicts with another mod doing the same (zippo, gatOS). | Medium when both are active on one light | Last writer wins; a reset may restore the other mod's template | `EnsurePrivate` re-clones from whatever template is current and only restores when the template is still ours. |
 | R9 | An animation driven by its own state machine (parachute bay doors) fights the program. | Certain for those parts | Confusing behaviour | `LINKS` bit 2 marks them; the console listing says so. |
 | R10 | Programs polling services keep the vehicle off rails and limit time warp. | Inherent to any running program | Performance at high warp | Documented; examples use low tick rates. |
-| R11 | The in-game language server's compiles cost frame time, or a stuck compile leaves a 16 MiB thread running in the game. | Low | Stutter; a leaked thread | One serial low-priority compile thread, a debounce, and the watchdog of §6.3. Concurrent compiles against one tables instance are safe (read from the code and stress-tested in spike 05), so the stock editor is unaffected. |
-| R12 | A local process other than the player's editor connects to the in-game server. | Low | Could load and start programs on the vehicle | Loopback only, random port, per-session token required at `initialize`; commands that act on the vehicle are a separate, switchable capability. The token stops other users and machines, not another process of the same user (it is in the info file). |
-| R13 | Neovim is not installed or not on the game's `PATH`. | Common on macOS/Steam launches | "Open in Neovim" fails | Configurable absolute path, login-shell fallback, and a clear message; the feature degrades to nothing else. |
-| R14 | Terminal key-handling gaps make Neovim awkward (toggle hotkey swallowed, some Ctrl/Alt chords, no focus events). | Known | Usability | Tasks D5–D7; none blocks the feature. |
+| R11 | The in-game language server's compiles cost frame time, or a stuck compile leaves a 16 MiB thread running in the game. | Low | Stutter; a leaked thread | Built: one below-normal compile thread per connection, a debounce, a 10 s watchdog, at most two retired threads in the whole process (§6.3). Concurrent compiles against one tables instance are safe (read from the code and stress-tested in spike 05), so the stock editor is unaffected. Frame cost is checklist V22. See R20 for what the threads share with the game. |
+| R12 | A local process other than the player's editor connects to the in-game server. | Low | Could build, load, start, stop and reset programs on the vehicle | Built: loopback only, random port by default, a 256-bit token new at every start and required at `initialize`, the info file owner-only on Unix, and the limits of §6.2. Arbitrary `kfs` lines (`kfs.verb`) are off unless `lsp_allow_vehicle_commands = true`; the fixed commands are always available to a client that has the token. The token stops other users and machines, not another process of the same user (it is in the info file). See R19. |
+| R13 | Neovim is not installed or not on the game's `PATH`. | Common on macOS/Steam launches | "Open in Neovim" fails | Built: configurable absolute path, login-shell fallback with a message that waits for Enter, the reason shown in the menu; the feature degrades to nothing else. On Windows a `.cmd` shim is detected and reported, not started (T3 open). Checklist V43, V52–V54. |
+| R14 | Terminal key-handling gaps make Neovim awkward (toggle hotkey swallowed, some Ctrl/Alt chords, no focus events). | Known | Usability | Tasks D5–D7, **not built**; none blocks the feature. Checklist V46 records what does not arrive. |
 | R15 | Redistribution: `KSA.dll` must never be copied into the repository, test output or tool packages. | — | Legal | Compile-only references, in-memory resolver, CI check that `KSA.dll` appears in no test output and no game assembly in the mod dist or a tool package. |
 | R16 | The property enumerations are positional and baked into images. | Certain if mishandled | Programs built earlier read the wrong property | Fillers reserve room; new properties replace a filler and widen the sub-range; the self-check and a snapshot test pin the lists. |
-| R17 | Installing the output tee changes where `KfsIntegration.Error` lines appear. | Likely | Cosmetic | Check V16; if unwanted, filter in the tee. |
+| R17 | Installing the output tee changes where `KfsIntegration.Error` lines appear. | **Confirmed by reading the code**: with a writer other than its own console writer in `Output`, `KfsIntegration.Error` writes the line to `Output` as well as to the log, and the console window shows log errors by itself — every `kfs` error would appear twice | Cosmetic | Built: the optional patch `KfsErrorEchoPatch` marks the call so the tee passes the line to editors but not to the console (§6.7); it acts only when the writer the tee replaced is the game's own. If `Error` was inlined (R18) errors appear twice. Checklist V38. |
+| R18 | **Small patched methods are inlined.** Two of the mod's targets are tiny: `KfsIntegration.Error` (a few lines; target of the error-echo patch) and the base `HostComputer.ApplyRequest` (one line, virtual; target of the optional bench patch). If the JIT inlined them into callers compiled before the patch was applied, the patch never runs. The pump's own target, `KfsIntegration.BeforeInputEvents`, is larger (a lock and a loop) but equally unproven in the game. | Unknown — cannot be decided offline | For the two optional patches: cosmetic (errors twice in the console; the stock bench message). For `BeforeInputEvents`: nothing would ever be applied | The two are optional and outside the all-or-nothing set; each has a visible test — V38 and V27 — and the pump has V2 (`pump frames`). No offline test can show inlining. |
+| R19 | **The language server listens by default.** With the default `lsp_enabled = true` the game opens a loopback TCP port and writes a token file at every start, whether or not the player ever uses an editor; any local process that can read the file can build, load, start, stop and reset programs on the targeted vehicle. | Certain (it is the default) | The exposure of R12, for every player of the mod | Stated plainly in §11 (decision D22) and in the comments of the generated `kfs.toml`; `lsp_enabled = false` removes it entirely (V42); the limits of §6.2 bound what an unauthenticated peer can cost. Whether the default should be off until first use is an open product question. |
+| R20 | **Compile threads inside the game process share unsynchronised statics with the game.** The game's compiler reads `SystemHeaders.Files`, `SystemHeaders.Builtins` and the tables without a lock; a compile cannot be cancelled; a hung one keeps its 16 MiB thread. A change to those collections while any compile runs — the mod's own at unload, another mod's at any time — could corrupt them. | Low | A corrupted dictionary inside the game's compiler; a leaked thread | Built: the server stops and joins its threads before the extension uninstalls; the uninstall leaves `<purrtty.h>` registered while a compile is counted as running or the stock editor is building (§4.5); retired threads are capped (§6.3). Not covered: another mod changing the same statics. |
+| R21 | **Game-only code has never executed.** `KsaVehicleParts`, `GameHostSource`, `KsaConsoleHost`, `KsaKfsGameSide`, `KfsLspService`, `KfsErrorEchoPatch`, `KfsNeovimLauncher`, `KfsMenu` and `KfsConfig` are compiled against the game and audited against the decompiled sources, but no test runs them. | Certain | Unknown until the first in-game run | Kept thin, with the decisions in tested types; §10.1 exercises them first. |
+| R22 | **The colour space is unknown.** The shipped header text claims only that each component is clamped to 0–1 and given to the game unconverted (an earlier text said "linear RGB"; that claim had no support and was removed); the game's C# passes the three floats to the renderer unconverted, and what the lighting shader does with them was not read. | Unknown | A documented colour looks different from the same numbers elsewhere in the game | Checklist V29 decides; only documentation changes either way. |
+| R23 | **Overrides outlive programs by design** (decision D5): a program that traps or is replaced leaves its colours and cones on the lights. | Certain | A player sees odd lights and no running program | `purr parts` marks them, `purr lights reset [all]` and the menu restore them, a reload or the mod's unload does too (V30). |
 
 ## 10. In-game validation checklist
 
-Run once on each supported OS before calling a workstream done. Each item names what it settles.
+**Nothing below has been done yet.** This is the master list of what must be checked in the
+running game; it is written so that a player can walk it in one sitting, top to bottom, on one
+operating system, and then repeat the last group on the others. Ids are stable: V1–V23 are the
+original items (their text now describes what was built), V24 onwards were added from the
+implementation and review reports. Each item says what to do, what should be seen, and — in
+italics — what a failure would mean, that is, which assumption the item tests.
 
-**Workstream A**
+Preparation: a save with a vehicle that has at least two lights of the same part type, an
+interior light, a solar array, a cargo bay or other slider-animated part, and a decoupler below a
+part that carries a light; `nvim` 0.11 or newer installed. Keep the game's log open
+(`purr status` and `purr lsp` repeat what the log says). `<config>` is the folder that holds
+purrTTY's `.purrTTY` folder; by default it is `<Documents>/My Games/Kitten Space Agency`.
 
-- V1 — Start the game with the mod; the log shows `purrTTY kFS extension: active …`. *(patch timing, R5)*
-- V2 — `kfs on`; `purr status` shows the three hooks (and the optional one) applied; after running any example the
-  accept/answer/pump counters are non-zero. *(inlining, R4)*
-- V3 — Open the kFS reference window: the Services page lists the `x_*` rows. *(tables reached the UI)*
-- V4 — `purr parts` on a vehicle with lights, a solar array and a cargo bay lists them with sensible names.
-- V5 — `purr examples`, then load `x_blink/blink.c` onto the vehicle and start it: the lights blink; the part
-  window's checkbox follows; other vehicles of the same type are unaffected.
-- V6 — `light_show.c`: colour, cone and intensity change on **one** light only; a second light of
-  the same part type keeps its stock look; `x_light_reset` restores it. *(template cloning, R8)*
-- V7 — `deploy_when_safe.c` / a manual deploy: the array deploys at stock speed; `STATE` and
-  `POSITION` read back correctly; solar output starts only when deployed.
-- V8 — `actuator_sweep.c` on a cargo bay: follows the target; the stock slider shows the same value.
-- V9 — Stage away a part that has a light a running program addresses: the program keeps running,
-  the slot reads not present, writes are rejected with the documented event. Dock two vehicles:
-  `DIRTY` becomes 1; `x_parts_rescan()` renumbers.
-- V10 — Pause, switch a light from a still-queued command, unpause: no exception; behaviour as documented.
-- V11 — Time warp at 10× and 100× with a 50 Hz program polling services: no host fault; note the
-  frame time and skipped ticks. *(budget, R7, R10)*
-- V12 — Save and reload with overrides active: the game loads; light **appearance** is back to
-  stock, while switch states and animation goals are as saved (the game saves those itself); the
-  program is gone (as stock kFS).
-- V13 — `kfs off` / `kfs on`, star-system change, mod unload: no exception, no leaked overrides.
-- V14 — A stock example (`kC_ascent_simple`) still builds, loads and flies with the mod present. *(no regression)*
-- V15 — Remove the mod and load a program built with it: clean "unknown service id" rejection.
+### 10.1 First: does anything work at all?
 
-**Workstream C / D**
+These five decide whether the rest is worth doing. If one fails, stop and report it with the log.
 
-- V16 — The language-server status line appears in the log with its port; `purr lsp` prints it; `kfs` errors still appear where expected with the output tee installed.
-- V17 — purrTTY menu › kFS › Edit in Neovim opens a terminal running `nvim` on the file; the
-  buffer shows diagnostics for a deliberate error within a second of typing; fixing it clears them.
-- V18 — A program using `<purrtty.h>` shows no false errors; hovering a `x_*` call shows its documentation.
-- V19 — `THRUSTER_COUNT` and `commands.*` resolve against the **controlled vehicle's** layout;
-  switching vehicles and re-targeting updates diagnostics.
-- V20 — `:KfsLoad` and `:KfsStart` from Neovim load and start the program; `kfs_logf` lines appear in Neovim.
-- V21 — Quit Neovim: the terminal window closes; resizing a window whose process has exited does not throw.
-- V22 — Frame time with the server idle and while typing quickly in a 500-line file. *(compile cost on the game process)*
-- V23 — With a second Neovim started outside the game in the same workspace, it attaches through
-  the server info file; with the game closed it falls back to `purr-kfs lsp --stdio` when installed.
+- **V1 — the extension installed.** Start the game with the mod. The log has one line
+  `purrTTY kFS extension: active — 22 services 0x5000–0x5033, 3 hooks (+1 optional), tables published, game back end, purr command`.
+  *A line `… disabled — <reason>` names the broken assumption: `tables already built` — something
+  read the game's kFS tables before the mod's patches ran (patch timing under StarMap, or another
+  mod; R5); `target … not found` or `game back end unavailable` — this game build renamed a
+  member the extension needs (R1); `tables rejected` — the game's loader refused the mod's rows
+  (R2). `(+0 optional)` only means the bench message of V27 is the stock one.*
+- **V24 — the configuration file exists.** `<config>/.purrTTY/kfs.toml` was created, with
+  comments and the six keys of §7.5. *Missing: the mod resolved another configuration folder than
+  the one documented; the switches below cannot be found by a player.*
+- **V3 — the tables reached the game.** `kfs on`, open the kFS reference window: the Services
+  page lists the `x_*` rows with their summaries. *Missing rows although V1 said `published`: the
+  game is not using the tables instance the mod published.*
+- **V2 — the three hooks fire.** Take control of the vehicle. `purr examples`, then
+  `kfs load x_blink/blink.c --vehicle` and `kfs start`. After a few seconds `purr status` shows
+  `pump frames`, `requests … accepted` and `… answered` all non-zero and growing between two
+  calls. *This is the only evidence that the patched methods are really called (R4, R18).
+  `pump frames 0`: the `KfsIntegration.BeforeInputEvents` postfix never runs — no command is ever
+  applied. `accepted 0` with `rejected x_…: no vehicle to act on` in the program log (`kfs state`):
+  the `VehicleComputer.ApplyRequest` postfix does not run. `answered 0` and every count reads 0:
+  the `IssueResult` postfix does not run.*
+- **V5 — a light switches.** With `x_blink` running, the vehicle's switchable lights blink once a
+  second; the part window's light checkbox follows; another vehicle of the same type is
+  unaffected. *No blinking although V2 passed: the write to `PowerConsumer.LightIsActive` does not
+  have the effect read from the code, or the pump applies it at a point where the game overwrites
+  it.*
+
+### 10.2 Install and status
+
+- **V25 — one `purr` command.** `help` in the game console lists `purr` exactly once and does not
+  fail; `purr` alone lists the verbs. *`help` throwing: the command is registered under two
+  owners (§4.13).*
+- **V26 — the switch.** Set `enabled = false` in `kfs.toml` and restart. The log says
+  `purrTTY kFS extension: disabled — switched off`; `purr status` works; `purr parts` answers
+  `… the purrTTY kFS extension is not active (…)`; the kFS menu shows the reason and greys the
+  three extension entries; the terminal, `purr lsp` and `purr nvim` work. A kC file that includes
+  `<purrtty.h>` now fails to build, in the game and in the editor alike. Set it back to `true`.
+  *Anything of the terminal failing here would mean the extension is not as independent of it as
+  §3.5 requires.*
+- **V14 — no regression.** A stock example (`kC_ascent_simple`) still builds, loads and flies
+  with the mod present.
+- **V27 — the bench.** `kfs target bench`, `kfs load x_blink/blink.c`, `kfs start`, `kfs run 2`
+  (the bench runs only when told to), `kfs state`: the program runs, the getters read 0 silently, and the setters are rejected with
+  `x_ services need a vehicle (the bench has no parts)`; `purr status` shows `bench: … claimed`.
+  `kfs target vehicle` afterwards. *The stock text `no vehicle to act on` instead: the optional
+  hook on `HostComputer.ApplyRequest` — a one-line virtual, the likeliest of all to be inlined —
+  is not called. Cosmetic only.*
+
+### 10.3 Services and examples
+
+- **V28 — the examples.** `purr examples` created `x_blink`, `x_light_show`, `x_deploy`,
+  `x_actuator`, `x_parts` and `x_blink_kasm` under `<Documents>/My Games/Kitten Space Agency/kfs/`,
+  and the stock editor's file tree shows them. A second `purr examples` reports every file as
+  kept; after editing one, `purr examples --force` overwrites it. `kfs build x_blink_kasm/blink.kasm`
+  builds (it finds `purrtty.kinc` beside it and `SVC_X_…` in `<kfs.kinc>`).
+- **V4 — the listing.** `purr parts` lists the vehicle's lights, deployables and actuators with
+  sensible names; with `x_blink` running the heading says `as its running program sees them`. The
+  interior light shows `no switch` and `lit` — also while the camera is inside the vehicle.
+- **V6 — appearance is per light.** `kfs load x_light_show/light_show.c --vehicle`, `kfs start`:
+  colour, cone and intensity change on the spot lights; a second light of the same part type on
+  **another vehicle** keeps its stock look. `kfs poke stop 1` restores them.
+  *A stock light elsewhere changing too: the template was not cloned per light (R8).*
+- **V29 — colour.** In `light_show`, or with a small program, set a light to (1, 0, 0), then
+  (0.5, 0.5, 0.5). Compare with a part whose stock colour is known. *The header says only
+  that the components reach the game unconverted; nothing in the game's C# converts them, and
+  whether the lighting shader treats them as linear is not known. This item records the answer
+  for the documentation.*
+- **V30 — overrides outlive the program.** While `light_show` shows a colour, `kfs stop`: the
+  lights keep that look. `purr parts lights` marks them `overridden`. `purr lights reset` restores
+  the stock look (and says how many); `purr lights reset all` does it for every vehicle.
+- **V7 — deploy, and the read-back timing.** `kfs load x_deploy/deploy_when_safe.c --vehicle`,
+  `kfs start` above the atmosphere (or deploy by hand): the array deploys at stock speed, solar
+  output starts only when deployed, and `STATE` and `POSITION` read back correctly. With a
+  program that logs the tick in which it commands a deploy and the ticks in which `TARGET`,
+  `MOVING`, `POSITION` and `STATE` first change: `TARGET` and `MOVING` change one tick after the
+  command, `POSITION` and `STATE` one tick later still (at a tick rate at or below the frame
+  rate). *Different offsets: the frame order of §4.12 is not what the game does, and the
+  simulator (§5.4) must be corrected again.*
+- **V8 — an actuator.** `x_actuator/actuator_sweep.c` on a cargo bay: the part follows the
+  target; the stock slider shows the same value.
+- **V9 — parts that leave and arrive.** Stage away a part that has a light a running program
+  addresses: the program keeps running, the slot reads not present, writes are rejected with
+  `light N is no longer on this vehicle`. Dock two vehicles: `X_PARTS_DIRTY` becomes 1;
+  `x_parts_rescan()` renumbers and the generation goes up.
+- **V10 — pause.** Pause while a program is switching lights, unpause: no exception; commands
+  issued before the pause are applied while paused, nothing new is issued.
+- **V11 — time warp.** At 10× and at 100× or more with a 50 Hz program that polls services: no
+  host fault. Note the frame time and whether the program log shows `skipped N tick(s) …` or
+  `x_ commands: queue full, dropped the oldest …`. *(budget, R7, R10)*
+- **V31 — the listing under load.** At time warp with a program running, `purr parts` several
+  times: no exception in the log, a complete table each time. *An exception: the console reads
+  the frozen lists while a dispatch thread replaces them.*
+- **V32 — lists built on a solver thread.** `kfs reset` and `kfs start` a program repeatedly
+  while the part window of a light is open and its checkbox is being clicked, while a kitten
+  boards or leaves, and right after docking. No exception, no host fault (`kfs state`), and the
+  lists are right afterwards (`purr parts`). *A fault here: the part lists are collected on the
+  dispatch thread at a run's first service call, on the assumption that the part tree is only
+  restructured in the solver-idle window (R7).*
+- **V12 — save and load.** Save and reload with overrides active: the game loads; light
+  **appearance** is back to stock, while switch states and animation goals are as saved (the game
+  saves those itself); the program is gone (as stock kFS).
+- **V15 — without the mod.** Remove the mod and load a program built with it: a clean
+  "unknown service id" rejection.
+
+### 10.4 Console and menu
+
+- **V33 — console text.** The output of `purr status`, `purr parts` and `purr examples` is plain
+  ASCII (`-`, `->`, `...`) with no missing-glyph boxes; part names appear as the game shows them
+  elsewhere.
+- **V34 — the kFS menu.** purrTTY menu › kFS: the status line; **List parts in console**,
+  **Reset light overrides**, **Write example programs** and **Extension status in console** do
+  what the verbs do; the server line shows the address and client count; **Copy server address**
+  puts `127.0.0.1:<port>` on the clipboard. Opening and closing the menu repeatedly, also with no
+  vehicle controlled, leaves the game's other menus intact. *Other menus disappearing or an ImGui
+  assertion: a `BeginMenu`/`EndMenu` pair is unbalanced.*
+
+### 10.5 Terminal exit handling
+
+- **V21 — the editor's window closes.** Open a file in Neovim (V17) and quit with `:q`: the
+  terminal window closes by itself. In an ordinary terminal window type `exit`: the window stays
+  with its last screen (its tab label reads ` (exit 0)` when the tab bar is shown, that is, with
+  two or more tabs) and can still be dragged and resized without an exception in the log.
+- **V35 — a single-tab window that closes.** After V21's first half the terminal is hidden if
+  that was the last window; the game's own keys work at once; toggling the terminal again shows a
+  fresh window at the position and size the closed one had. With a layout whose terminal has
+  `close_on_exit = true` and two tabs: `exit` in one tab closes only that tab.
+- **V36 — a failed editor keeps its window.** Set `nvim_path` to an existing program that exits
+  with an error at once (on macOS or Linux `/usr/bin/false`), then kFS › Open workspace in Neovim:
+  the window opens and stays (` (exit 1)` in its tab label when the tab bar is shown). Clear
+  `nvim_path` again. *The window vanishing: a
+  failed launch would be invisible to a player.*
+- **V37 — in-world.** Set `nvim_open_in = "inworld"`, `purr nvim x_blink/blink.c`: a 120×40
+  billboard terminal appears in front of the camera with focus, and the text is readable; `:q`
+  removes it with no error in the log on that or the next frames; an in-world terminal that was
+  created from a layout with `close_on_exit` behaves the same. Set the key back to `"window"`.
+
+### 10.6 Language server
+
+- **V16 — the server runs.** The log has `purrTTY kFS LSP: listening on 127.0.0.1:<port>,
+  workspace …`; `purr lsp` prints the same address, the workspace, the target and the info file;
+  `purr lsp token` prints a token; `<config>/.purrTTY/kfs-lsp.json` exists and names that address.
+- **V38 — errors appear once.** `kfs nope` in the game console: the line
+  `unknown kfs command 'nope' …` appears **once**. *Twice: the game's `KfsIntegration.Error` — a
+  method of a few lines — was inlined into its callers before the mod patched it, so the optional
+  error-echo patch has no effect (R17, R18). Cosmetic.*
+- **V19 — the target.** `THRUSTER_COUNT` and `commands.*` resolve against the **targeted
+  vehicle's** layout; switching vehicles and `:KfsTarget vehicle` (or `kfs target vehicle`)
+  updates the diagnostics of open buffers without an edit.
+- **V22 — cost on the game.** Frame time with the server idle; while typing quickly in a
+  500-line file; and while `:KfsLog` is open with a program running (a client subscribed to
+  `state` keeps the vehicle's computer publishing a snapshot every tick). *(compile threads and
+  the snapshot lease in the game process, R11)*
+- **V39 — a trap.** Load and start a program that divides by zero in its task: `kfs state` and
+  `:KfsLog` show `trap DIV_ZERO … : commands held`; the editor shows an error with code
+  `KFS-TRAP` on that line; a `kfs_logf` in the trapping tick does not appear; `kfs reset` clears
+  the diagnostic.
+- **V40 — the port is taken.** Set `lsp_port` to a port another program is listening on and
+  restart: the terminal and the extension work; `purr lsp` and the kFS menu say why the server is
+  not running. Set it back to 0.
+- **V41 — restart with the editor open.** With Neovim attached, `purr lsp restart`: Neovim reports
+  the connection lost and attaches again within a few seconds (a new port and token, found
+  through `PURRTTY_CONFIG_DIR`); diagnostics return.
+- **V42 — switched off.** `lsp_enabled = false`, restart: the log says the server is off; nothing
+  listens; there is no `kfs-lsp.json`; `purr nvim` still opens the editor, which then falls back
+  to `purr-kfs` or to syntax only. Set it back.
+
+### 10.7 Neovim
+
+- **V17 — open and diagnose.** purrTTY menu › kFS › Edit in Neovim... lists the workspace's
+  files; choosing one opens a terminal window titled `kFS: <file>` running `nvim` on it, with
+  keyboard focus — also when the terminal was hidden before. The console says which Neovim was
+  started and what `kfs` targets. The buffer shows diagnostics for a deliberate error within a
+  second of typing; fixing it clears them.
+- **V18 — the mod's services.** A program using `<purrtty.h>` shows no false errors; `K` on an
+  `x_*` call shows its documentation; completion after `x_light_` offers the services, and after
+  `commands.` the layout's fields.
+- **V20 — run from the editor.** `:KfsLoad` and `:KfsStart` load and start the program on the
+  vehicle; `:KfsLog` shows the log's last lines and then new `kfs_logf` lines as they come;
+  `:KfsParts` shows the tables; `:KfsBuild` with an error reports it and the diagnostics agree.
+- **V43 — Neovim cannot be found.** With `nvim_path` set to a file that does not exist, the two
+  Neovim menu entries are greyed and the reason is under them; `purr nvim` prints the same
+  reason. Where Neovim is found only through the login shell (V52), temporarily hide it there:
+  the terminal shows the not-found text and `Press Enter to close this terminal.` and waits.
+- **V44 — the editor's environment.** In the launched Neovim: `:echo $SHELL` is your own shell;
+  `:echo $FORCE_COLOR $CLICOLOR_FORCE` is empty; `:echo $PURRTTY_KFS_TOKEN` is empty although
+  the client is attached (`:KfsInfo`); `:!ls` output has no colour codes.
+- **V45 — a new file.** `purr nvim newdir/new.c`: the console says `(new file: :w creates it)`,
+  nothing exists on disk yet; `:w` creates the folder and the file, and the buffer gets
+  diagnostics. `purr nvim ../outside.c` and `purr nvim notes.txt` are refused with a reason.
+- **V46 — keys.** Esc, Ctrl-W chords, Alt chords and the function keys other than the toggle
+  hotkey reach Neovim; note every key that does not (§7.3 lists the known ones).
+- **V47 — closing with unsaved text.** With a modified buffer, close the window with its "x",
+  and separately quit the game: nothing hangs, and Neovim's swap file allows recovery on the next
+  open.
+- **V48 — layouts.** With a kFS editor window open next to an ordinary terminal, save a layout:
+  the saved file contains the ordinary terminal only.
+- **V49 — targeting follows the switch.** With `kfs off`, `purr nvim x_blink/blink.c` says
+  `the kFS prototype is off: diagnostics use the bench layout`, and afterwards `kfs on`,
+  `kfs target` still reports the bench. With `kfs on` and a controlled vehicle it says
+  `kfs targets <vehicle>`.
+- **V50 — filetypes.** `:set ft?` is `kc` for a `.c` file in the workspace, `c` for a `.c` file
+  elsewhere, `kasm` for `x_blink_kasm/blink.kasm`, whose mnemonics and directives are highlighted.
+- **V23 — outside the game.** A second Neovim started outside the game in the same workspace,
+  with the runtime files loaded (§7.6), attaches through the server info file; with the game
+  closed it falls back to `purr-kfs lsp --stdio` when that is installed, and `:KfsBuild` then
+  answers that it needs the game.
+
+### 10.8 Unload and reload
+
+- **V13 — switches and scene changes.** `kfs off` / `kfs on`, a star-system change, with programs
+  that had been running and lights overridden: no exception, no leaked overrides after the mod
+  unloads.
+- **V51 — unload, then load again.** Unload the mod through StarMap: `purr` is gone from `help`;
+  the server's port no longer accepts connections; `kfs-lsp.json` is gone; overridden lights are
+  back to stock; an attached Neovim reports the connection lost. Load it again in the same game
+  session: the log line of V1 now says `tables reused` instead of `tables published`, `help` lists
+  `purr` once, and V2 passes again. *`purr` listed twice or `help` throwing: the process-wide
+  owner object was not reused. A log line `<purrtty.h> left registered: …` at unload is expected
+  only when the stock editor was building at that moment.*
+
+### 10.9 Operating-system specifics
+
+Repeat V1, V2, V5, V16, V17, V21 on each system, then:
+
+- **V52 — macOS, started from Finder or Steam.** With `nvim` installed only by Homebrew and
+  `nvim_path` empty: kFS › Edit in Neovim... starts it through the login shell (the console says
+  `nvim via login shell (…)`). *The not-found text instead: the login shell's `PATH` comes from a
+  file a non-interactive login shell does not read (§7.2); the remedy is `nvim_path`.*
+- **V53 — Linux.** The same with `nvim` in `~/.local/bin` or an AppImage on a `PATH` that only
+  the login shell has; and with `nvim` on the game's own `PATH` (the console says
+  `nvim <path> (found on PATH)`).
+- **V54 — Windows.** `nvim.exe` on `PATH` or in `nvim_path` (a single-quoted TOML string): it
+  starts under ConPTY, the environment of V44 is as described, resizing works while it runs and
+  after it has exited, and `:q` closes the window. With Neovim installed only as a Scoop or
+  winget shim (`nvim.cmd`): the menu says a script shim cannot be started and asks for
+  `nvim_path` (terminal row T3 is open). The ConPTY tests of resize after exit run only on
+  Windows and were skipped in the run that produced this document's totals, so treat this item as
+  the first evidence for that code path.
 
 ## 11. Open decisions
+
+Where the table stands after the implementation: D1, D18 and D19 were decided earlier; for D2–D11
+and D13–D17 the **recommendation is what was built** and is now the behaviour the checklist of §10
+tests (they can still be revisited after the first in-game run); D12 is open — the tool packs but
+is not published; D20–D29 were taken during the implementation and its reviews.
 
 | # | Decision | Recommendation | Alternatives |
 | --- | --- | --- | --- |
@@ -1961,13 +3029,13 @@ Run once on each supported OS before calling a workstream done. Each item names 
 | D2 | Light index unit | Every `LightModule` (emitter), with `SWITCH_GROUP` exposing shared switches | One index per switchable part |
 | D3 | Switchless lights | Listed, `HAS_SWITCH` 0, on/off rejected | Hide them; or fake off with range 0 (untested in game) |
 | D4 | When lists are rebuilt | At program load and on explicit rescan | Also automatically when the vehicle changes (indices would move under a running program) |
-| D5 | Overrides when a program stops | Kept until reset/reload (a light stays as commanded, like any hardware) | Auto-reset on stop or halt |
+| D5 | Overrides when a program stops | **Decided (2026-11-26, built): kept** until reset, reload or mod unload — a light stays as commanded, like any hardware. Nothing resets them automatically, not a stop, a trap, a reload of the program or a new run. The player's way back is `purr lights reset [all]` and the menu entry (§4.10); `purr parts` marks overridden lights | Auto-reset on stop or halt |
 | D6 | Symmetry | Not mirrored | Mirror like the stock buttons (opt-in argument) |
 | D7 | Should parts services honour `Vehicle.IsControllable`? | No — the stock part window does not either | Reject in fallback mode |
 | D8 | Colour range | Clamp to 0–1 like gatOS and zippo | Allow > 1 (HDR) once confirmed in game |
 | D9 | Id block | `0x5000–0x50FF` | Any other unused block |
-| D10 | Where the language server runs by default | Inside the game, on a loopback socket (no .NET needed on the player's machine, real vehicle layout, can act on the vehicle) | Standalone only |
-| D11 | Server-side vehicle commands (`load`, `start`, `stop`) | Enabled, token-guarded, with a config switch | Diagnostics-only server |
+| D10 | Where the language server runs by default | Inside the game, on a loopback socket (no .NET needed on the player's machine, real vehicle layout, can act on the vehicle). Built so; see D22 for what that means for every player | Standalone only |
+| D11 | Server-side vehicle commands (`load`, `start`, `stop`) | Built: the fixed commands (`kfs.build`, `load`, `start`, `stop`, `reset`, `target`, `manual`, `parts`) are always available to a client that has the token; only `kfs.verb` — any `kfs` line — is behind the switch `lsp_allow_vehicle_commands`, default off | Diagnostics-only server; a switch for every command |
 | D12 | Distribution of `purr-kfs` | Separate release asset (framework-dependent), not in the mod folder | Bundle in the mod; self-contained per-OS builds |
 | D13 | Neovim runtime files | Shipped in the mod and loaded by absolute path (`--cmd "lua dofile(…)"`, folder passed in an environment variable) for the in-game launch; documented for manual install | Publish as a standalone Neovim plugin repository |
 | D14 | kASM selector constants | A generated `purrtty.kinc` the program includes | Patch `BuiltinIncludes` so `<kfs.kinc>` carries them |
@@ -1976,13 +3044,23 @@ Run once on each supported OS before calling a workstream done. Each item names 
 | D17 | How the tables are published | Assign `KfsIntegration._tables` while it is null; Harmony postfix on `LoadEmbedded` only as a fallback | Postfix only (the variant the spikes ran) |
 | D18 | Values of `X_DEPLOY_STATE` | **Decided (2026-11-25, following the M1 code review): `X_STATE_NONE` 0, `X_STATE_DEPLOYED` 1, `_RETRACTED` 2, `_DEPLOYING` 3, `_RETRACTING` 4, `_BROKEN` 5**, so the 0 every getter reads where there is no part is never a state (`STATE == X_STATE_DEPLOYED` was true for an absent part). Converted from the game's 0–4 at the boundary (`PartMath`). Other properties keep 0 as their "nothing"; programs check `PRESENT` first. | Keep the game's 0–4 (0 = deployed) |
 | D19 | Ceilings for intensity and range | **Decided (2026-11-25, following the M1 code review): at most 1e6 (intensity) and 1e6 m (range)**, `PartMath.MaxIntensity` / `MaxRangeM`; the VM's `finite:>=0` domain admits up to `FLT_MAX` | No ceiling; a tighter one near the stock values (≤ 50) |
+| D20 | Order of one simulated frame | **Decided (2026-11-26, following the fix pass): step the parts → pump → dispatch**, the order read from the decompiled game (§4.12, §5.4), so that committed state (`POSITION`, `STATE`, and `LIT` when switching on) lags the live fields by one frame in tests as it will in the game | pump → step → dispatch (the first version; one frame too optimistic) |
+| D21 | Lifetime of the `purr` console command | **Decided (built): for as long as the mod is loaded**, registered by the mod itself, independent of the extension; verbs that need the extension refuse with the reason | Register only when the extension installs (then `purr status` could not explain a disabled install) |
+| D22 | Language server: lifetime and default | **Decided (built), and to be stated plainly to players: on by default.** With `lsp_enabled = true` the game listens on a loopback port and writes its address and token to `<config>/.purrTTY/kfs-lsp.json` at every start, whether or not an editor is ever used, and independently of the extension and of the kFS prototype switch. Any local process of the same user that reads the file can build, load, start, stop and reset programs on the targeted vehicle (R12, R19). `lsp_enabled = false` switches all of it off | Off until the first `purr nvim` or `purr lsp start`; tied to the extension |
+| D23 | When the editor's terminal closes | **Decided (built): only on a successful exit** (`CloseOnSuccessfulExit`, exit code 0); a Neovim that fails keeps its window and final screen | Close on any exit (`CloseOnExit`, as T1 first specified) |
+| D24 | Build schedulers | **Decided (built): one per connection**, each with its own lazily started compile thread; the cap on retired threads is process-wide | One scheduler for all clients (fewer threads; one client's stuck compile would block the others) |
+| D25 | Server limits | **Decided (built): the table of §6.2** — 8 connections, 2 unauthenticated, 5 s to `initialize`, 64 KiB before and 16 MiB after authentication, 8 commands waiting, one command per frame plus what fits in 4 ms, 10 s per compile, 2 retired threads | No limits (the first version; an independent review showed it could be brought down by a local peer) |
+| D26 | Characters in console output | **Decided (built): ASCII by default** (`PurrConsole.AsciiOutput`), because the console font's coverage cannot be checked from the mod | Typographic characters (`—`, `→`, `…`), to be enabled if V33 shows the font has them |
+| D27 | Retargeting the workbench when the editor opens | **Decided (built): only with the kFS prototype switch on and a vehicle controlled.** `Workbench.TargetActiveVehicle()` creates a vehicle host and switches what `kfs` acts on without checking the switch; with the switch off that is left to the player and the launch message says so | Always retarget (diagnostics would always match the vehicle, at the price of creating kFS state the player switched off) |
+| D28 | What a command's answer means | **Decided (built): `ok` means "the game ran the line"**; the game's own failures come back as its text in `output`. A `kfs.load` of a path with whitespace is refused before it reaches the game, because the game's `load` cannot take one | Parse the game's wording into success and failure (fragile); quote the path (the game's parser has no quoting) |
+| D29 | `<purrtty.h>` at uninstall | **Decided (built): left registered while a compile may be reading the game's header table**, taken over by the next install (§4.5) | Always remove (risks corrupting a dictionary the game's compiler is reading) |
 
 ## Appendix A — evidence index
 
 | Evidence | What it is | Where |
 | --- | --- | --- |
 | Bundle | 95 documents on kFS and its extension points, with file:line citations into the decompiled game | [`docs/kfs-info/index.md`](../docs/kfs-info/index.md) |
-| Experiments E1–E24 | Results of running the real toolchain offline | [`docs/kfs-info/modding/offline-harness.md`](../docs/kfs-info/modding/offline-harness.md) |
+| Experiments E1–E27 | Results of running the real toolchain offline | [`docs/kfs-info/modding/offline-harness.md`](../docs/kfs-info/modding/offline-harness.md) |
 | Spike 01–03 | Tables, service rows, kC/kASM binding, host hooks, the loader patch | [`plans/investigations/kfs-spikes/`](investigations/kfs-spikes/README.md) |
 | Spike 04 | In-memory assembly resolver; the game's `Workbench` end to end on a `FakeVehicle` | `…/04-workbench-end-to-end/` |
 | Spike 05 | Minimal language server on the real compiler; headless Neovim over TCP and stdio | `…/05-lsp-neovim/` |

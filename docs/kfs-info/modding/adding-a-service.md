@@ -35,7 +35,19 @@ sources:
   - id: offline-harness
     resource: /modding/offline-harness.md
     title: Offline harness experiments E1–E12
-generated: { by: claude-code/claude-fable-5-2, at: 2026-11-25T22:02:02Z }
+  - id: builtin-includes
+    resource: ksa-decomp:KSA.Kfs.KAsm/BuiltinIncludes.cs
+    title: BuiltinIncludes (decompiled)
+  - id: editor-model
+    resource: ksa-decomp:KSA.Kfs.Host.Workbench/EditorModel.cs
+    title: EditorModel (decompiled)
+  - id: kc-front-end
+    resource: ksa-decomp:KSA.Kfs.KC/KcFrontEnd.cs
+    title: KcFrontEnd (decompiled)
+  - id: dispatch-and-threading
+    resource: /integration/dispatch-and-threading.md
+    title: kFS dispatch and threading
+generated: { by: claude-code/claude-fable-5-2, at: 2026-11-26T06:11:10Z }
 status: stable
 ksa_build: "2026.11.25.5949"
 ---
@@ -56,13 +68,18 @@ the services table; the routing is three hard-coded `switch` statements. So a mo
 | 5 | Results (only for a result-bearing service) | Fill the result cell | Harmony postfix on `VehicleComputer`'s `ISyscallHost.IssueResult` |
 | 6 | Game effect | Queue work and apply it on the main thread | Harmony postfix on `KfsIntegration.BeforeInputEvents` |
 
-Pieces 1–5 were exercised end to end outside the game; piece 6 follows the stock pattern but has
-not been run. See [the offline harness](/modding/offline-harness.md) for the working code and
-output.[^offline-harness]
+Pieces 1–5 were exercised end to end outside the game; see
+[the offline harness](/modding/offline-harness.md) for the working code and output.[^offline-harness]
+Piece 6 follows the stock pattern. purrTTY's kFS extension in this repository implements all six
+(`purrTTY.Kfs/`); its queue-and-apply step runs in the offline tests, driven by the test's own
+frame loop, but the `BeforeInputEvents` postfix itself is called only by the game. **No piece has
+been run in the game.**
 
-kASM needs nothing beyond piece 1: `SYSCALL SVC_<SYMBOL>` resolves from the row's `symbol`.
+kASM needs nothing beyond piece 1: `SYSCALL SVC_<SYMBOL>` resolves from the row's `symbol`,
+because the game generates `<kfs.kinc>` from the service rows on every assembly.[^builtin-includes]
 Selector constants are another matter: kASM sees only the stock enumeration constants, so a mod
-supplies its own as a `.kinc` file of equates.
+supplies its own as a `.kinc` file of equates. That file holds the mod's constants **only**; the
+`SVC_*` symbols of the mod's services are already in `<kfs.kinc>` and must not be repeated in it.
 
 # 1 — The table row
 
@@ -97,9 +114,13 @@ static void Postfix(ref GameTables __result)
 An alternative that needs no patch: build the tables the same way and assign them to the private
 static `KfsIntegration._tables` by reflection while it is still null —
 `LazyInitializer.EnsureInitialized` returns an existing value untouched, so the game's loader then
-never runs. **Unverified:** this variant was not executed (the experiments ran the postfix); it
-trades a patch on a public method for a dependency on a private field name, and it lets a mod
-detect that the tables were already built by someone else.
+never runs. It trades a patch on a public method for a dependency on a private field name, and it
+lets a mod detect that the tables were already built by someone else. The experiments ran the
+postfix; the assignment was executed later, offline, by purrTTY's installer
+(`purrTTY.Kfs/Tables/TablesPublisher.cs`, with the postfix kept as a fallback for a renamed field;
+tests in `purrTTY.Kfs.Tests/Installer/`): after the assignment `KfsIntegration.Tables` returns the
+assigned instance. `Unverified:` in the running game, where the question is whether anything reads
+the tables before a mod's code runs.
 
 Rules:
 
@@ -338,15 +359,50 @@ static class BeforeInputEventsPatch
 
 - The postfix runs every frame, including while paused and while the kFS flag is off; gate on
   `KfsPrototype.Enabled` if the work should stop with kFS.
-- The original prunes dead hosts first, so mod state for a dead host can be dropped in the same
-  pass (`host.IsAlive` is public).
-- Effects land one frame after the request. A program that sets a value and reads it back in the
-  same tick sees the old value.
+- The original prunes dead hosts (`KfsVehicleHost.ReleaseDead()`) **only while the kFS switch is
+  on** — its whole body is inside `if (KfsPrototype.Enabled)`. A postfix that also runs with the
+  switch off must not assume the host list is pruned: test `host.IsAlive` (public) for every host
+  it takes from the list, and drop its own state for hosts that fail the test.[^kfs-integration-prune]
+- Effects land one frame after the request, and not all at once. A program that sets a value and
+  reads it back in the same tick sees the old value. From the next frame's first tick it sees
+  what the hook wrote into **fields** (a switch flag, an animation goal); **committed state**
+  derived from them (an animation's position and deployment state, whether a consumer is active)
+  follows one frame later, because the dispatch runs before the module update inside the solver
+  job. Getters should document which of the two they return.[^dispatch-and-threading]
+- Structure changes of the same frame are split around the hook: a contact docking, a destruction
+  or a part failure has already been applied when it runs; a decoupling or a docking requested
+  through the game's input events is applied right after it.[^dispatch-and-threading]
 - For the specific game operations of the parts extension, see
   [control recipes](/game-targets/control-recipes.md).
 
 A UI callback (`[StarMapAfterGui]`, a registered ImGui window) is **not** equivalent: it runs
 while dispatches are in flight.
+
+# Taking it out again
+
+A mod that can be unloaded has to undo pieces 2–6; the table (piece 1) cannot be withdrawn — every
+computer and the workbench hold the instance — and does not need to be: with the hooks gone its
+extra rows only reject.
+
+The header is the delicate part. `SystemHeaders.Files` and `SystemHeaders.Builtins` are a plain
+`Dictionary` and `HashSet`, and the compiler reads them on **whatever thread is compiling**:
+`KcFrontEnd.Lower` calls `SystemHeaders.Get(name)` for every `<…>` include and tests
+`SystemHeaders.Builtins.Contains(…)`.[^kc-front-end] The stock editor compiles on a thread-pool
+thread (`EditorModel` starts `Task.Run` when its `Background` flag is set, and `Building` is true
+while that task is pending), and a mod's own tooling may compile on its own threads.[^editor-model]
+Removing an entry while such a compile runs is a concurrent write to a collection that is being
+read. So:
+
+- remove the header and the builtin names on the main thread, and only when no compile is in
+  flight: none of the mod's own, and `Workbench.Editor.Building` false;
+- to ask the second question without creating the workbench (the public `KfsIntegration.Workbench`
+  getter creates it on first use), read the private static `KfsIntegration._workbench`;
+- if a compile is running, leave the registration in place and take it over at the next install —
+  a header without its hooks only produces programs whose mod calls are rejected.
+
+The same rule covers the install: finish every change to these statics before the first compile
+can start. purrTTY implements this in `purrTTY.Kfs/Tables/SystemHeaderRegistration.cs` and
+`StockEditorProbe.cs` (tested offline in `purrTTY.Kfs.Tests/Installer/HeaderInUseTests.cs`).
 
 # Checklist
 
@@ -361,6 +417,9 @@ while dispatches are in flight.
 - [ ] No game writes outside the main-thread pump.
 - [ ] One offline test per service: compile a kC call, run it on a `FakeVehicle`, assert the
       decoded request and the returned value.
+- [ ] The main-thread hook filters hosts by `IsAlive` instead of relying on the stock pruning.
+- [ ] The header and builtin names are removed at unload only when no compile can be running.
+- [ ] A kASM constants file contains no `SVC_*` name.
 
 # Modding notes
 
@@ -383,3 +442,8 @@ while dispatches are in flight.
 [^kfs-integration]: KfsIntegration.cs:85–89 (lazy `Tables`), :146–156 (`RegisterCommands` does not read the tables), :158–176 (`BeforeInputEvents`).
 [^kfs-vehicle-host]: KfsVehicleHost.cs:39 (`AllHosts`), :61–79 (`Vehicle`, `Computer`), :83–93 (`IsAlive`), :105–118 (constructor).
 [^offline-harness]: Experiments E2–E11 in the offline harness document.
+[^builtin-includes]: BuiltinIncludes.cs:43-46.
+[^kfs-integration-prune]: KfsIntegration.cs:158-176 (`BeforeInputEvents`; `KfsVehicleHost.ReleaseDead()` at :163 inside `if (KfsPrototype.Enabled)` :160); KfsVehicleHost.cs:82-92 (`IsAlive`), :148-164 (`ReleaseDead`).
+[^dispatch-and-threading]: "What a dispatch reads: live fields and committed state" and "Where a vehicle's structure changes".
+[^kc-front-end]: KcFrontEnd.cs:77 (`SystemHeaders.Get(name)` in the system-include lookup), :143 (`SystemHeaders.Builtins.Contains`); Parser.cs:1585 (`InSystemHeader && SystemHeaders.Builtins.Contains(text)`).
+[^editor-model]: EditorModel.cs:131 (`Background`), :133 (`Building => _pending != null`), :412-418 (`_pending = Task.Run(function)`).
