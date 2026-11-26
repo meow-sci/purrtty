@@ -1,0 +1,500 @@
+[
+  {
+    "id": 20480,
+    "name": "x_parts_info",
+    "kc": "`x_parts_info(what)`",
+    "kscript": "—",
+    "symbol": "SVC_X_PARTS_INFO",
+    "kind": "request+result",
+    "args": "`u32 what`",
+    "arg_types": [
+      "u32"
+    ],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "enum:x_parts_info"
+    ],
+    "host_checks": "—",
+    "summary": "Reads a vehicle-wide parts figure: the list generation, the dirty flag or a part count."
+  },
+  {
+    "id": 20481,
+    "name": "x_parts_rescan",
+    "kc": "`x_parts_rescan()`",
+    "kscript": "—",
+    "symbol": "SVC_X_PARTS_RESCAN",
+    "kind": "request",
+    "args": "—",
+    "arg_types": [],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Medium",
+    "requires_stock": null,
+    "arg_domains": [],
+    "host_checks": "—",
+    "summary": "Rebuilds the vehicle's part lists; indices may change and X_PARTS_GENERATION changes."
+  },
+  {
+    "id": 20482,
+    "name": "x_parts_describe",
+    "kc": "`x_parts_describe(kind)`",
+    "kscript": "—",
+    "symbol": "SVC_X_PARTS_DESCRIBE",
+    "kind": "request",
+    "args": "`u32 kind`",
+    "arg_types": [
+      "u32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Medium",
+    "requires_stock": null,
+    "arg_domains": [
+      "enum:x_part_kind"
+    ],
+    "host_checks": "more than one table per second",
+    "summary": "Writes the index table of one part kind, or of all kinds, to the program log."
+  },
+  {
+    "id": 20496,
+    "name": "x_light_count",
+    "kc": "`x_light_count()`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_COUNT",
+    "kind": "request+result",
+    "args": "—",
+    "arg_types": [],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [],
+    "host_checks": "—",
+    "summary": "Number of lights on the vehicle; indices are 0 to count-1."
+  },
+  {
+    "id": 20497,
+    "name": "x_light_geti",
+    "kc": "`x_light_geti(light, prop)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_GETI",
+    "kind": "request+result",
+    "args": "`u32 light`, `u32 prop`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "enum:x_light_prop[0..7]"
+    ],
+    "host_checks": "—",
+    "summary": "Reads an integer property of a light; 0 for an index out of range."
+  },
+  {
+    "id": 20498,
+    "name": "x_light_getf",
+    "kc": "`x_light_getf(light, prop)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_GETF",
+    "kind": "request+result",
+    "args": "`u32 light`, `u32 prop`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "`f32 value`",
+    "result_types": [
+      "f32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "enum:x_light_prop[16..23]"
+    ],
+    "host_checks": "—",
+    "summary": "Reads a float property of a light; 0 for an index out of range."
+  },
+  {
+    "id": 20499,
+    "name": "x_light_set_on",
+    "kc": "`x_light_set_on(light, on)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_SET_ON",
+    "kind": "request",
+    "args": "`u32 light`, `u32 on`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "any"
+    ],
+    "host_checks": "light index out of range or departed; light has no switch",
+    "summary": "Switches a light's part on or off; every light on the same switch follows."
+  },
+  {
+    "id": 20500,
+    "name": "x_light_set_color",
+    "kc": "`x_light_set_color(light, rgb)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_SET_COLOR",
+    "kind": "request",
+    "args": "`u32 light`, `vec3 rgb` (f32, f32, f32)",
+    "arg_types": [
+      "u32",
+      "f32",
+      "f32",
+      "f32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "finite:>=0",
+      "finite:>=0",
+      "finite:>=0"
+    ],
+    "host_checks": "light index out of range or departed",
+    "summary": "Overrides a light's emission colour (linear RGB, each component clamped to 0..1)."
+  },
+  {
+    "id": 20501,
+    "name": "x_light_set_cone",
+    "kc": "`x_light_set_cone(light, inner_rad, outer_rad)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_SET_CONE",
+    "kind": "request",
+    "args": "`u32 light`, `f32 inner_rad`, `f32 outer_rad`",
+    "arg_types": [
+      "u32",
+      "f32",
+      "f32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "finite:>=0",
+      "finite:>=0"
+    ],
+    "host_checks": "light index out of range or departed",
+    "summary": "Overrides a spot light's cone half-angles, in radians; ignored for point lights."
+  },
+  {
+    "id": 20502,
+    "name": "x_light_set_intensity",
+    "kc": "`x_light_set_intensity(light, intensity)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_SET_INTENSITY",
+    "kind": "request",
+    "args": "`u32 light`, `f32 intensity`",
+    "arg_types": [
+      "u32",
+      "f32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "finite:>=0"
+    ],
+    "host_checks": "light index out of range or departed",
+    "summary": "Overrides a light's intensity (0 to 1e6)."
+  },
+  {
+    "id": 20503,
+    "name": "x_light_set_range",
+    "kc": "`x_light_set_range(light, range_m)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_SET_RANGE",
+    "kind": "request",
+    "args": "`u32 light`, `f32 range_m`",
+    "arg_types": [
+      "u32",
+      "f32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "finite:>=0"
+    ],
+    "host_checks": "light index out of range or departed",
+    "summary": "Overrides a light's range in metres (0 to 1e6)."
+  },
+  {
+    "id": 20504,
+    "name": "x_light_reset",
+    "kc": "`x_light_reset(light)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHT_RESET",
+    "kind": "request",
+    "args": "`u32 light`",
+    "arg_types": [
+      "u32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any"
+    ],
+    "host_checks": "light index out of range or departed",
+    "summary": "Restores a light's stock colour, cone, intensity and range (not its on/off state)."
+  },
+  {
+    "id": 20505,
+    "name": "x_lights_set_all",
+    "kc": "`x_lights_set_all(on)`",
+    "kscript": "—",
+    "symbol": "SVC_X_LIGHTS_SET_ALL",
+    "kind": "request",
+    "args": "`u32 on`",
+    "arg_types": [
+      "u32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any"
+    ],
+    "host_checks": "—",
+    "summary": "Switches every light that has a switch on or off, like the game's lights key."
+  },
+  {
+    "id": 20512,
+    "name": "x_deploy_count",
+    "kc": "`x_deploy_count()`",
+    "kscript": "—",
+    "symbol": "SVC_X_DEPLOY_COUNT",
+    "kind": "request+result",
+    "args": "—",
+    "arg_types": [],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [],
+    "host_checks": "—",
+    "summary": "Number of deployables (parts the game shows with Deploy and Retract)."
+  },
+  {
+    "id": 20513,
+    "name": "x_deploy_geti",
+    "kc": "`x_deploy_geti(index, prop)`",
+    "kscript": "—",
+    "symbol": "SVC_X_DEPLOY_GETI",
+    "kind": "request+result",
+    "args": "`u32 index`, `u32 prop`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "enum:x_deploy_prop[0..5]"
+    ],
+    "host_checks": "—",
+    "summary": "Reads an integer property of a deployable; 0 for an index out of range."
+  },
+  {
+    "id": 20514,
+    "name": "x_deploy_getf",
+    "kc": "`x_deploy_getf(index, prop)`",
+    "kscript": "—",
+    "symbol": "SVC_X_DEPLOY_GETF",
+    "kind": "request+result",
+    "args": "`u32 index`, `u32 prop`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "`f32 value`",
+    "result_types": [
+      "f32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "enum:x_deploy_prop[16..18]"
+    ],
+    "host_checks": "—",
+    "summary": "Reads a float property of a deployable; 0 for an index out of range."
+  },
+  {
+    "id": 20515,
+    "name": "x_deploy_set",
+    "kc": "`x_deploy_set(index, deployed)`",
+    "kscript": "—",
+    "symbol": "SVC_X_DEPLOY_SET",
+    "kind": "request",
+    "args": "`u32 index`, `u32 deployed`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "any"
+    ],
+    "host_checks": "deployable index out of range or departed",
+    "summary": "Deploys (1) or retracts (0) a deployable."
+  },
+  {
+    "id": 20516,
+    "name": "x_deploy_toggle",
+    "kc": "`x_deploy_toggle(index)`",
+    "kscript": "—",
+    "symbol": "SVC_X_DEPLOY_TOGGLE",
+    "kind": "request",
+    "args": "`u32 index`",
+    "arg_types": [
+      "u32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any"
+    ],
+    "host_checks": "deployable index out of range or departed",
+    "summary": "Flips a deployable's commanded state; valid mid-travel."
+  },
+  {
+    "id": 20528,
+    "name": "x_actuator_count",
+    "kc": "`x_actuator_count()`",
+    "kscript": "—",
+    "symbol": "SVC_X_ACTUATOR_COUNT",
+    "kind": "request+result",
+    "args": "—",
+    "arg_types": [],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [],
+    "host_checks": "—",
+    "summary": "Number of actuators (parts the game shows with a 0..1 slider)."
+  },
+  {
+    "id": 20529,
+    "name": "x_actuator_geti",
+    "kc": "`x_actuator_geti(index, prop)`",
+    "kscript": "—",
+    "symbol": "SVC_X_ACTUATOR_GETI",
+    "kind": "request+result",
+    "args": "`u32 index`, `u32 prop`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "`u32 value`",
+    "result_types": [
+      "u32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "enum:x_actuator_prop[0..3]"
+    ],
+    "host_checks": "—",
+    "summary": "Reads an integer property of an actuator; 0 for an index out of range."
+  },
+  {
+    "id": 20530,
+    "name": "x_actuator_getf",
+    "kc": "`x_actuator_getf(index, prop)`",
+    "kscript": "—",
+    "symbol": "SVC_X_ACTUATOR_GETF",
+    "kind": "request+result",
+    "args": "`u32 index`, `u32 prop`",
+    "arg_types": [
+      "u32",
+      "u32"
+    ],
+    "results": "`f32 value`",
+    "result_types": [
+      "f32"
+    ],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "enum:x_actuator_prop[16..18]"
+    ],
+    "host_checks": "—",
+    "summary": "Reads a float property of an actuator; 0 for an index out of range."
+  },
+  {
+    "id": 20531,
+    "name": "x_actuator_set",
+    "kc": "`x_actuator_set(index, value)`",
+    "kscript": "—",
+    "symbol": "SVC_X_ACTUATOR_SET",
+    "kind": "request",
+    "args": "`u32 index`, `f32 value`",
+    "arg_types": [
+      "u32",
+      "f32"
+    ],
+    "results": "—",
+    "result_types": [],
+    "cost_class": "Light",
+    "requires_stock": null,
+    "arg_domains": [
+      "any",
+      "finite"
+    ],
+    "host_checks": "actuator index out of range or departed",
+    "summary": "Drives an actuator toward a position, 0..1 of its travel."
+  }
+]

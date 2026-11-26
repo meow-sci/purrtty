@@ -1,0 +1,18 @@
+<!-- Project file used by spikes 01-03 (rename to app.csproj beside Program.cs).
+     They reference a SCRATCH COPY of the game DLLs in ../lib (never the snapshot itself):
+       mkdir ../lib && cp "$KSA_DLL_DIR"/*.dll ../lib/
+     On an arm64 host also run:  python3 ../flip-pe.py ../lib/KSA.dll
+     Spike 02 and 03 additionally need:  <PackageReference Include="Lib.Harmony" Version="2.4.2" /> -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="../lib/*.dll" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>

@@ -112,6 +112,60 @@ New Window menus automatically (live registry enumeration, no purrTTY change nee
   never touches disk while drawing), and rewritten only when a terminal is actually created with a
   non-blank startup command.
 
+## Unit-test a kFS program outside the game
+
+The game's real kC compiler, VM and host run in the test process with purrTTY's extension
+installed (`purrTTY.Kfs.Testing`; rules in [build-and-test.md](build-and-test.md#kfs-test-projects-purrttykfstesting-purrttykfstests)).
+Add a fixture to `purrTTY.Kfs.Tests/Runtime/` deriving from `RuntimeFixture`, keep game types
+inside method bodies, then: create a vehicle, load the program, script what the game publishes,
+run in simulated time, assert on parts, log, globals and stock requests. This is
+`StockProgramTests.Mixed_Program_Uses_Telemetry_And_Parts`:
+
+```csharp
+[Test]
+public void Mixed_Program_Uses_Telemetry_And_Parts()
+{
+    using SimVehicle v = Runtime.Vehicle(deployables: 1).LoadKc("""
+        #include <kfs.h>
+        #include <vehicle.h>
+        #include <purrtty.h>
+        #pragma kfs tick_hz 10
+        #pragma kfs subscribe MSG_FLIGHT_DATA flight
+        #pragma kfs task run rate_hz=10
+        kfs_msg_flight_data_t flight;
+        uint32_t want;
+        void run(void)
+        {
+            uint32_t up = flight.altitude_m > 10000.0f ? 1u : 0u;
+            if (up != want) {
+                want = up;
+                x_deploy_set(0u, up);
+                kfs_logf("solar %u at %.0f m", up, flight.altitude_m);
+            }
+        }
+        """);
+    // Up at 5 km/s to 20 km over 4 s, then back down.
+    v.TelemetryScript = t => new SimTelemetry { Flight = { AltitudeM = t <= 4 ? 5000 * t : Math.Max(0, 20000 - 5000 * (t - 4)) } };
+    v.Run(9.0, 0.1);
+
+    Assert.That(v.LogText.Where(l => l.StartsWith("solar ", StringComparison.Ordinal)),
+        Is.EqualTo(new[] { "solar 1 at 10500 m", "solar 0 at 10000 m" }), v.Dump);
+    var history = v.Parts.DeployHistory;
+    Assert.That(history.Select(h => (h.Index, h.State)), Is.EqualTo(new[]
+    {
+        (0, DeployState.Deploying), (0, DeployState.Deployed), (0, DeployState.Retracting), (0, DeployState.Retracted),
+    }));
+    Assert.That(history.Select(h => h.TimeS), Is.EqualTo(new[] { 2.2, 4.1, 6.1, 8.0 }).Within(1e-6));
+}
+```
+
+(The test in the suite also asserts the applied commands.) Other tools: `v.RunTicks(n)`,
+`v.RunUntil(() => …, timeoutSeconds)`, `v.Pause()`/`Resume()`, `v.ReadGlobal<float>("err.x")`,
+`v.RequestText` (`"set_throttle(1.0)"`, `"plan_circularize(apoapsis)"`), `v.State`/`Trap`/`Overruns`.
+A stock program needs no `x_` call at all — `StockProgramTests` runs the game's own
+`kC_ascent_simple` example. The harness records stock steering, staging and burns but does not fly
+them; script their effects (`SimTelemetry.Flight`, `Props.Engines`, `BurnStatus`) yourself.
+
 ## Deploying the game mod
 1. `dotnet build purrTTY.GameMod` — copies the mod DLLs **and the native libghostty-vt** to the mods dir.
    `CopyCustomContent` **wipes the destination `purrTTY/` folder first** (stale DLLs from removed

@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <AssemblyName>purrTTY.Kfs</AssemblyName>
+        <RootNamespace>purrTTY.Kfs</RootNamespace>
+        <Description>purrTTY's extension of kFS, KSA's programmable flight computer</Description>
+        <IsPackable>false</IsPackable>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
+    </PropertyGroup>
+
+    <!-- Deliberately no reference to purrTTY.Terminal, purrTTY.Display or purrTTY.GameMod:
+         the kFS extension must stay loadable in a test process and switchable off without
+         touching the terminal (plans/KFS_EXTENSION_FOR_PARTS_PLAN.md §3.4). -->
+    <ItemGroup>
+        <ProjectReference Include="..\purrTTY.Logging\purrTTY.Logging.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Supplied at run time by the StarMap loader in the game, never shipped. -->
+        <PackageReference Include="Lib.Harmony" Version="2.4.2">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- KSA game DLLs: compile-only. Never copied to an output; in tests they are
+             resolved at run time by purrTTY.Kfs.Testing's KsaAssemblyResolver. -->
+        <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+            <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <!-- KfsLog writes through purrTTY.Logging's LogCategory, which lives here. -->
+        <Reference Include="Brutal.Logging" Condition="Exists('$(KSAFolder)/Brutal.Logging.dll')">
+            <HintPath>$(KSAFolder)/Brutal.Logging.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>purrTTY.Kfs.Testing</_Parameter1>
+        </AssemblyAttribute>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+            <_Parameter1>purrTTY.Kfs.Tests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+</Project>

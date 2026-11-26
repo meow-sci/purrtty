@@ -46,7 +46,18 @@ purrTTY.Terminal               # BACKEND: surface + sessions + RELOCATED PTY lay
 purrTTY.Display                # ImGui FRONTEND: refs purrTTY.Terminal + KSA ImGui DLLs
     └── purrTTY.Display.Tests  (pure-logic theming/config tests — no ImGui)
 purrTTY.GameMod                # final mod DLL: refs Display + CustomShells; StarMap hooks + Harmony patches
+purrTTY.Kfs                    # kFS extension (x_ services for lights/animations): refs purrTTY.Logging +
+    │                          #   KSA.dll (compile-only) + Harmony; NO terminal/display/GameMod reference;
+    │                          #   not referenced by purrTTY.GameMod yet, so not shipped
+purrTTY.Kfs.Testing            # offline kFS runtime (KfsRuntime, SimVehicle, telemetry) + KsaAssemblyResolver;
+    │                          #   refs purrTTY.Kfs; never shipped
+    └── purrTTY.Kfs.Tests      (NUnit: the game's real kFS toolchain + the extension, run offline)
 ```
+
+> **kFS extension status:** milestone M1 of `plans/KFS_EXTENSION_FOR_PARTS_PLAN.md` (tasks F1, A1,
+> A2, A3, B1) is implemented and tested **offline only**. It is not wired into `purrTTY.GameMod`,
+> has no game back end (`KsaVehicleParts`, main-thread pump), and nothing of it runs in the game
+> yet; the next tasks are A4 (game back end and wiring) and A5 (console command, examples).
 
 > The PTY/process layer was relocated out of the retired `purrTTY.Core` project into
 > `purrTTY.Terminal/Pty/` (its types keep the `purrTTY.Core.Terminal` namespace, which is shared
@@ -113,12 +124,21 @@ three RIDs (osx-arm64, win-x64, linux-x64), so one build from any host OS produc
 dist that runs on Windows, macOS, and Linux.
 
 ```bash
-dotnet test purrtty.slnx --nologo -v quiet                                  # full suite (4 test projects)
+dotnet test purrtty.slnx --nologo -v quiet                                  # full suite (5 test projects)
 dotnet test purrTTY.Terminal.Tests/purrTTY.Terminal.Tests.csproj --nologo -v quiet   # engine integration only
 ```
 
 Tests must be **quiet** (zero output on pass/skip) and must **never use fixed sleeps** — see
 [docs/build-and-test.md](docs/build-and-test.md) for the full rules.
+
+The kFS tests (`purrTTY.Kfs.Tests`) run the game's own kFS toolchain and the extension offline,
+loading `KSA.dll` at run time through `KsaAssemblyResolver`; they need `KSA_DLL_DIR` (or the sibling
+`ksa-game-assemblies` checkout) and skip silently without one. Game types in that project are
+restricted to method bodies and helper signatures (rule in `purrTTY.Kfs.Tests/ModuleInit.cs`;
+breaking it unloads the whole assembly, which `TreatNoTestsAsError` turns into a failure). Program
+tests run on one shared `KfsRuntime` (`Runtime/RuntimeSetUp.cs`) with `SimVehicle`: simulated time,
+scripted telemetry, readable globals, decoded stock requests. Emitter snapshots regenerate with
+`PURRTTY_UPDATE_SNAPSHOTS=1`. Details: the kFS section of [docs/build-and-test.md](docs/build-and-test.md).
 
 Release policy checks: `python3 scripts/check-release-policy.py` (offline, no GitHub writes).
 CI tests on `ubuntu-latest`, `windows-latest`, and `macos-latest` (ARM64), using
@@ -132,16 +152,18 @@ in [docs/build-and-test.md](docs/build-and-test.md) for branch rules and retenti
 
 | File | Contents |
 |------|----------|
-| [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), building native libghostty-vt |
-| [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem, layouts |
+| [docs/build-and-test.md](docs/build-and-test.md) | KSA paths, CI/release pipeline, test standards (quiet + no fixed sleeps), the kFS test projects (game-types rule, fixture layout, snapshots, writing a `SimVehicle` test), building native libghostty-vt |
+| [docs/code-navigation.md](docs/code-navigation.md) | File-by-file navigation for all layers: binding, backend, frontend, PTY, game mod, custom shells, named-terminal registry, in-world subsystem, layouts, kFS extension |
 | [docs/gotchas.md](docs/gotchas.md) | 39 key behaviors and gotchas (threading, dirty flags, ConPTY pump, mouse encoding, kitty graphics, in-world teardown, in-world premultiplied-alpha transparency, layout persistence, in-world part-follow tracking, `ImageEx` struct-dispose NRE, off-screen dynamic rendering, etc.) |
-| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, deploy |
+| [docs/how-to.md](docs/how-to.md) | Recipes: change rendering, add themes, extend binding, add shells, create in-world terminals, theme a named terminal, save/load/edit a layout, auto-run a command, unit-test a kFS program outside the game, deploy |
+| [docs/kfs-info/index.md](docs/kfs-info/index.md) | OKF knowledge bundle on **kFS**, KSA's built-in programmable flight computer (kC language, kASM, the kVM, host layer, game glue, tooling) and how a mod can extend it — researched from the decompiled game for build 2026.11.25.5949. Reference for the kFS extension (`purrTTY.Kfs*`; milestone M1, offline only — see the status note above) |
 
 Other reference:
 - Solution: `purrtty.slnx`
 - Shared build config + KSA DLL paths (per-OS): `Directory.Build.props`
 - Migration plan + status: `LIBGHOSTTY_ANALYSIS.md`; provenance/licensing: `vendor/Ghostty.Vt/README.md`, `THIRD-PARTY-NOTICES.md`
 - Kitty graphics plan: `KITTY_PLAN.md`
+- kFS extension plan (M1 — F1, A1, A2, A3, B1 — done offline; A4/A5 next; its "Implementation notes from M1" list where the code differs from the plan text): `plans/KFS_EXTENSION_FOR_PARTS_PLAN.md`; its evidence spikes (not part of the solution): `plans/investigations/kfs-spikes/`
 
 ## Code Standards (from Directory.Build.props)
 - .NET 10 / C# 13; nullable enabled; warnings-as-errors (except CS1591).

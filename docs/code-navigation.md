@@ -93,6 +93,62 @@ only when the user loads them** (no auto-apply).
 - The contract is a **published inter-mod ABI**: `mod.toml` exports `purrTTY.CustomShellContract` + `purrTTY.Logging` over the StarMap ALC (`[StarMap] ExportedAssemblies`), so a mod that lists them in its purrTTY `[[StarMap.ModDependencies]]` `ImportedAssemblies` resolves purrTTY's loaded copies — one type identity, one shared `CustomShellRegistry.Instance` (the consumer is gatOS). `purrTTY.Logging` is exported because the contract assembly references it; an importer needs both from the same ALC. Treat both assemblies' public surfaces as versioned API.
 - Built-in game shell: `purrTTY.CustomShells/GameConsoleShell.cs` (emits VT bytes → `Surface.Write`; prompt from `WellKnownShellEnvironment.GameShellPrompt`, stamped by `ThemeConfiguration.CreateGameShellLaunchOptions` / the menu launch path)
 
+## kFS extension (`purrTTY.Kfs*`)
+
+Extends kFS, KSA's programmable flight computer, with `x_` services for lights and part animations,
+per [`plans/KFS_EXTENSION_FOR_PARTS_PLAN.md`](../plans/KFS_EXTENSION_FOR_PARTS_PLAN.md); background
+on kFS itself is the [`docs/kfs-info/`](kfs-info/index.md) bundle. **Status: milestone M1 —
+implemented and tested offline only. Not wired into `purrTTY.GameMod`, no game back end; nothing
+runs in the game yet** (tasks A4/A5 of the plan).
+
+`purrTTY.Kfs/` — the extension (no terminal/display/GameMod reference; KSA.dll compile-only):
+
+- Entry: `KfsExtension.cs` (`Install(Harmony, options)` all-or-nothing / `Uninstall()` / `Status`,
+  the patch registry `Patches`), `KfsExtensionStatus.cs` (state, disabled reason, table
+  publication, live counters, `Describe()`), `KfsExtensionOptions.cs`, `KfsLog.cs` (log once per
+  failure kind, then count), `KfsBuildInfo.cs` (service id block `0x5000`–`0x50FF`, `Owns(id)`).
+- `Catalog/` — `XCatalog.cs` (**the** list of services and enumerations; `Svc` holds the ids),
+  `ServiceDef`/`ParamDef`/`EnumDef`/`ServiceCatalog`, `Selectors.cs` (selector and state enums
+  shared with C#: `LightProp`, `DeployState` …), `CatalogEmitter.cs` (services rows, enums entries,
+  `<purrtty.h>`, `purrtty.kinc`, builtin names, markdown — byte-stable), `CatalogSelfCheck.cs`.
+- `Tables/` — `TableAugmenter.cs` (stock tables + catalogue through the game's own loader;
+  origin `embedded:KSA+purrtty`), `TablesPublisher.cs` (assigns `KfsIntegration._tables`; five
+  outcomes), `SystemHeaderRegistration.cs` (header + builtins in `SystemHeaders`, restored exactly).
+- `Patches/` — `ApplyRequestPatch` and `IssueResultPatch` (required host hooks),
+  `BenchApplyRequestPatch` (optional: a readable workbench), `LoadEmbeddedFallbackPatch` (only when
+  `_tables` is not found), `KfsPatch` (registry entry).
+- `Runtime/` — `IVehicleParts` + `VehiclePartsBase` (the parts abstraction and its shared logic),
+  `PartSets` (frozen lists of `LightSlot`/`AnimSlot`), `PartCommand`, `PartsRegistry` (computer →
+  `VehicleBinding`: queue, rate limiter, counters), `ServiceRouter` (`Answer` at issue, `Accept`
+  after the tick), `BindingPump` (drain-and-apply, shared by the game pump and the test frame),
+  `PartMath` (clamps), `PartsText` (every program-log text).
+
+`purrTTY.Kfs.Testing/` — the offline runtime (not shipped):
+
+- `KsaAssemblyResolver.cs` — loads the game assemblies from `KSA_DLL_DIR` / the stamped
+  `KSAFolder`, patching `KSA.dll`'s PE machine field in memory on arm64; no game types by rule.
+- `KfsRuntime.cs` (+ `KfsRuntimeOptions`) — one per process: installs the extension through
+  `KfsExtension.Install`, `BuildKc`/`BuildKasm` (→ `BuildResult`), `Vehicle(...)`/`CreateVehicle`,
+  `CreateBench`, `StockTables`; `Dispose` uninstalls and resets `_tables`.
+- `SimVehicle.cs` — the game's `FakeVehicle` + simulated parts: `LoadKc`/`LoadKasm`, `Frame`/`Run`/
+  `RunTicks`/`RunUntil`, `Pause`/`Resume`, `Telemetry`/`TelemetryScript`, `ReadGlobal<T>`, machine
+  state (`State`, `TicksRun`, `Overruns`, `RejectedRequests`, `Trap`), `Requests` (decoded stock
+  requests), `EndBurn`. `SimVehicleSpec.cs`, `SimVehicleParts.cs` (in-memory `IVehicleParts` with
+  scripting helpers), `FaultyVehicleParts.cs` (fault injection).
+- `SimTelemetry.cs` (plain builders: `SimNav`, `SimFlight`, `SimProps`, `SimBurnStatus`, raw
+  `Leaves`) → `TelemetrySampler.cs` (→ the game's `HostSample`); `StockRequest.cs` (decoded
+  request + arguments); `SimMachineState.cs` (`SimComputerState`, `SimTrap`, `KfsBuildException`);
+  `BuildResult.cs`; `KfsIntegrationTables.cs` (testing-only access to `KfsIntegration._tables`).
+
+`purrTTY.Kfs.Tests/` — NUnit (rules and layout in [build-and-test.md](build-and-test.md)):
+
+- Root: `ModuleInit.cs` (the resolver; the game-types rule), `GameFixture.cs`, catalogue / emitter /
+  self-check / snapshot / augmented-table / compiler tests, `ResolverTests`, `StockToolchainTests`.
+- `Runtime/` (one shared `KfsRuntime`, `RuntimeSetUp.cs`): `ServiceTests` (every service),
+  `ScenarioTests`, `PartListTests`, `RobustnessTests`, `StatusTests`, `HarnessTests` (telemetry,
+  globals, machine state, time control, misuse), `StockProgramTests` (the game's ascent example).
+- `Installer/InstallTests.cs` — install, publication cases, uninstall, the runtime's lifetime.
+
 ## KSA compatibility
 
 - [KSA 5949 review](ksa-5949-compatibility.md): full 5901 → 5949 coupling audit, the self-restart / close-on-exec pty master fix and offline validation.

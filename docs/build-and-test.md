@@ -125,6 +125,86 @@ output being flushed); it runs on the windows-latest CI leg and self-skips elsew
 `purrTTY.Display.Tests` covers the pure-logic display pieces headlessly: theme TOML round-trip,
 all 18 bundled schemes parse, theme-override clamping, and `AtomicFile`.
 
+### kFS test projects (`purrTTY.Kfs.Testing`, `purrTTY.Kfs.Tests`)
+
+`purrTTY.Kfs.Tests` runs the game's **real** kFS (tables, kC compiler, kASM assembler, VM, host)
+together with purrTTY's real extension (`purrTTY.Kfs`: catalogue, table augmentation, header,
+Harmony host hooks, router) in the test process — no game. `KSA.dll` is referenced compile-only (`Private=false`) and is **never copied**
+to any output (`No_Game_Assemblies_In_Outputs` checks this, plus the dist when
+`PURRTTY_DIST_DIR` is set). At run time `KsaAssemblyResolver` (`purrTTY.Kfs.Testing`) resolves it
+from `KSA_DLL_DIR`, else from the `KSAFolder` the test assembly was stamped with at build time
+(`[AssemblyMetadata("KSAFolder", …)]`). On arm64 it patches the PE machine field of the IL-only,
+x64-marked `KSA.dll` **in memory** (`LoadFromStream`); on x64 it loads the file as is
+(`LoadFromAssemblyPath`). The file on disk is never modified.
+
+- The resolver is installed by a `[ModuleInitializer]` (`purrTTY.Kfs.Tests/ModuleInit.cs`).
+  NUnit reflects over the assembly before any of its code runs, so **game types may appear only
+  in method bodies and helper-method signatures** — never as field/property types, base types or
+  interfaces, test-method parameters, attribute arguments, iterator element types, or as game
+  structs captured by lambdas / held in async methods. The full rule and the observed failures are
+  in the comment at the top of `ModuleInit.cs`.
+- Breaking that rule can make NUnit fail to load the whole assembly; the project's
+  `purrTTY.Kfs.Tests.runsettings` sets `TreatNoTestsAsError`, so the run then exits non-zero
+  ("No test is available in …purrTTY.Kfs.Tests.dll" at normal verbosity) instead of passing with
+  zero tests.
+- Fixtures that need the game derive from `GameFixture`: with no game directory configured they
+  skip silently; with one configured but unusable they fail with the resolver's message.
+- Types that must break the rule — anything holding game-typed fields, implementing a game
+  interface or taking delegates over game structs — go in `purrTTY.Kfs.Testing` (`SimVehicle`,
+  `FaultyVehicleParts`, the telemetry converter). The kFS test count must only go up; a drop to
+  zero means the assembly no longer loads.
+
+**Process-wide state and fixture layout.** Harmony patches, the game's `SystemHeaders` statics,
+`KfsIntegration._tables` and `PartsRegistry` are process-wide, so the assembly is
+`[NonParallelizable]` (`AssemblyInfo.cs`) and the fixtures are split by namespace:
+
+- `purrTTY.Kfs.Tests.Runtime` (`Runtime/`) — everything that runs programs. `RuntimeSetUp`
+  (`[SetUpFixture]`) starts the process's one `KfsRuntime` through the real installer before the
+  first fixture of the namespace and disposes it after the last, asserting the process is clean.
+  Fixtures derive from `RuntimeFixture` (`Runtime`, `Vehicle(...)`); `Kc.Ticked(body, globals)`
+  wraps a task body in a 10 Hz program whose body sees the tick number `k`.
+- `purrTTY.Kfs.Tests.Installer` (`Installer/InstallTests.cs`) — install/uninstall/publication and
+  the runtime's own lifetime; each test installs or starts what it needs and its tear-down asserts
+  nothing is left (no patch, header, builtin, binding or `_tables`).
+- `purrTTY.Kfs.Tests` (root) — catalogue, emitter, self-check, tables, compiler, resolver; no
+  runtime alive (`CatalogCompileTests` registers the header itself with `SystemHeaderScope`).
+
+**Snapshots.** `SnapshotTests` compares the emitted `purrtty.h`, `purrtty.kinc`, service rows and
+enum entries with `purrTTY.Kfs.Tests/Snapshots/`. After an intended catalogue change, run the tests
+once with `PURRTTY_UPDATE_SNAPSHOTS=1` (the files are rewritten in the source folder and the tests
+pass), review the diff and commit it.
+
+**Writing a test with `KfsRuntime` / `SimVehicle`.** Everything runs in simulated time: a frame is
+pump → parts step → one dispatch (the game's order); `Frame`, `Run`, `RunTicks(n)` and
+`RunUntil(condition, timeoutSeconds)` never wait on a clock. Script what the game publishes with
+`v.Telemetry` / `v.TelemetryScript` (`SimTelemetry`), read program globals with
+`v.ReadGlobal<T>("err.x")`, assert stock requests as text with `v.RequestText` and part effects on
+`v.Parts`. An excerpt of `HarnessTests.RunUntil_Uses_Simulated_Time`:
+
+```csharp
+namespace purrTTY.Kfs.Tests.Runtime;
+
+[TestFixture]
+public sealed class HarnessTests : RuntimeFixture
+{
+    [Test]
+    public void RunUntil_Uses_Simulated_Time()
+    {
+        using SimVehicle v = Runtime.Vehicle(deployables: 1).LoadKc(Kc.Ticked("if (k == 5u) { x_deploy_set(0u, 1u); }"));
+
+        double took = v.RunUntil(() => v.Parts.Deployable(0).State == DeployState.Deployed, timeoutSeconds: 10, frameDt: 0.1);
+
+        // Issued in tick 5 (0.5 s), applied by the next frame's pump, 2 s of travel: deployed at 2.5 s.
+        Assert.That(took, Is.EqualTo(2.5).Within(1e-9));
+    }
+}
+```
+
+A failed build throws `KfsBuildException` (message and `Diagnostics` carry the compiler's
+`file:line:col` lines). The harness does not fly anything: stock steering, staging and burns are
+recorded, not simulated (see the `SimVehicle` and `SimTelemetry` XML docs for exactly what is
+scriptable and observable).
+
 ### Tests must be quiet by default (MUST)
 
 A test that passes or skips must produce **zero output** — no stdout/stderr, no recorded test

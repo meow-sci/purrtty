@@ -1,0 +1,65 @@
+; purrtty.kinc - purrTTY kFS constants for kASM. Generated from purrTTY's service
+; catalogue; do not edit. The SVC_X_* service symbols come from <kfs.kinc>.
+
+; x_parts_info: selectors of x_parts_info
+.equ X_PARTS_GENERATION, 0
+.equ X_PARTS_DIRTY, 1
+.equ X_PARTS_LIGHTS, 2
+.equ X_PARTS_DEPLOYABLES, 3
+.equ X_PARTS_ACTUATORS, 4
+
+; x_part_kind: part kinds of x_parts_describe
+.equ X_KIND_ALL, 0
+.equ X_KIND_LIGHT, 1
+.equ X_KIND_DEPLOYABLE, 2
+.equ X_KIND_ACTUATOR, 3
+
+; x_light_prop: light properties: integers 0..15 (x_light_geti), floats 16 and up (x_light_getf)
+.equ X_LIGHT_PRESENT, 0
+.equ X_LIGHT_HAS_SWITCH, 1
+.equ X_LIGHT_ON, 2
+.equ X_LIGHT_LIT, 3
+.equ X_LIGHT_TYPE, 4
+.equ X_LIGHT_PART_ID, 5
+.equ X_LIGHT_SWITCH_GROUP, 6
+.equ X_LIGHT_OVERRIDDEN, 7
+.equ X_LIGHT_INTENSITY, 16
+.equ X_LIGHT_RANGE_M, 17
+.equ X_LIGHT_COLOR_R, 18
+.equ X_LIGHT_COLOR_G, 19
+.equ X_LIGHT_COLOR_B, 20
+.equ X_LIGHT_INNER_RAD, 21
+.equ X_LIGHT_OUTER_RAD, 22
+.equ X_LIGHT_STOCK_INTENSITY, 23
+
+; x_deploy_prop: deployable properties: integers 0..15 (x_deploy_geti), floats 16 and up (x_deploy_getf); position and target are 0..1 of the travel
+.equ X_DEPLOY_PRESENT, 0
+.equ X_DEPLOY_STATE, 1
+.equ X_DEPLOY_COMMANDED, 2
+.equ X_DEPLOY_MOVING, 3
+.equ X_DEPLOY_PART_ID, 4
+.equ X_DEPLOY_LINKS, 5
+.equ X_DEPLOY_POSITION, 16
+.equ X_DEPLOY_TARGET, 17
+.equ X_DEPLOY_DURATION_S, 18
+
+; x_actuator_prop: actuator properties: integers 0..15 (x_actuator_geti), floats 16 and up (x_actuator_getf); position and target are 0..1 of the travel
+.equ X_ACTUATOR_PRESENT, 0
+.equ X_ACTUATOR_MOVING, 1
+.equ X_ACTUATOR_PART_ID, 2
+.equ X_ACTUATOR_LINKS, 3
+.equ X_ACTUATOR_POSITION, 16
+.equ X_ACTUATOR_TARGET, 17
+.equ X_ACTUATOR_DURATION_S, 18
+
+; constants: values of X_DEPLOY_STATE: X_STATE_NONE (0) where there is no part; X_STATE_BROKEN is never produced in this game build
+.equ X_STATE_NONE, 0
+.equ X_STATE_DEPLOYED, 1
+.equ X_STATE_RETRACTED, 2
+.equ X_STATE_DEPLOYING, 3
+.equ X_STATE_RETRACTING, 4
+.equ X_STATE_BROKEN, 5
+
+; constants: values of X_LIGHT_TYPE
+.equ X_LIGHT_TYPE_SPOT, 0
+.equ X_LIGHT_TYPE_POINT, 1

@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <AssemblyName>purrTTY.Kfs.Tests</AssemblyName>
+        <RootNamespace>purrTTY.Kfs.Tests</RootNamespace>
+        <Description>Offline tests of purrTTY's kFS extension against the game's real kFS toolchain</Description>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RequiresKSAAssemblies>true</RequiresKSAAssemblies>
+        <!-- TreatNoTestsAsError: if a game type leaks into a type shape, NUnit cannot load this
+             assembly at all and would otherwise report zero tests with exit code 0. -->
+        <RunSettingsFilePath>$(MSBuildThisFileDirectory)purrTTY.Kfs.Tests.runsettings</RunSettingsFilePath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\purrTTY.Kfs\purrTTY.Kfs.csproj"/>
+        <ProjectReference Include="..\purrTTY.Kfs.Testing\purrTTY.Kfs.Testing.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1"/>
+        <PackageReference Include="NUnit" Version="3.14.0"/>
+        <PackageReference Include="NUnit3TestAdapter" Version="4.6.0"/>
+        <PackageReference Include="NUnit.Analyzers" Version="3.10.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="coverlet.collector" Version="6.0.2">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <!-- A normal (copied) reference here: tests apply the extension's Harmony patches in
+             process, where no StarMap loader supplies 0Harmony.dll. -->
+        <PackageReference Include="Lib.Harmony" Version="2.4.2"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- KSA game DLLs: compile-only. KSA.dll must never be copied here; the tests load it
+             at run time through KsaAssemblyResolver (see ModuleInit.cs). -->
+        <Reference Include="KSA" Condition="Exists('$(KSAFolder)/KSA.dll')">
+            <HintPath>$(KSAFolder)/KSA.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Emitter snapshots (SnapshotTests); regenerate with PURRTTY_UPDATE_SNAPSHOTS=1. -->
+        <None Include="Snapshots\**\*" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Where the game DLLs were when this assembly was built; KsaAssemblyResolver.FindDirectory
+             falls back to it when KSA_DLL_DIR is not set at test time. -->
+        <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+            <_Parameter1>KSAFolder</_Parameter1>
+            <_Parameter2>$(KSAFolder)</_Parameter2>
+        </AssemblyAttribute>
+    </ItemGroup>
+
+</Project>

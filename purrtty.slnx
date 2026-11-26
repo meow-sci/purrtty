@@ -4,6 +4,9 @@
         <Platform Name="x64" />
         <Platform Name="x86" />
     </Configurations>
+    <Project Path="purrTTY.Kfs.Testing/purrTTY.Kfs.Testing.csproj" />
+    <Project Path="purrTTY.Kfs.Tests/purrTTY.Kfs.Tests.csproj" />
+    <Project Path="purrTTY.Kfs/purrTTY.Kfs.csproj" />
     <Project Path="purrTTY.Logging/purrTTY.Logging.csproj" />
     <Folder Name="/vendor/">
         <Project Path="vendor/Ghostty.Vt/Ghostty.Vt.csproj" />

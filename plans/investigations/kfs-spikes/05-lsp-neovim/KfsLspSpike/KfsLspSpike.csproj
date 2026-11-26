@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Throw-away spike. Inherits the repo's Directory.Build.props (net10.0, nullable, implicit usings). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <RootNamespace>KfsLspSpike</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile against the UNMODIFIED snapshot DLLs; nothing is copied to the output.
+         At run time Entry's AssemblyLoadContext resolver loads them from KSA_DLL_DIR. -->
+    <Reference Include="$(KSA_DLL_DIR)/*.dll">
+      <Private>false</Private>
+    </Reference>
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>
