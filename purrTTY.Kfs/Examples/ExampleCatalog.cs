@@ -106,6 +106,7 @@ public static class ExampleCatalog
             Example("x_deploy", "deploy_when_safe.c", "deploy the solar arrays above the atmosphere, retract them below (MSG_FLIGHT_DATA, LINKS)"),
             Example("x_actuator", "actuator_sweep.c", "a triangle wave on actuator 0, with position read-back at each turn"),
             Example("x_parts", "parts_list.c", "the index tables in the program log; rescan when the vehicle changes (DIRTY, GENERATION)"),
+            Example("x_party_time", "party_time.c", "the light show in every colour at once, with the light parts' actuators moving now and then; poke stop 1 resets"),
             Example("x_blink_kasm", "blink.kasm", "x_blink in kASM, with the generated purrtty.kinc", ("purrtty.kinc", kinc)),
         ];
     }

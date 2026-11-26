@@ -897,4 +897,47 @@ public sealed class GhosttyTerminalSurfaceTests
         Assert.That(frame.Scrollbar.ScrollbackHeight, Is.GreaterThanOrEqualTo(95),
             "100 lines into a 5-row viewport should accumulate ~95 scrollback rows.");
     }
+
+    [Test]
+    public void EraseScrollback_Alone_LeavesTheVisibleScreen()
+    {
+        // ED 3 (CSI 3 J) erases only the scrollback, as in xterm. The game console shell's
+        // `clear` once sent nothing else — fine under purrtty's old bespoke emulator, which
+        // also blanked the screen for it, but a no-op on screen under libghostty-vt.
+        using var surface = NewSurface(20, 5);
+        for (int i = 0; i < 20; i++)
+        {
+            WriteText(surface, $"line {i}\r\n");
+        }
+
+        WriteText(surface, "\x1b[3J");
+        var frame = surface.BuildFrame();
+
+        Assert.That(frame.Scrollbar.ScrollbackHeight, Is.EqualTo(0), "ED 3 erases the scrollback");
+        Assert.That(RowText(frame, 0), Is.Not.Empty, "ED 3 does not touch the visible screen");
+    }
+
+    [Test]
+    public void FullClearSequence_BlanksScreenAndScrollback_AndHomesTheCursor()
+    {
+        // What `clear` (ncurses) prints and what GameConsoleShell's `clear` sends:
+        // CUP home, ED 2 (screen), ED 3 (scrollback).
+        using var surface = NewSurface(20, 5);
+        for (int i = 0; i < 20; i++)
+        {
+            WriteText(surface, $"line {i}\r\n");
+        }
+
+        WriteText(surface, "\x1b[H\x1b[2J\x1b[3J> ");
+        var frame = surface.BuildFrame();
+
+        Assert.That(frame.Scrollbar.ScrollbackHeight, Is.EqualTo(0), "scrollback erased");
+        Assert.That(RowText(frame, 0), Is.EqualTo(">"), "the prompt is the only text, on the top row");
+        for (int row = 1; row < frame.Rows; row++)
+        {
+            Assert.That(RowText(frame, row), Is.Empty, $"row {row} is blank");
+        }
+
+        Assert.That((frame.Cursor.X, frame.Cursor.Y), Is.EqualTo((2, 0)), "cursor follows the prompt on the top row");
+    }
 }

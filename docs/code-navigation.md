@@ -208,7 +208,8 @@ editor (Neovim) ◄── LSP over loopback TCP ──► KfsLspListener ──�
   `WriteTo(host, overwrite)`) and the example programs it embeds, one workspace folder each (a
   folder is one project): `x_blink/blink.c`, `x_light_show/light_show.c`,
   `x_deploy/deploy_when_safe.c`, `x_actuator/actuator_sweep.c`, `x_parts/parts_list.c`,
-  `x_blink_kasm/blink.kasm`. `x_blink_kasm/purrtty.kinc` is not a file in the repository: it is
+  `x_party_time/party_time.c` (the light show with the light parts' actuators moved now and then
+  on staggered, seeded random schedules), `x_blink_kasm/blink.kasm`. `x_blink_kasm/purrtty.kinc` is not a file in the repository: it is
   generated from the catalogue when the examples are written. Line ends are `\r\n`, as the game's
   own examples.
 

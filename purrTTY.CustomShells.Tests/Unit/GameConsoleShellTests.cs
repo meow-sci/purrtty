@@ -164,6 +164,21 @@ public class GameConsoleShellTests
 
     #region Built-in Command Tests
 
+    /// <summary>What the built-in <c>clear</c> must send: cursor home, ED 2, ED 3.</summary>
+    private const string FullClear = "\x1b[H\x1b[2J\x1b[3J";
+
+    /// <summary>
+    /// The typed line is echoed first; after it the shell must send the full clear and then
+    /// nothing but the prompt, so the prompt lands on the top row of an empty screen.
+    /// </summary>
+    private static void AssertClearsThenPrompts(string output, string? what = null)
+    {
+        int at = output.IndexOf(FullClear, StringComparison.Ordinal);
+        Assert.That(at, Is.GreaterThanOrEqualTo(0), $"{what} should send cursor home, ED 2 and ED 3".TrimStart());
+        Assert.That(output.Substring(at + FullClear.Length), Is.EqualTo("ksa> "),
+            $"{what} should send only the prompt after the clear".TrimStart());
+    }
+
     [Test]
     public async Task ClearCommand_SendsClearScreenSequence()
     {
@@ -176,9 +191,11 @@ public class GameConsoleShellTests
         _shell.SimulateCommandInput("clear\n");
         await _shell!.FlushOutputAsync();
 
-        // Assert - ESC[3J = Clear screen and scrollback
+        // Assert - cursor home, erase the screen (ED 2), erase the scrollback (ED 3), then the
+        // prompt. ED 3 alone leaves the visible screen under libghostty-vt (see
+        // GhosttyTerminalSurfaceTests.EraseScrollback_Alone_LeavesTheVisibleScreen).
         var output = _outputBuffer.ToString();
-        Assert.That(output, Does.Contain("\x1b[3J"));
+        AssertClearsThenPrompts(output);
     }
 
     [Test]
@@ -201,7 +218,7 @@ public class GameConsoleShellTests
 
             // Assert
             var output = _outputBuffer.ToString();
-            Assert.That(output, Does.Contain("\x1b[3J"), $"Command '{cmd}' should clear screen");
+            AssertClearsThenPrompts(output, $"Command '{cmd}'");
         }
     }
 
@@ -219,7 +236,7 @@ public class GameConsoleShellTests
 
         // Assert
         var output = _outputBuffer.ToString();
-        Assert.That(output, Does.Contain("\x1b[3J"));
+        AssertClearsThenPrompts(output);
     }
 
     [Test]

@@ -164,9 +164,9 @@ Its output goes where `kfs` output goes (`KfsIntegration.Print`).
 - **Which index is which part:** `purr parts` lists the controlled vehicle's lights, deployables
   and actuators with the index a program addresses each by; `purr parts lights`,
   `purr parts deploy` and `purr parts actuators` list one kind.
-- **Write the example programs:** `purr examples` writes six example folders (`x_blink`,
-  `x_light_show`, `x_deploy`, `x_actuator`, `x_parts`, `x_blink_kasm`) into the kFS workspace. A
-  file that already exists is kept; `purr examples --force` overwrites.
+- **Write the example programs:** `purr examples` writes seven example folders (`x_blink`,
+  `x_light_show`, `x_deploy`, `x_actuator`, `x_parts`, `x_party_time`, `x_blink_kasm`) into the
+  kFS workspace. A file that already exists is kept; `purr examples --force` overwrites.
 - **Run one** on the controlled vehicle, with the game's own `kfs` command:
 
   ```
@@ -176,7 +176,10 @@ Its output goes where `kfs` output goes (`KfsIntegration.Print`).
   ```
 
   `kfs on` turns on the game's kFS prototype, which every other `kfs` verb needs. The light show
-  (`x_light_show`) ends when its global `stop` is set: `kfs poke stop 1`.
+  (`x_light_show`) ends when its global `stop` is set: `kfs poke stop 1`. So does `x_party_time`,
+  the light show plus the light parts' own actuators moved now and then at random; its other
+  knobs are `all_actuators` (1: every actuator, not only those on light parts) and `seed`.
+  `kfs start` puts every global back to its initial value, so poke a knob after the start.
 - **Reset light overrides:** a program's light colour, cone, intensity and range outlive it — they
   are **not** undone when the program stops, traps or is replaced. `purr lights reset` restores the
   stock look of the controlled vehicle's lights, `purr lights reset all` of every vehicle's.
@@ -298,6 +301,13 @@ after (2.3 s) — see "The simulator's frame order" in [build-and-test.md](build
 Other tools: `v.RunTicks(n)`, `v.RunUntil(() => …, timeoutSeconds)`, `v.Pause()`/`Resume()`,
 `v.ReadGlobal<float>("err.x")`, `v.WriteGlobal<uint>("stop", 1u)` (what `kfs poke` does),
 `v.RequestText` (`"set_throttle(1.0)"`, `"plan_circularize(apoapsis)"`), `v.State`/`Trap`/`Overruns`.
+A light and an animation on one physical part (a lamp head on a hinge) are a `SimLightSpec` and a
+`SimAnimationSpec` with the same `PartId`, which both read back as `X_LIGHT_PART_ID` /
+`X_ACTUATOR_PART_ID`. To bound what a program costs, count per frame `v.Binding.Answered +
+v.Binding.Accepted` (getters and commands; add the new `kfs_logf` lines for the service calls a
+tick makes) and read the measured cycles of a task in a helper method,
+`v.Computer.Snapshot.Tasks[0].MeasuredMax` — the `x_party_time` tests in
+`ExampleProgramTests` do both.
 A stock program needs no `x_` call at all — `StockProgramTests` runs the game's own
 `kC_ascent_simple` example. The harness records stock steering, staging and burns but does not fly
 them; script their effects (`SimTelemetry.Flight`, `Props.Engines`, `BurnStatus`) yourself.

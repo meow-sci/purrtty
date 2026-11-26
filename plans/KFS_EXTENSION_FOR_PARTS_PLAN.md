@@ -43,10 +43,10 @@ The sections themselves were corrected wherever they contradicted the code.
 | C5, C6 — document symbols, cost lenses, inlay hints, navigation | §6.6 |
 | D4–D8 — terminal polish; in particular terminal row **T3** (honour `PATHEXT`, run `.cmd`/`.bat` shims through `cmd.exe /c`) | §7.3 |
 
-**Tests.** The last full run of the suite (after both fix passes and the final cleanup, Debug and
-Release, on macOS arm64) reported
-**1,008 passed, 6 skipped (platform-specific tests), 0 failed** in six test projects:
-`purrTTY.Kfs.Tests` 393, `purrTTY.Kfs.Tools.Tests` 207, `purrTTY.Terminal.Tests` 141 (+ 6 skipped),
+**Tests.** The last full run of the suite (after the `x_party_time` example, Debug and Release,
+on macOS arm64) reported
+**1,018 passed, 6 skipped (platform-specific tests), 0 failed** in six test projects:
+`purrTTY.Kfs.Tests` 401, `purrTTY.Kfs.Tools.Tests` 207, `purrTTY.Terminal.Tests` 143 (+ 6 skipped),
 `purrTTY.CustomShellContract.Tests` 197, `purrTTY.CustomShells.Tests` 38, `purrTTY.Display.Tests` 32.
 
 **Compiled but not executed by any test** (game-only code; the first things §10 exercises): the
@@ -1034,6 +1034,7 @@ game's own examples. The command ends with how to run one:
 | `x_deploy/deploy_when_safe.c` | subscribes `MSG_FLIGHT_DATA` (its `in_atmosphere` field; needs `#include <vehicle.h>`); deploys the solar arrays above the atmosphere, retracts them below; `LINKS` |
 | `x_actuator/actuator_sweep.c` | triangle wave on actuator 0, read-back of position at each turn |
 | `x_parts/parts_list.c` | `x_parts_describe`, generation and dirty handling, rescan |
+| `x_party_time/party_time.c` | the light show livelier (each light its own place on the colour wheel, breathing cone, intensity pulse; half the lights refreshed per 20 Hz tick) plus the actuators that share a part with a light (`X_ACTUATOR_PART_ID` = `X_LIGHT_PART_ID`; every actuator when none does, or with `kfs poke all_actuators 1`) moved now and then: a random target at least 0.25 from the last, the next move after the move's share of `X_ACTUATOR_DURATION_S` (1 s when none is reported) plus a random dwell of 0.2–1.5 s, first moves staggered over 2.5 s; a seeded xorshift32 (`seed`); `kfs poke stop 1` resets the lights once and leaves the actuators where they are |
 | `x_blink_kasm/blink.kasm` + `x_blink_kasm/purrtty.kinc` | `x_blink` in kASM; `purrtty.kinc` is generated from the catalogue when the examples are written, never stored |
 
 The sources are embedded resources of `purrTTY.Kfs` (`Examples/<folder>/…`, listed by
@@ -2233,7 +2234,7 @@ Parallel lanes once A2 is in: {A3 → A4 → A5}, {B1 → B2 → B3}, {D1}; afte
 | Milestone | Tasks | Demonstrates | Needs the game? |
 | --- | --- | --- | --- |
 | M1 — the extension works offline — **done** (offline; see §8.6) | F1, A1, A2, A3, B1 | every service compiled by the real compiler, run by the real VM, against simulated parts, in CI | no |
-| M2 — the extension works in the game — **code complete, not run in the game** (§8.7) | A4, A5 | lights and animations driven from a kC program on a real vehicle | yes: §10.1–§10.4 and §10.8 (V1–V15, V24–V34, V51) |
+| M2 — the extension works in the game — **code complete, not run in the game** (§8.7) | A4, A5 | lights and animations driven from a kC program on a real vehicle | yes: §10.1–§10.4 and §10.8 (V1–V15, V24–V34, V51, V55) |
 | M3 — command-line runtime — **`check` and `run` done; `test` not built** | B2, B3 | `purr-kfs check / run / test` | no |
 | M4 — language server, standalone — **done** (offline) | C1, C2, C3 | diagnostics, hover, completion in any LSP client via `purr-kfs lsp` | no |
 | M5 — Neovim from in-game — **code complete, not run in the game** | C4, D1, D2, D3 | the full editing loop inside the game | yes: §10.5–§10.9 (V16–V23, V35–V50, V52–V54) |
@@ -2828,8 +2829,8 @@ These five decide whether the rest is worth doing. If one fails, stop and report
 ### 10.3 Services and examples
 
 - **V28 — the examples.** `purr examples` created `x_blink`, `x_light_show`, `x_deploy`,
-  `x_actuator`, `x_parts` and `x_blink_kasm` under `<Documents>/My Games/Kitten Space Agency/kfs/`,
-  and the stock editor's file tree shows them. A second `purr examples` reports every file as
+  `x_actuator`, `x_parts`, `x_party_time` and `x_blink_kasm` under
+  `<Documents>/My Games/Kitten Space Agency/kfs/`, and the stock editor's file tree shows them. A second `purr examples` reports every file as
   kept; after editing one, `purr examples --force` overwrites it. `kfs build x_blink_kasm/blink.kasm`
   builds (it finds `purrtty.kinc` beside it and `SVC_X_…` in `<kfs.kinc>`).
 - **V4 — the listing.** `purr parts` lists the vehicle's lights, deployables and actuators with
@@ -2857,6 +2858,19 @@ These five decide whether the rest is worth doing. If one fails, stop and report
   simulator (§5.4) must be corrected again.*
 - **V8 — an actuator.** `x_actuator/actuator_sweep.c` on a cargo bay: the part follows the
   target; the stock slider shows the same value.
+- **V55 — party time.** On a vehicle with two or three stock light parts (the small spot lights
+  `LightSmallA`/`B` or the flood light `LightSmallC`, which carry a slider animation) and a cargo
+  bay: `kfs load x_party_time/party_time.c --vehicle`, `kfs start`. The log says
+  `driving the N actuators on light parts, of M`, with N the number of light parts; the lights
+  cycle through different colours at the same moment, the spot lights' cones breathe, and each
+  light part's head moves to a new position every second or two, the parts at different moments,
+  each move taking about as long as the part's own slider animation; the cargo bay does not move.
+  `kfs poke stop 1`: the lights are back to stock, the heads stay where they are;
+  `kfs poke stop 0` starts again. *`no actuator is on a light part: driving all M actuators` (the
+  cargo bay moves too): a light (on a sub-part) and the animation (on the full part) do not give
+  the same part id, contrary to `KsaVehicleParts.PartIdOf` (both are `Parent.FullPart.InstanceId`)
+  — check `purr parts` for the ids. Moves that start before the last one ends, or long pauses: the
+  part's `X_ACTUATOR_DURATION_S` is not the time the game takes for a full travel.*
 - **V9 — parts that leave and arrive.** Stage away a part that has a light a running program
   addresses: the program keeps running, the slot reads not present, writes are rejected with
   `light N is no longer on this vehicle`. Dock two vehicles: `X_PARTS_DIRTY` becomes 1;

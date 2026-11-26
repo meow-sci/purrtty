@@ -84,10 +84,10 @@ is ever copied (`ResolverConfigurationTests` checks the build outputs, and the d
 > registers the `purr` console command; `TerminalMod` starts the in-game language server
 > (`KfsLspService`), the kFS submenu (`KfsMenu`) and the Neovim launcher (`KfsNeovimLauncher`).
 > What exists: 22 `x_` services with a game back end (`KsaVehicleParts`, the main-thread pump); the
-> `purr` command, six example programs and the kFS menu; the `purr-kfs` tool; the language server
+> `purr` command, seven example programs and the kFS menu; the `purr-kfs` tool; the language server
 > (diagnostics, hover, completion, `kfs.*` commands, live log and state), standalone and in game;
 > Neovim runtime files and launcher; terminal close-on-exit and safe resize after exit.
-> **All of it is verified offline only**: the offline test suite passes (1,008 passed, 6 platform
+> **All of it is verified offline only**: the offline test suite passes (1,018 passed, 6 platform
 > skips on macOS arm64 when this note was written) and the game-facing code was audited against the
 > decompiled 2026.11.25.5949 sources. The code that touches live game objects —
 > `KsaVehicleParts`, `GameHostSource`, `KsaConsoleHost` — and everything in

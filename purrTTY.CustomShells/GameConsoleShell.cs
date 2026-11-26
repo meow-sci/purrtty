@@ -190,10 +190,18 @@ public class GameConsoleShell : BaseLineBufferedShell
     ///     Clears the entire display including the scrollback buffer and moves cursor to home.
     ///     Used by the "clear" command to completely wipe all terminal history.
     /// </summary>
+    /// <remarks>
+    ///     The same three sequences ncurses' <c>clear</c> prints. ESC[3J (ED 3) on its own erases
+    ///     only the scrollback — xterm's meaning, which libghostty-vt follows — and leaves the
+    ///     visible screen as it was; purrTTY's old bespoke emulator also blanked the screen for it,
+    ///     which is why this once sent nothing else.
+    /// </remarks>
     private void ClearScreenAndScrollback()
     {
-        // ESC[3J = Clear entire screen and scrollback buffer (xterm extension, mode 3)
-        SendOutput("\x1b[3J");
+        // ESC[H  = cursor home (row 1, column 1)
+        // ESC[2J = erase the visible screen (ED 2)
+        // ESC[3J = erase the scrollback (ED 3, xterm extension)
+        SendOutput("\x1b[H\x1b[2J\x1b[3J");
     }
 
     /// <inheritdoc />
